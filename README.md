@@ -23,6 +23,13 @@ Die 2.0-Vorbereitung umfasst außerdem Benutzerkonten mit Einladungs- und Passwo
 ## Version
 
 ### v1.63.18 – Vorbereitung auf v2.0.0
+- Dokumentation und Versionsreferenzen aktualisiert.
+- Veraltete Architekturhinweise bereinigt.
+- Manifest- und Service-Worker-Versionen vereinheitlicht.
+- Keine funktionale Änderung gegenüber v1.63.17.
+
+
+### v1.63.18 – Vorbereitung auf v2.0.0
 - Dokumentation und Versionsreferenzen auf den aktuellen Multi-Trip-Stand gebracht.
 - Veraltete GitHub-Pages-/Budapest-Beschreibungen bereinigt.
 - Manifest-/Service-Worker-Versionen vereinheitlicht.
