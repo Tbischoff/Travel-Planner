@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.61.1";
+const APP_VERSION = "v1.61.2";
 
 
 function syncVersionLabels() {
@@ -9151,7 +9151,20 @@ function initPwaOfflineMode() {
       registration.update().catch(() => {});
     }).catch(error => console.warn("Service Worker:", error));
   }
-  document.getElementById("checkAppUpdateBtn")?.addEventListener("click", () => checkForAppUpdate({ manual: true }));
+  document.querySelectorAll("[data-check-app-update]").forEach(button => {
+    button.addEventListener("click", async () => {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "⏳ Suche …";
+      setAppUpdateStatus("Suche nach neuer Version …");
+      try {
+        await checkForAppUpdate({ manual: true });
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  });
   document.getElementById("applyAppUpdateBtn")?.addEventListener("click", applyAppUpdate);
   const refreshOfflineUi = async () => {
     const offline = navigator.onLine === false;
