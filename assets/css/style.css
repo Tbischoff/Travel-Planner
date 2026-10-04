@@ -4471,3 +4471,18 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
     flex:0 0 auto;
   }
 }
+
+
+/* v1.63.17 · Kontodialog: Schließen immer erreichbar */
+.account-dialog .trip-editor-heading {
+  position:sticky;
+  top:0;
+  z-index:5;
+  background:var(--surface);
+  padding-bottom:8px;
+}
+.account-dialog #accountClose {
+  flex:0 0 auto;
+  position:sticky;
+  top:0;
+}
