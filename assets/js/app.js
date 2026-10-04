@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.63.11";
+const APP_VERSION = "v1.63.12";
 
 
 function syncVersionLabels() {
@@ -9398,9 +9398,18 @@ function setAppUpdateStatus(message) {
   const legacy = document.getElementById("appUpdateStatus");
   if (legacy) legacy.textContent = message;
 }
+function setAppUpdateButtonsAvailable(available) {
+  document.querySelectorAll("[data-check-app-update]").forEach(button => {
+    button.dataset.updateAvailable = available ? "true" : "false";
+    if (button.id === "toolsCheckAppUpdateBtn") {
+      button.textContent = available ? "⬆️ Jetzt aktualisieren" : "🔎 Nach Updates suchen";
+      button.classList.toggle("primary-button", available);
+      button.classList.toggle("secondary-button", !available);
+    }
+  });
+}
 function hideAppUpdateAvailable() {
-  const banner = document.getElementById("appUpdateBanner");
-  if (banner) banner.hidden = true;
+  setAppUpdateButtonsAvailable(false);
 }
 function getServiceWorkerVersion(worker, timeout = 900) {
   return new Promise(resolve => {
@@ -9423,9 +9432,7 @@ async function showAppUpdateAvailable(registration) {
     hideAppUpdateAvailable();
     return false;
   }
-  const banner = document.getElementById("appUpdateBanner");
-  if (banner) banner.hidden = false;
-  const status = document.getElementById("appUpdateStatus");
+  setAppUpdateButtonsAvailable(true);
   setAppUpdateStatus(`Neue Version ${candidateVersion} verfügbar – bereit zur Installation.`);
   return true;
 }
@@ -9508,6 +9515,12 @@ function initPwaOfflineMode() {
   }
   document.querySelectorAll("[data-check-app-update]").forEach(button => {
     button.addEventListener("click", async () => {
+      if (button.dataset.updateAvailable === "true") {
+        button.disabled = true;
+        button.textContent = "⏳ Aktualisiere …";
+        await applyAppUpdate();
+        return;
+      }
       const original = button.textContent;
       button.disabled = true;
       button.textContent = "⏳ Suche …";
@@ -9516,11 +9529,10 @@ function initPwaOfflineMode() {
         await checkForAppUpdate({ manual: true });
       } finally {
         button.disabled = false;
-        button.textContent = original;
+        if (button.dataset.updateAvailable !== "true") button.textContent = original;
       }
     });
   });
-  document.getElementById("applyAppUpdateBtn")?.addEventListener("click", applyAppUpdate);
   const refreshOfflineUi = async () => {
     const offline = navigator.onLine === false;
     document.documentElement.classList.toggle("app-offline", offline);
