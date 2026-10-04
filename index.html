@@ -74,7 +74,17 @@
         </div>
         <div id="tripMembersList" class="trip-members-list"></div>
         <form id="tripMemberAddForm" class="trip-member-add-form">
-          <label>E-Mail-Adresse<input id="tripMemberEmail" type="email" autocomplete="email" required placeholder="name@beispiel.de"></label>
+          <label>Benutzer
+            <select id="tripMemberUser" required>
+              <option value="">Benutzer auswählen …</option>
+            </select>
+          </label>
+          <label>Rolle
+            <select id="tripMemberRole" required>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </label>
           <button id="tripMemberAddButton" class="primary-button" type="submit">Mitglied hinzufügen</button>
         </form>
         <div id="tripMembersMessage" class="form-message" aria-live="polite"></div>
