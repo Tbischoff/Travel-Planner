@@ -154,6 +154,14 @@ const NAV_CACHED_POSITION_MAX_AGE_MS = 60000;
 const NAV_CACHED_POSITION_MAX_ACCURACY = 50;
 const LAST_LOCATION_STORAGE_KEY = "travelPlannerLastKnownLocation";
 
+function activeTripStorageKey(kind, tripId = currentTripId || getLastTripId()) {
+  return tripId ? `travelPlanner:${kind}:${tripId}` : null;
+}
+function mapStateStorageKey(tripId) { return activeTripStorageKey("mapStateV2", tripId); }
+function routeEndAccommodationStorageKey(tripId) { return activeTripStorageKey("routeEndAccommodationV2", tripId); }
+function geocodeCacheStorageKey(tripId) { return activeTripStorageKey("geocodeCacheV2", tripId); }
+function navigationSessionStorageKey(tripId) { return activeTripStorageKey("activeNavigationV2", tripId); }
+
 const LAST_LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 const NAV_OFF_ROUTE_METERS = 45;
 const NAV_OFF_ROUTE_SAMPLES = 3;
