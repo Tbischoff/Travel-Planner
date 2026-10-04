@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.62.0";
+const APP_VERSION = "v1.63.0";
 
 
 function syncVersionLabels() {
@@ -316,6 +316,13 @@ async function bootstrapAuth() {
     document.getElementById("logoutButton").addEventListener("click", handleLogout);
     document.getElementById("switchTripButton")?.addEventListener("click", handleSwitchTrip);
     document.getElementById("tripSelectionLogout")?.addEventListener("click", handleLogout);
+    document.getElementById("tripSelectionAccount")?.addEventListener("click", openAccountDialog);
+    document.getElementById("accountButton")?.addEventListener("click", openAccountDialog);
+    document.getElementById("accountClose")?.addEventListener("click", () => document.getElementById("accountDialog")?.close());
+    document.getElementById("profileForm")?.addEventListener("submit", handleProfileSave);
+    document.getElementById("accountPasswordForm")?.addEventListener("submit", handleAccountPasswordChange);
+    document.getElementById("adminInviteForm")?.addEventListener("submit", handleAdminInvite);
+    document.getElementById("adminUsersRefresh")?.addEventListener("click", loadAdminUsers);
     document.getElementById("createTripButton")?.addEventListener("click", () => openTripEditor());
     document.getElementById("tripSortDateBtn")?.addEventListener("click", () => setTripSortMode("date"));
     document.getElementById("tripSortManualBtn")?.addEventListener("click", () => setTripSortMode("manual"));
@@ -457,6 +464,237 @@ async function handlePasswordSetup(event) {
     message.textContent = `Passwort konnte nicht gespeichert werden: ${error.message}`;
   } finally {
     button.disabled = false;
+  }
+}
+
+async function getCurrentProfile() {
+  if (!currentUser?.id) throw new Error("Kein Benutzer angemeldet.");
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("id,username")
+    .eq("id", currentUser.id)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function currentUserIsAppAdmin() {
+  const { data, error } = await supabaseClient.rpc("is_app_admin");
+  if (error) throw error;
+  return Boolean(data);
+}
+
+async function openAccountDialog() {
+  const dialog = document.getElementById("accountDialog");
+  const profileMessage = document.getElementById("profileMessage");
+  const passwordMessage = document.getElementById("accountPasswordMessage");
+  const adminSection = document.getElementById("adminUsersSection");
+  if (!dialog || !currentUser) return;
+  if (profileMessage) profileMessage.textContent = "Profil wird geladen …";
+  if (passwordMessage) passwordMessage.textContent = "";
+  document.getElementById("accountEmail").textContent = currentUser.email || "–";
+  document.getElementById("accountNewPassword").value = "";
+  document.getElementById("accountNewPasswordRepeat").value = "";
+  adminSection?.classList.add("is-hidden");
+  dialog.showModal();
+  try {
+    const [profile, isAdmin] = await Promise.all([getCurrentProfile(), currentUserIsAppAdmin()]);
+    document.getElementById("accountUsername").value = profile?.username || "";
+    if (profileMessage) profileMessage.textContent = "";
+    if (isAdmin) {
+      adminSection?.classList.remove("is-hidden");
+      await loadAdminUsers();
+    }
+  } catch (error) {
+    console.error("Konto laden:", error);
+    if (profileMessage) profileMessage.textContent = `Konto konnte nicht geladen werden: ${error.message}`;
+  }
+}
+
+async function handleProfileSave(event) {
+  event.preventDefault();
+  const username = document.getElementById("accountUsername").value.trim();
+  const button = document.getElementById("profileSaveButton");
+  const message = document.getElementById("profileMessage");
+  if (username.length < 2 || username.length > 50) {
+    message.textContent = "Der Benutzername muss zwischen 2 und 50 Zeichen lang sein.";
+    return;
+  }
+  button.disabled = true;
+  message.textContent = "Benutzername wird gespeichert …";
+  try {
+    const { error } = await supabaseClient
+      .from("profiles")
+      .update({ username })
+      .eq("id", currentUser.id);
+    if (error) {
+      if (error.code === "23505") throw new Error("Dieser Benutzername ist bereits vergeben.");
+      throw error;
+    }
+    message.textContent = "Benutzername wurde gespeichert.";
+  } catch (error) {
+    console.error("Benutzername ändern:", error);
+    message.textContent = `Speichern fehlgeschlagen: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handleAccountPasswordChange(event) {
+  event.preventDefault();
+  const password = document.getElementById("accountNewPassword").value;
+  const repeat = document.getElementById("accountNewPasswordRepeat").value;
+  const button = document.getElementById("accountPasswordButton");
+  const message = document.getElementById("accountPasswordMessage");
+  if (password.length < 8) {
+    message.textContent = "Das Passwort muss mindestens 8 Zeichen lang sein.";
+    return;
+  }
+  if (password !== repeat) {
+    message.textContent = "Die beiden Passwörter stimmen nicht überein.";
+    return;
+  }
+  button.disabled = true;
+  message.textContent = "Passwort wird geändert …";
+  try {
+    const { error } = await supabaseClient.auth.updateUser({ password });
+    if (error) throw error;
+    document.getElementById("accountNewPassword").value = "";
+    document.getElementById("accountNewPasswordRepeat").value = "";
+    message.textContent = "Passwort wurde erfolgreich geändert.";
+  } catch (error) {
+    console.error("Passwort ändern:", error);
+    message.textContent = `Passwort konnte nicht geändert werden: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function invokeAdminUsers(body) {
+  const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+  if (sessionError || !session?.access_token) throw sessionError || new Error("Keine gültige Anmeldung.");
+  const response = await fetch(`${SUPABASE_CONFIG.url}/functions/v1/admin-users`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${session.access_token}`
+    },
+    body: JSON.stringify(body)
+  });
+  let result = {};
+  try { result = await response.json(); } catch {}
+  if (!response.ok) {
+    const error = new Error(result.error || `HTTP ${response.status}`);
+    error.status = response.status;
+    error.details = result;
+    throw error;
+  }
+  return result;
+}
+
+async function loadAdminUsers() {
+  const list = document.getElementById("adminUsersList");
+  const message = document.getElementById("adminUsersMessage");
+  if (!list || !message) return;
+  message.textContent = "Benutzer werden geladen …";
+  try {
+    const result = await invokeAdminUsers({ action: "list_users" });
+    renderAdminUsers(result.users || []);
+    message.textContent = "";
+  } catch (error) {
+    console.error("Benutzer laden:", error);
+    message.textContent = `Benutzer konnten nicht geladen werden: ${error.message}`;
+  }
+}
+
+function renderAdminUsers(users) {
+  const list = document.getElementById("adminUsersList");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const item of users) {
+    const row = document.createElement("div");
+    row.className = "admin-user-row";
+    const info = document.createElement("div");
+    info.className = "admin-user-info";
+    const title = document.createElement("div");
+    const strong = document.createElement("strong");
+    strong.textContent = item.username || "Ohne Benutzername";
+    title.appendChild(strong);
+    if (item.is_admin) {
+      const badge = document.createElement("span");
+      badge.className = "admin-badge";
+      badge.textContent = "Admin";
+      title.appendChild(badge);
+    }
+    const email = document.createElement("small");
+    email.textContent = item.email || "Keine E-Mail";
+    info.append(title, email);
+    if (item.last_sign_in_at) {
+      const last = document.createElement("small");
+      last.textContent = `Letzte Anmeldung: ${new Date(item.last_sign_in_at).toLocaleString("de-DE")}`;
+      info.appendChild(last);
+    }
+    row.appendChild(info);
+    const actions = document.createElement("div");
+    actions.className = "admin-user-actions";
+    if (item.id === currentUser?.id) {
+      const self = document.createElement("span");
+      self.className = "viewer-badge";
+      self.textContent = "Du";
+      actions.appendChild(self);
+    } else {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "trip-action-button trip-action-danger";
+      del.textContent = "Löschen";
+      del.addEventListener("click", () => deleteAdminUser(item));
+      actions.appendChild(del);
+    }
+    row.appendChild(actions);
+    list.appendChild(row);
+  }
+}
+
+async function handleAdminInvite(event) {
+  event.preventDefault();
+  const username = document.getElementById("adminInviteUsername").value.trim();
+  const email = document.getElementById("adminInviteEmail").value.trim();
+  const button = document.getElementById("adminInviteButton");
+  const message = document.getElementById("adminInviteMessage");
+  button.disabled = true;
+  message.textContent = "Einladung wird versendet …";
+  try {
+    await invokeAdminUsers({ action: "invite_user", username, email });
+    event.currentTarget.reset();
+    message.textContent = "Einladung wurde versendet.";
+    await loadAdminUsers();
+  } catch (error) {
+    console.error("Benutzer einladen:", error);
+    message.textContent = error.message === "email rate limit exceeded"
+      ? "Das E-Mail-Limit von Supabase ist aktuell erreicht. Bitte später erneut versuchen."
+      : `Einladung fehlgeschlagen: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function deleteAdminUser(item) {
+  const label = item.username || item.email || "diesen Benutzer";
+  if (!window.confirm(`${label} wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`)) return;
+  const message = document.getElementById("adminUsersMessage");
+  message.textContent = `${label} wird gelöscht …`;
+  try {
+    await invokeAdminUsers({ action: "delete_user", user_id: item.id });
+    message.textContent = "Benutzer wurde gelöscht.";
+    await loadAdminUsers();
+  } catch (error) {
+    console.error("Benutzer löschen:", error);
+    if (error.status === 409 && error.details?.owned_trips?.length) {
+      const trips = error.details.owned_trips.map(trip => trip.name).join(", ");
+      message.textContent = `Löschen nicht möglich. Der Benutzer ist noch Eigentümer folgender Reise(n): ${trips}.`;
+    } else {
+      message.textContent = `Löschen fehlgeschlagen: ${error.message}`;
+    }
   }
 }
 
