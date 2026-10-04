@@ -4498,3 +4498,7 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   font:inherit;
   background:#fff;
 }
+
+
+/* v2.0.0 · Allgemeine Sichtbarkeitsklasse */
+.is-hidden { display:none !important; }
