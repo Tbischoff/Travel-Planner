@@ -1129,10 +1129,7 @@ async function loadTripMemberCandidates(members = []) {
   const select = document.getElementById("tripMemberUser");
   if (!select) return;
   const memberIds = new Set((members || []).map(item => item.user_id));
-  const { data, error } = await supabaseClient
-    .from("profiles")
-    .select("id,username")
-    .order("username", { ascending: true });
+  const { data, error } = await supabaseClient.rpc("get_trip_member_candidates", { p_trip_id: membersDialogTrip.id });
   if (error) throw error;
   select.innerHTML = '<option value="">Benutzer auswählen …</option>';
   for (const profile of (data || []).filter(item => !memberIds.has(item.id))) {
@@ -1156,9 +1153,11 @@ async function addTripMember(event) {
   button.disabled = true;
   message.textContent = "Mitglied wird hinzugefügt …";
   try {
-    const { error } = await supabaseClient
-      .from("trip_members")
-      .insert({ trip_id: membersDialogTrip.id, user_id: userId, role });
+    const { error } = await supabaseClient.rpc("add_trip_member_by_user_id", {
+      p_trip_id: membersDialogTrip.id,
+      p_user_id: userId,
+      p_role: role
+    });
     if (error) throw error;
     document.getElementById("tripMemberUser").value = "";
     await renderTripMembers();
