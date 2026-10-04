@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.59.0";
+const APP_VERSION = "v1.59.1";
 
 
 function syncVersionLabels() {
@@ -3934,6 +3934,29 @@ async function removeAllOfflineData() {
   setStatus("Offline-Daten für diese Reise wurden entfernt.");
 }
 
+const OFFLINE_GLYPH_BASE = "https://protomaps.github.io/basemaps-assets/fonts/Noto%20Sans%20Regular";
+const OFFLINE_GLYPH_RANGES = Array.from({ length: 16 }, (_, index) => {
+  const start = index * 256;
+  return `${start}-${start + 255}`;
+});
+
+async function prepareOfflineMapGlyphs() {
+  // MapLibre lädt Schriftzeichen in 256er-Blöcken. Die ersten 4096 Unicode-
+  // Codepoints decken Latein, Griechisch, Kyrillisch, Hebräisch und Arabisch
+  // ab und werden beim bewussten Offline-Vorbereiten vorab in den PWA-Cache geladen.
+  // Weitere Glyphen, die online angezeigt werden, cached der Service Worker
+  // ebenfalls automatisch.
+  const urls = OFFLINE_GLYPH_RANGES.map(range => `${OFFLINE_GLYPH_BASE}/${range}.pbf`);
+  const results = await Promise.allSettled(urls.map(async url => {
+    const response = await fetch(url, { mode: "cors", cache: "reload" });
+    if (!response.ok) throw new Error(`Glyph ${url} konnte nicht geladen werden.`);
+    return true;
+  }));
+  const failed = results.filter(result => result.status === "rejected").length;
+  if (failed) console.warn(`${failed} Offline-Schriftblock/-blöcke konnten nicht vorgeladen werden.`);
+  return failed === 0;
+}
+
 async function prepareAllOfflineData() {
   if (navigator.onLine === false) {
     setStatus("Offline-Daten können nur mit Internetverbindung vorbereitet werden.");
@@ -3943,6 +3966,8 @@ async function prepareAllOfflineData() {
   if (button) { button.disabled = true; button.textContent = "⏳ Offline-Daten werden vorbereitet …"; }
   try {
     saveOfflineTripSnapshot();
+    setStatus("Offline-Schriftarten werden vorbereitet …");
+    await prepareOfflineMapGlyphs();
     await buildOfflineMapPackage();
     await prepareOfflineRoutes();
     saveOfflineTripSnapshot();
