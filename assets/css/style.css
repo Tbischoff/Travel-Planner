@@ -4327,3 +4327,20 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 .map-toolbar .map-add-button {
   border-color:rgba(20,35,33,.7);
 }
+
+
+/* v1.63.10 · Kartenrahmen zurücknehmen, klare Trennlinien */
+.map-toolbar {
+  gap:0;
+}
+.map-toolbar > .map-toolbar-button {
+  border:0;
+  border-radius:0;
+}
+.map-toolbar > .map-toolbar-button + .map-toolbar-button {
+  border-left:1px solid rgba(20,35,33,.38);
+}
+.map-toolbar .map-add-button {
+  border:0;
+  border-radius:12px;
+}
