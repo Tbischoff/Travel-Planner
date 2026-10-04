@@ -1,4 +1,4 @@
-# Travel Planner v1.56.0
+# Travel Planner v1.63.18
 
 Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner verbindet Reiseauswahl und Mitgliederrollen mit Karten, Orten, Aktivitäten, Tagesplanung, Wetter, Navigation, ÖPNV-Unterstützung, Backups und reisespezifischen Offline-Daten.
 
@@ -16,9 +16,18 @@ Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner 
 
 ## Übergang zu Travel Planner 2.0
 
-Seit v1.56.0 enthält der laufende Betrieb keine Budapest-spezifischen LocalStorage-/Offline-Fallbacks mehr. Alte Backup-Dateien mit der historischen Kennung „Budapest Map“ bleiben bewusst lesbar. Die verbleibende 1.x-Reihe dient der Multi-Trip-Härtung vor v2.0.0.
+v1.63.18 ist die letzte Aufräum- und Vorbereitungsversion vor v2.0.0. Die Anwendung ist vollständig auf Multi-Trip-Betrieb ausgelegt; historische Budapest-spezifische Laufzeit-Fallbacks sind entfernt. Alte Backup-Dateien mit der Kennung „Budapest Map“ bleiben ausschließlich aus Kompatibilitätsgründen lesbar.
+
+Die 2.0-Vorbereitung umfasst außerdem Benutzerkonten mit Einladungs- und Passwort-Reset-Ablauf, globale App-Administration, reisebezogene Owner-/Editor-/Viewer-Rollen, Offline-Reisemodus und die gehärtete Rechteprüfung für Reiseinhalte.
 
 ## Version
+
+### v1.63.18 – Vorbereitung auf v2.0.0
+- Dokumentation und Versionsreferenzen auf den aktuellen Multi-Trip-Stand gebracht.
+- Veraltete GitHub-Pages-/Budapest-Beschreibungen bereinigt.
+- Manifest-/Service-Worker-Versionen vereinheitlicht.
+- Keine funktionale Änderung gegenüber v1.63.17.
+
 
 ### v1.49.0 – Reisebezogene Offline-Karten
 - PMTiles-Kartenpakete werden pro Reise lokal in IndexedDB gespeichert.
