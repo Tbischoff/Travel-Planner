@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.61.2";
+const APP_VERSION = "v1.61.3";
 
 
 function syncVersionLabels() {
@@ -1542,7 +1542,7 @@ function centerMapOnCurrentLocation({ silent = false, highAccuracy = true, recen
 let googlePlaceAutocompleteElement = null;
 let selectedGooglePlace = null;
 
-async function googlePlaceCategory(place) {
+function googlePlaceCategory(place) {
   const types = new Set([...(place?.types || []), place?.primaryType].filter(Boolean));
   const has = (...values) => values.some(value => types.has(value));
   if (has("lodging", "hotel", "motel", "hostel", "bed_and_breakfast", "guest_house", "resort_hotel")) return "hotel";
