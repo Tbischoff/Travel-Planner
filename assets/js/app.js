@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.61.0";
+const APP_VERSION = "v1.61.1";
 
 
 function syncVersionLabels() {
@@ -1917,30 +1917,50 @@ function getAccommodationPlaces() {
     .sort((a, b) => String(a.stayFrom || "").localeCompare(String(b.stayFrom || "")) || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
-function getAccommodationPlace(dayId = null) {
+function getAccommodationPlacesForDay(dayId = null) {
   const hotels = getAccommodationPlaces();
-  if (!hotels.length) return null;
+  if (!hotels.length) return [];
   if (!dayId) {
     const today = getTripDayForDate?.();
     dayId = today?.id || selectedDayFilter;
   }
-  if (dayId && dayId !== "all" && dayId !== "unplanned") {
-    const exact = hotels.find(place => {
-      const from = place.stayFrom || currentTrip?.start_date || "";
-      const until = place.stayUntil || currentTrip?.end_date || "";
-      return (!from || dayId >= from) && (!until || dayId <= until);
-    });
-    if (exact) return exact;
-  }
-  return hotels[0];
+  if (!dayId || dayId === "all" || dayId === "unplanned") return hotels;
+  return hotels.filter(place => {
+    const from = place.stayFrom || currentTrip?.start_date || "";
+    const until = place.stayUntil || currentTrip?.end_date || "";
+    return (!from || dayId >= from) && (!until || dayId <= until);
+  });
 }
 
-function accommodationStop(dayId = null) {
-  const place = getAccommodationPlace(dayId);
+function getAccommodationPlace(dayId = null) {
+  return getAccommodationPlacesForDay(dayId)[0] || getAccommodationPlaces()[0] || null;
+}
+
+function accommodationStopForPlace(place, role = "accommodation") {
   if (!place) return null;
   const marker = markers.get(place.id);
   const position = marker ? getMarkerPosition(marker) : normalizeLatLng({ lat: place.lat, lng: place.lng });
-  return position ? { type: "accommodation", id: place.id, name: place.name, position, place } : null;
+  return position ? { type: "accommodation", id: place.id, name: place.name, position, place, role } : null;
+}
+
+function accommodationStop(dayId = null) {
+  return accommodationStopForPlace(getAccommodationPlace(dayId));
+}
+
+function accommodationRouteAnchors(dayId) {
+  const hotels = getAccommodationPlacesForDay(dayId);
+  if (!hotels.length) return { start: null, end: null, hotels: [] };
+  // Bei einem Wechseltag überlappen zwei Aufenthaltszeiträume:
+  // Start an der auslaufenden Unterkunft, Ende an der neu beginnenden.
+  if (hotels.length > 1) {
+    const starting = hotels.filter(h => h.stayFrom === dayId).sort((a,b) => String(a.name).localeCompare(String(b.name)));
+    const ending = hotels.filter(h => h.stayUntil === dayId).sort((a,b) => String(a.name).localeCompare(String(b.name)));
+    const startHotel = ending.find(h => !starting.some(s => s.id === h.id)) || hotels[0];
+    const endHotel = starting.find(h => h.id !== startHotel.id) || hotels.find(h => h.id !== startHotel.id) || startHotel;
+    return { start: accommodationStopForPlace(startHotel, "start"), end: accommodationStopForPlace(endHotel, "end"), hotels };
+  }
+  const only = accommodationStopForPlace(hotels[0]);
+  return { start: only, end: only, hotels };
 }
 
 function routeEndsAtAccommodation() {
@@ -1954,22 +1974,22 @@ function getRoutingStopsForDay(dayId) {
   const planned = getRouteStopsForDay(dayId).filter(stop =>
     stop.type !== "place" || !(state.places[stop.place?.id || stop.id] || {}).visited
   );
-  const hotel = accommodationStop(dayId);
-  if (!hotel) return planned;
+  const anchors = accommodationRouteAnchors(dayId);
+  if (!anchors.start && !anchors.end) return planned;
   const result = [...planned];
-  if (getRouteStartMode() === "accommodation" && result[0]?.id !== hotel.id) result.unshift({ ...hotel, role: "start" });
-  if (routeEndsAtAccommodation() && result.length && result[result.length - 1]?.id !== hotel.id) result.push({ ...hotel, role: "end" });
+  if (getRouteStartMode() === "accommodation" && anchors.start && result[0]?.id !== anchors.start.id) result.unshift(anchors.start);
+  if (routeEndsAtAccommodation() && result.length && anchors.end && result[result.length - 1]?.id !== anchors.end.id) result.push(anchors.end);
   return result;
 }
 
 function getAgendaMobilityStopsForDay(dayId) {
   const planned = getRouteStopsForDay(dayId);
-  const hotel = accommodationStop(dayId);
-  if (!hotel || !planned.length) return planned;
+  const anchors = accommodationRouteAnchors(dayId);
+  if ((!anchors.start && !anchors.end) || !planned.length) return planned;
 
   const result = [...planned];
-  if (result[0]?.id !== hotel.id) result.unshift({ ...hotel, role: "agenda-start" });
-  if (result[result.length - 1]?.id !== hotel.id) result.push({ ...hotel, role: "agenda-end" });
+  if (anchors.start && result[0]?.id !== anchors.start.id) result.unshift({ ...anchors.start, role: "agenda-start" });
+  if (anchors.end && result[result.length - 1]?.id !== anchors.end.id) result.push({ ...anchors.end, role: "agenda-end" });
   return result;
 }
 
@@ -6937,8 +6957,14 @@ function renderTodayView() {
   const progress = dayPlaces.length ? Math.round((visitedCount / dayPlaces.length) * 100) : 0;
   const dayIndex = Math.max(0, TRIP_DAYS.findIndex(item => item.id === day.id)) + 1;
   const dayWeather = dailyWeatherFor(day.id);
-  const accommodation = getAccommodationPlace(day.id);
-  const accommodationCard = accommodation ? `<div class="today-accommodation-card"><button type="button" data-today-accommodation><span>🏨</span><span><small>Unterkunft</small><strong>${escapeHtml(accommodation.name)}</strong></span><span class="today-chevron">›</span></button><button type="button" class="secondary-button" data-navigate-accommodation>Zum Hotel</button></div>` : "";
+  const todayAccommodations = getAccommodationPlacesForDay(day.id);
+  const accommodation = todayAccommodations[0] || null;
+  const accommodationCard = todayAccommodations.map((hotel, index) => {
+    const label = todayAccommodations.length > 1
+      ? (hotel.stayUntil === day.id && hotel.stayFrom !== day.id ? "Start-Unterkunft" : hotel.stayFrom === day.id ? "Ziel-Unterkunft" : `Unterkunft ${index + 1}`)
+      : "Unterkunft";
+    return `<div class="today-accommodation-card"><button type="button" data-today-accommodation-id="${escapeHtml(hotel.id)}"><span>🏨</span><span><small>${escapeHtml(label)}</small><strong>${escapeHtml(hotel.name)}</strong></span><span class="today-chevron">›</span></button><button type="button" class="secondary-button" data-navigate-accommodation-id="${escapeHtml(hotel.id)}">Zum Hotel</button></div>`;
+  }).join("");
   const dayWeatherHtml = dayWeather
     ? `<div class="today-weather-summary">${weatherIcon(dayWeather.code)} <strong>${Math.round(Number(dayWeather.max))}°</strong> / ${Math.round(Number(dayWeather.min))}° · 💧 ${Math.round(Number(dayWeather.rain))}%</div>`
     : '<div class="today-weather-summary muted">🌦️ Prognose noch nicht verfügbar</div>';
@@ -7683,8 +7709,14 @@ function renderDayAgenda() {
 
   const stops = getRouteStopsForDay(selectedDay.id);
   const mobilityStops = getAgendaMobilityStopsForDay(selectedDay.id);
-  const accommodation = getAccommodationPlace(selectedDay.id);
-  const accommodationHtml = accommodation ? `<button class="agenda-accommodation" type="button" data-accommodation-focus="${escapeHtml(accommodation.id)}">🏨 <span><strong>${escapeHtml(accommodation.name)}</strong><small>Unterkunft · Start-/Endpunkt verfügbar</small></span><span class="today-chevron">›</span></button>` : "";
+  const accommodations = getAccommodationPlacesForDay(selectedDay.id);
+  const accommodationHtml = accommodations.map((accommodation, index) => {
+    const roleLabel = accommodations.length > 1
+      ? (accommodation.stayUntil === selectedDay.id && accommodation.stayFrom !== selectedDay.id ? "Start-Unterkunft" :
+         accommodation.stayFrom === selectedDay.id ? "Ziel-Unterkunft" : `Unterkunft ${index + 1}`)
+      : "Unterkunft · Start-/Endpunkt verfügbar";
+    return `<button class="agenda-accommodation" type="button" data-accommodation-focus="${escapeHtml(accommodation.id)}">🏨 <span><strong>${escapeHtml(accommodation.name)}</strong><small>${escapeHtml(roleLabel)}</small></span><span class="today-chevron">›</span></button>`;
+  }).join("");
   const dayPlaces = getPlacesForDay(selectedDay.id);
   const dayActivities = getActivitiesForDay(selectedDay.id);
   const visitedCount = dayPlaces.filter(place => (state.places[place.id] || {}).visited).length;
@@ -7693,11 +7725,11 @@ function renderDayAgenda() {
   const { legs: mobilityLegs } = getAgendaLegs(mobilityStops);
   const hasHotelAnchors = mobilityStops.length > stops.length;
   const firstHotelLegHtml = hasHotelAnchors && mobilityLegs[0]
-    ? `<div class="agenda-hotel-transfer"><div class="agenda-hotel-transfer-label">🏨 Von der Unterkunft zum ersten Programmpunkt</div>${mobilityLegHtml(mobilityStops[0], mobilityStops[1], mobilityLegs[0])}</div>`
+    ? `<div class="agenda-hotel-transfer"><div class="agenda-hotel-transfer-label">🏨 Von der Start-Unterkunft zum ersten Programmpunkt</div>${mobilityLegHtml(mobilityStops[0], mobilityStops[1], mobilityLegs[0])}</div>`
     : "";
   const lastMobilityIndex = mobilityStops.length - 2;
   const lastHotelLegHtml = hasHotelAnchors && mobilityLegs[lastMobilityIndex]
-    ? `<div class="agenda-hotel-transfer"><div class="agenda-hotel-transfer-label">🏨 Vom letzten Programmpunkt zurück zur Unterkunft</div>${mobilityLegHtml(mobilityStops[lastMobilityIndex], mobilityStops[lastMobilityIndex + 1], mobilityLegs[lastMobilityIndex])}</div>`
+    ? `<div class="agenda-hotel-transfer"><div class="agenda-hotel-transfer-label">🏨 Vom letzten Programmpunkt zur Ziel-Unterkunft</div>${mobilityLegHtml(mobilityStops[lastMobilityIndex], mobilityStops[lastMobilityIndex + 1], mobilityLegs[lastMobilityIndex])}</div>`
     : "";
   const dayWeather = dailyWeatherFor(selectedDay.id);
   const agendaWeather = dayWeather ? `<div class="agenda-weather-card"><div><strong>${weatherIcon(dayWeather.code)} ${Math.round(Number(dayWeather.max))}° / ${Math.round(Number(dayWeather.min))}°</strong><span>💧 ${Math.round(Number(dayWeather.rain))}% Regen</span></div>${weatherPeriodsHtml(selectedDay.id)}</div>` : '<div class="agenda-weather-card muted">🌦️ Für diesen Tag ist noch keine Prognose verfügbar.</div>';
