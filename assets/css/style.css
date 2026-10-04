@@ -4212,3 +4212,78 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
     top:0;
   }
 }
+
+
+/* v1.63.7 · Kompakter Header, getrennte Kartenaktionen, normale E-Mail */
+.account-email strong {
+  display:block;
+  width:auto;
+  max-width:100%;
+  white-space:nowrap;
+  overflow:visible;
+  text-overflow:clip;
+  font-size:1rem;
+  letter-spacing:normal;
+}
+.map-toolbar > .map-toolbar-button + .map-toolbar-button {
+  position:relative;
+}
+.map-toolbar > .map-toolbar-button + .map-toolbar-button::before {
+  content:"";
+  position:absolute;
+  left:-3px;
+  top:18%;
+  bottom:18%;
+  width:1px;
+  background:var(--border);
+}
+@media (max-width:820px) {
+  .sidebar-header {
+    position:relative;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto auto;
+    align-items:start;
+    gap:10px;
+    padding-bottom:0;
+  }
+  .sidebar-header > div:first-child { min-width:0; }
+  .sidebar-header .account-actions {
+    position:static;
+    grid-column:2;
+    grid-row:1;
+    width:auto;
+    min-height:0;
+    margin:0;
+    padding:0;
+    border:0;
+    display:flex;
+    justify-content:flex-end;
+    align-items:flex-start;
+  }
+  .sidebar-header .session-actions {
+    margin:0;
+    display:flex;
+    gap:6px;
+    border:0;
+    border-radius:0;
+    overflow:visible;
+  }
+  .sidebar-header .session-actions .text-button {
+    min-height:0;
+    padding:7px 9px;
+    border:0;
+    border-radius:9px;
+    background:transparent;
+  }
+  .sidebar-header .session-actions .session-logout-button {
+    border:0;
+    color:var(--muted);
+    background:transparent;
+  }
+  .sidebar-header #mobileClose {
+    position:static;
+    grid-column:3;
+    grid-row:1;
+    align-self:start;
+  }
+}
