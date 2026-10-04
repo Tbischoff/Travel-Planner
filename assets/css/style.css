@@ -3941,3 +3941,16 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 .trip-drag-ghost { position:fixed; z-index:10020; pointer-events:none; margin:0; opacity:.94; transform-origin:center; filter:drop-shadow(0 14px 24px rgba(31,48,45,.2)); transition:opacity .12s ease; }
 .trip-drag-ghost .trip-drag-handle { cursor:grabbing; }
 .trip-drag-ghost-out { opacity:0; }
+
+
+/* v1.62.0 · Einladung & Passwort-Reset */
+.auth-link-button {
+  align-self:center;
+  margin-top:2px;
+  text-decoration:underline;
+  text-underline-offset:3px;
+}
+#passwordSetupForm,
+#passwordResetRequestForm {
+  width:min(430px, calc(100vw - 32px));
+}
