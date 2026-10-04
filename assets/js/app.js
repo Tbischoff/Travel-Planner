@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.60.0";
+const APP_VERSION = "v1.61.0";
 
 
 function syncVersionLabels() {
@@ -1115,7 +1115,7 @@ async function loadSupabaseTripData() {
 
   const { data: tripPlaces, error: tpError } = await supabaseClient
     .from("trip_places")
-    .select("place_id,trip_day_id,planned_order,planned_time,planned_end_time,visited")
+    .select("place_id,trip_day_id,planned_order,planned_time,planned_end_time,visited,stay_from,stay_until")
     .eq("trip_id", trip.id);
   if (tpError) throw tpError;
 
@@ -1177,6 +1177,8 @@ async function loadSupabaseTripData() {
       localTip: Boolean(place.is_local_tip),
       favorite: Boolean(place.favorite),
       visited: Boolean(relation?.visited),
+      stayFrom: relation?.stay_from || null,
+      stayUntil: relation?.stay_until || null,
       status: place.status,
       source: place.source,
       detailsSource: place.details_source,
@@ -1540,7 +1542,36 @@ function centerMapOnCurrentLocation({ silent = false, highAccuracy = true, recen
 let googlePlaceAutocompleteElement = null;
 let selectedGooglePlace = null;
 
-async function initGooglePlaceAutocomplete() {
+async function googlePlaceCategory(place) {
+  const types = new Set([...(place?.types || []), place?.primaryType].filter(Boolean));
+  const has = (...values) => values.some(value => types.has(value));
+  if (has("lodging", "hotel", "motel", "hostel", "bed_and_breakfast", "guest_house", "resort_hotel")) return "hotel";
+  if (has("cafe", "coffee_shop", "bakery")) return "cafe";
+  if (has("bar", "night_club")) return "bar";
+  if (has("restaurant", "meal_takeaway", "meal_delivery", "food")) return "food";
+  if (has("museum", "art_gallery", "performing_arts_theater", "movie_theater")) return "culture";
+  if (has("tourist_attraction", "historical_landmark", "monument", "church", "place_of_worship")) return "sight";
+  if (has("park", "amusement_park", "zoo", "aquarium", "stadium")) return "leisure";
+  if (has("spa")) return "thermal";
+  if (has("transit_station", "train_station", "subway_station", "bus_station", "airport")) return "transport";
+  if (has("neighborhood", "locality", "sublocality")) return "area";
+  return "other";
+}
+
+function updateAccommodationFields() {
+  const wrap = document.getElementById("placeAccommodationDates");
+  const isHotel = document.getElementById("placeCategory")?.value === "hotel";
+  if (!wrap) return;
+  wrap.hidden = !isHotel;
+  if (isHotel) {
+    const from = document.getElementById("placeStayFrom");
+    const until = document.getElementById("placeStayUntil");
+    if (from && !from.value) from.value = currentTrip?.start_date || "";
+    if (until && !until.value) until.value = currentTrip?.end_date || "";
+  }
+}
+
+function initGooglePlaceAutocomplete() {
   const host = document.getElementById("googlePlaceAutocomplete");
   if (!host || googlePlaceAutocompleteElement) return;
 
@@ -1574,7 +1605,9 @@ async function initGooglePlaceAutocomplete() {
           "location",
           "websiteURI",
           "nationalPhoneNumber",
-          "regularOpeningHours"
+          "regularOpeningHours",
+          "types",
+          "primaryType"
         ]
       });
 
@@ -1582,6 +1615,8 @@ async function initGooglePlaceAutocomplete() {
 
       document.getElementById("placeName").value = place.displayName || "";
       document.getElementById("placeAddress").value = place.formattedAddress || "";
+      document.getElementById("placeCategory").value = googlePlaceCategory(place);
+      updateAccommodationFields();
 
       // First check the locally loaded trip data, then ask Supabase through a
       // SECURITY DEFINER helper. The server-side check is important on mobile/
@@ -1876,12 +1911,32 @@ const MARKER_BACKGROUNDS = {
   other: "#64748b"
 };
 
-function getAccommodationPlace() {
-  return (placesData?.places || []).find(place => place.category === "hotel") || null;
+function getAccommodationPlaces() {
+  return (placesData?.places || [])
+    .filter(place => place.category === "hotel")
+    .sort((a, b) => String(a.stayFrom || "").localeCompare(String(b.stayFrom || "")) || String(a.name || "").localeCompare(String(b.name || "")));
 }
 
-function accommodationStop() {
-  const place = getAccommodationPlace();
+function getAccommodationPlace(dayId = null) {
+  const hotels = getAccommodationPlaces();
+  if (!hotels.length) return null;
+  if (!dayId) {
+    const today = getTripDayForDate?.();
+    dayId = today?.id || selectedDayFilter;
+  }
+  if (dayId && dayId !== "all" && dayId !== "unplanned") {
+    const exact = hotels.find(place => {
+      const from = place.stayFrom || currentTrip?.start_date || "";
+      const until = place.stayUntil || currentTrip?.end_date || "";
+      return (!from || dayId >= from) && (!until || dayId <= until);
+    });
+    if (exact) return exact;
+  }
+  return hotels[0];
+}
+
+function accommodationStop(dayId = null) {
+  const place = getAccommodationPlace(dayId);
   if (!place) return null;
   const marker = markers.get(place.id);
   const position = marker ? getMarkerPosition(marker) : normalizeLatLng({ lat: place.lat, lng: place.lng });
@@ -1899,7 +1954,7 @@ function getRoutingStopsForDay(dayId) {
   const planned = getRouteStopsForDay(dayId).filter(stop =>
     stop.type !== "place" || !(state.places[stop.place?.id || stop.id] || {}).visited
   );
-  const hotel = accommodationStop();
+  const hotel = accommodationStop(dayId);
   if (!hotel) return planned;
   const result = [...planned];
   if (getRouteStartMode() === "accommodation" && result[0]?.id !== hotel.id) result.unshift({ ...hotel, role: "start" });
@@ -1909,7 +1964,7 @@ function getRoutingStopsForDay(dayId) {
 
 function getAgendaMobilityStopsForDay(dayId) {
   const planned = getRouteStopsForDay(dayId);
-  const hotel = accommodationStop();
+  const hotel = accommodationStop(dayId);
   if (!hotel || !planned.length) return planned;
 
   const result = [...planned];
@@ -2431,7 +2486,8 @@ function openAddPlaceDialog() {
   resetGooglePlaceSelection();
   document.getElementById("placeDialogTitle").textContent = "Ort hinzufügen";
   document.getElementById("savePlaceBtn").textContent = "Ort speichern";
-  document.getElementById("placeCategory").value = "food";
+  document.getElementById("placeCategory").value = "other";
+  updateAccommodationFields();
   document.getElementById("placeTripDay").value = "";
   document.getElementById("placeFormMessage").textContent = "";
   if (typeof dialog.showModal === "function") dialog.showModal();
@@ -2449,6 +2505,9 @@ function openEditPlaceDialog(id) {
   document.getElementById("placeName").value = place.name || "";
   document.getElementById("placeAddress").value = place.address || "";
   document.getElementById("placeCategory").value = place.category || "other";
+  document.getElementById("placeStayFrom").value = place.stayFrom || currentTrip?.start_date || "";
+  document.getElementById("placeStayUntil").value = place.stayUntil || currentTrip?.end_date || "";
+  updateAccommodationFields();
   document.getElementById("placeNotes").value = place.notes || "";
   document.getElementById("placeLocalTip").checked = Boolean(place.localTip);
   document.getElementById("placeTripDay").value = (state.places[place.id] || {}).plannedDay || "";
@@ -2485,6 +2544,12 @@ async function handleAddPlace(event) {
   const notes = document.getElementById("placeNotes").value.trim();
   const localTip = document.getElementById("placeLocalTip").checked;
   const selectedTripDay = document.getElementById("placeTripDay").value;
+  const stayFrom = category === "hotel" ? document.getElementById("placeStayFrom")?.value || null : null;
+  const stayUntil = category === "hotel" ? document.getElementById("placeStayUntil")?.value || null : null;
+  if (category === "hotel" && (!stayFrom || !stayUntil || stayUntil < stayFrom)) {
+    message.textContent = "Bitte einen gültigen Aufenthaltszeitraum für die Unterkunft eintragen.";
+    return;
+  }
   if (!name || !address) { message.textContent = "Bitte Name und Adresse eintragen."; return; }
 
   submitButton.disabled = true;
@@ -2514,7 +2579,26 @@ async function handleAddPlace(event) {
         updated_at: new Date().toISOString()
       }).eq("id", place.supabaseId);
       if (error) throw error;
-      Object.assign(place, { name, address, lat: position.lat, lng: position.lng, category, notes, localTip });
+      const { error: relationUpdateError } = await supabaseClient.from("trip_places").update({
+        stay_from: category === "hotel" ? stayFrom : null,
+        stay_until: category === "hotel" ? stayUntil : null,
+        trip_day_id: category === "hotel" ? null : undefined,
+        planned_order: category === "hotel" ? null : undefined,
+        planned_time: category === "hotel" ? null : undefined,
+        planned_end_time: category === "hotel" ? null : undefined,
+        visited: category === "hotel" ? false : undefined,
+        updated_at: new Date().toISOString()
+      }).eq("trip_id", currentTripId).eq("place_id", place.supabaseId);
+      if (relationUpdateError) throw relationUpdateError;
+      Object.assign(place, { name, address, lat: position.lat, lng: position.lng, category, notes, localTip, stayFrom, stayUntil });
+      if (category === "hotel") {
+        delete state.places[place.id]?.plannedDay;
+        delete state.places[place.id]?.plannedOrder;
+        delete state.places[place.id]?.startTime;
+        delete state.places[place.id]?.endTime;
+        if (state.places[place.id]) state.places[place.id].visited = false;
+        localStorage.setItem(mapStateStorageKey(), JSON.stringify(state));
+      }
       cachePosition(place.id, position);
       if (marker && addressChanged) {
         const safePosition = normalizeLatLng(position);
@@ -2572,7 +2656,9 @@ async function handleAddPlace(event) {
             trip_id: currentTripId,
             place_id: existingDbPlace.id,
             trip_day_id: selectedDbDay?.id || null,
-            planned_order: nextOrder
+            planned_order: nextOrder,
+            stay_from: existingDbPlace.category === "hotel" ? stayFrom : null,
+            stay_until: existingDbPlace.category === "hotel" ? stayUntil : null
           });
           if (linkError) throw linkError;
           await refreshTripPlacesFromSupabase();
@@ -2622,7 +2708,9 @@ async function handleAddPlace(event) {
       trip_id: currentTripId,
       place_id: dbPlace.id,
       trip_day_id: selectedDbDay?.id || null,
-      planned_order: nextOrder
+      planned_order: nextOrder,
+      stay_from: category === "hotel" ? stayFrom : null,
+      stay_until: category === "hotel" ? stayUntil : null
     });
     if (relationError) {
       await supabaseClient.from("places").delete().eq("id", dbPlace.id);
@@ -2634,10 +2722,11 @@ async function handleAddPlace(event) {
       lat: Number(dbPlace.latitude), lng: Number(dbPlace.longitude), category: dbPlace.category || "other",
       tags: [], googlePlaceId: dbPlace.google_place_id, website: dbPlace.website,
       phone: dbPlace.phone, openingHours: dbPlace.opening_hours, notes: dbPlace.note,
-      localTip: Boolean(dbPlace.is_local_tip), source: dbPlace.source
+      localTip: Boolean(dbPlace.is_local_tip), source: dbPlace.source,
+      stayFrom: category === "hotel" ? stayFrom : null, stayUntil: category === "hotel" ? stayUntil : null
     };
     placesData.places.push(draft);
-    if (selectedTripDay) {
+    if (selectedTripDay && draft.category !== "hotel") {
       const ps = ensurePlaceState(draft.id);
       ps.plannedDay = selectedTripDay;
       ps.plannedOrder = nextOrder;
@@ -2726,7 +2815,7 @@ async function removePlaceFromTrip(id) {
 
 function getPlacesForDay(dayId) {
   return placesData.places
-    .filter(place => (state.places[place.id] || {}).plannedDay === dayId)
+    .filter(place => place.category !== "hotel" && (state.places[place.id] || {}).plannedDay === dayId)
     .sort((a, b) => {
       const orderA = Number((state.places[a.id] || {}).plannedOrder) || Number.MAX_SAFE_INTEGER;
       const orderB = Number((state.places[b.id] || {}).plannedOrder) || Number.MAX_SAFE_INTEGER;
@@ -5717,6 +5806,7 @@ function updateDayCounts() {
 
   // Visit places count towards their planned day.
   for (const place of placesData.places) {
+    if (place.category === "hotel") continue;
     const plannedDay = (state.places[place.id] || {}).plannedDay || "";
     if (plannedDay && counts[plannedDay] !== undefined) counts[plannedDay]++;
     else unplanned++;
@@ -6790,7 +6880,7 @@ function freeTimeCardHtml(dayId, stops, preview) {
 }
 
 function tripStatusOverviewHtml() {
-  const allPlaces = placesData?.places || [];
+  const allPlaces = (placesData?.places || []).filter(place => place.category !== "hotel");
   const plannedPlaces = allPlaces.filter(place => (state.places[place.id] || {}).plannedDay);
   const visitedPlaces = allPlaces.filter(place => (state.places[place.id] || {}).visited);
   const unplannedCount = Math.max(0, allPlaces.length - plannedPlaces.length);
@@ -6847,7 +6937,7 @@ function renderTodayView() {
   const progress = dayPlaces.length ? Math.round((visitedCount / dayPlaces.length) * 100) : 0;
   const dayIndex = Math.max(0, TRIP_DAYS.findIndex(item => item.id === day.id)) + 1;
   const dayWeather = dailyWeatherFor(day.id);
-  const accommodation = getAccommodationPlace();
+  const accommodation = getAccommodationPlace(day.id);
   const accommodationCard = accommodation ? `<div class="today-accommodation-card"><button type="button" data-today-accommodation><span>🏨</span><span><small>Unterkunft</small><strong>${escapeHtml(accommodation.name)}</strong></span><span class="today-chevron">›</span></button><button type="button" class="secondary-button" data-navigate-accommodation>Zum Hotel</button></div>` : "";
   const dayWeatherHtml = dayWeather
     ? `<div class="today-weather-summary">${weatherIcon(dayWeather.code)} <strong>${Math.round(Number(dayWeather.max))}°</strong> / ${Math.round(Number(dayWeather.min))}° · 💧 ${Math.round(Number(dayWeather.rain))}%</div>`
@@ -6952,13 +7042,13 @@ function renderTodayView() {
     </div>`;
 
   container.querySelector("[data-today-accommodation]")?.addEventListener("click", () => {
-    const place = getAccommodationPlace();
+    const place = getAccommodationPlace(day.id);
     if (!place) return;
     setMobileView("map");
     window.setTimeout(() => focusExistingPlaceOnMap(place), 80);
   });
   container.querySelector("[data-navigate-accommodation]")?.addEventListener("click", async () => {
-    const hotel = accommodationStop();
+    const hotel = accommodationStop(day.id);
     if (!hotel) return;
     try {
       await computeNavigationRoute([hotel], { testMode: false });
@@ -7593,7 +7683,7 @@ function renderDayAgenda() {
 
   const stops = getRouteStopsForDay(selectedDay.id);
   const mobilityStops = getAgendaMobilityStopsForDay(selectedDay.id);
-  const accommodation = getAccommodationPlace();
+  const accommodation = getAccommodationPlace(selectedDay.id);
   const accommodationHtml = accommodation ? `<button class="agenda-accommodation" type="button" data-accommodation-focus="${escapeHtml(accommodation.id)}">🏨 <span><strong>${escapeHtml(accommodation.name)}</strong><small>Unterkunft · Start-/Endpunkt verfügbar</small></span><span class="today-chevron">›</span></button>` : "";
   const dayPlaces = getPlacesForDay(selectedDay.id);
   const dayActivities = getActivitiesForDay(selectedDay.id);
@@ -8407,6 +8497,7 @@ document.getElementById("navigationExpandBtn")?.addEventListener("click", () => 
   document.getElementById("cancelPlaceBtn").addEventListener("click", closeAddPlaceDialog);
   document.getElementById("cancelPlaceBtnBottom").addEventListener("click", closeAddPlaceDialog);
   document.getElementById("addPlaceForm").addEventListener("submit", handleAddPlace);
+  document.getElementById("placeCategory")?.addEventListener("change", updateAccommodationFields);
   document.getElementById("tryItemForm").addEventListener("submit", handleTryItemSubmit);
   document.getElementById("activityForm")?.addEventListener("submit", handleActivitySubmit);
   document.getElementById("cancelActivityBtn")?.addEventListener("click", closeActivityDialog);
@@ -8729,7 +8820,7 @@ async function syncPlanningToSupabase() {
   try {
     const dayIdByDate = new Map(currentTripDays.map(day => [day.day_date, day.id]));
     const rows = placesData.places
-      .filter(place => place.supabaseId)
+      .filter(place => place.supabaseId && place.category !== "hotel")
       .map(place => {
         const saved = state.places[place.id] || {};
         return {
