@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.58.0";
+const APP_VERSION = "v1.58.1";
 
 
 function syncVersionLabels() {
@@ -422,26 +422,6 @@ async function persistManualTripOrder() {
   availableTrips.forEach((trip, index) => { trip.sort_position = index; });
 }
 
-async function moveTripInSelection(tripId, direction) {
-  if (tripSortMode !== "manual") return;
-  const index = availableTrips.findIndex(item => item.id === tripId);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= availableTrips.length) return;
-  [availableTrips[index], availableTrips[target]] = [availableTrips[target], availableTrips[index]];
-  renderTripSelection();
-  try {
-    await persistManualTripOrder();
-    const message = document.getElementById("tripSelectionMessage");
-    if (message) message.textContent = "Manuelle Reihenfolge gespeichert.";
-  } catch (error) {
-    console.error("Reisesortierung:", error);
-    availableTrips = await loadAvailableTrips();
-    renderTripSelection();
-    const message = document.getElementById("tripSelectionMessage");
-    if (message) message.textContent = `Reihenfolge konnte nicht gespeichert werden: ${error.message}`;
-  }
-}
-
 async function setTripSortMode(mode) {
   const nextMode = mode === "manual" ? "manual" : "date";
   if (nextMode === "manual" && tripSortMode !== "manual") {
@@ -462,6 +442,119 @@ async function setTripSortMode(mode) {
   renderTripSelection();
 }
 
+function wireTripSelectionDragAndDrop(list) {
+  let drag = null;
+  const rows = () => [...list.querySelectorAll(":scope > .trip-selection-row[data-trip-id]")];
+
+  const reorderWithAnimation = (row, reference) => {
+    const beforeRects = new Map(rows().map(el => [el, el.getBoundingClientRect()]));
+    list.insertBefore(row, reference);
+    rows().forEach(el => {
+      if (el === row) return;
+      const before = beforeRects.get(el);
+      if (!before) return;
+      const after = el.getBoundingClientRect();
+      const deltaY = before.top - after.top;
+      if (Math.abs(deltaY) < 1) return;
+      el.animate(
+        [{ transform: `translateY(${deltaY}px)` }, { transform: "translateY(0)" }],
+        { duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" }
+      );
+    });
+  };
+
+  const removeGhost = () => {
+    if (!drag?.ghost) return;
+    drag.ghost.classList.add("trip-drag-ghost-out");
+    const ghost = drag.ghost;
+    window.setTimeout(() => ghost.remove(), 120);
+  };
+
+  const finishDrag = async cancelled => {
+    if (!drag) return;
+    const { handle, row, pointerId, originalIds } = drag;
+    try { handle.releasePointerCapture(pointerId); } catch {}
+    document.body.classList.remove("trip-selection-dragging");
+    row.classList.remove("trip-drag-placeholder");
+    removeGhost();
+    const newIds = rows().map(el => el.dataset.tripId).filter(Boolean);
+    const changed = !cancelled && newIds.length === originalIds.length && newIds.some((id, index) => id !== originalIds[index]);
+    drag = null;
+    if (cancelled || !changed) {
+      if (cancelled) renderTripSelection();
+      return;
+    }
+    const byId = new Map(availableTrips.map(trip => [trip.id, trip]));
+    availableTrips = newIds.map(id => byId.get(id)).filter(Boolean);
+    try {
+      await persistManualTripOrder();
+      const message = document.getElementById("tripSelectionMessage");
+      if (message) message.textContent = "Manuelle Reihenfolge gespeichert.";
+    } catch (error) {
+      console.error("Reisesortierung:", error);
+      availableTrips = await loadAvailableTrips();
+      renderTripSelection();
+      const message = document.getElementById("tripSelectionMessage");
+      if (message) message.textContent = `Reihenfolge konnte nicht gespeichert werden: ${error.message}`;
+    }
+  };
+
+  const moveDrag = event => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    if (drag.ghost) drag.ghost.style.transform = `translateY(${event.clientY - drag.startY}px)`;
+    const candidates = rows().filter(el => el !== drag.row);
+    let reference = null;
+    for (const candidate of candidates) {
+      const rect = candidate.getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) { reference = candidate; break; }
+    }
+    const currentNext = drag.row.nextElementSibling;
+    if (reference) {
+      if (reference !== currentNext) reorderWithAnimation(drag.row, reference);
+    } else if (drag.row !== list.lastElementChild) {
+      reorderWithAnimation(drag.row, null);
+    }
+  };
+
+  const endDrag = event => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    finishDrag(false);
+  };
+
+  document.addEventListener("pointermove", moveDrag, { passive: false });
+  document.addEventListener("pointerup", endDrag, { passive: false });
+  document.addEventListener("pointercancel", event => {
+    if (drag && drag.pointerId === event.pointerId) finishDrag(true);
+  });
+
+  list.querySelectorAll(".trip-drag-handle").forEach(handle => {
+    handle.addEventListener("pointerdown", event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      const row = handle.closest(".trip-selection-row");
+      if (!row) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = row.getBoundingClientRect();
+      const ghost = row.cloneNode(true);
+      ghost.classList.add("trip-drag-ghost");
+      ghost.querySelectorAll("button").forEach(button => button.setAttribute("tabindex", "-1"));
+      ghost.style.left = `${rect.left}px`;
+      ghost.style.top = `${rect.top}px`;
+      ghost.style.width = `${rect.width}px`;
+      document.body.appendChild(ghost);
+      drag = {
+        handle, row, ghost, pointerId: event.pointerId, startY: event.clientY,
+        originalIds: rows().map(el => el.dataset.tripId)
+      };
+      try { handle.setPointerCapture(event.pointerId); } catch {}
+      document.body.classList.add("trip-selection-dragging");
+      row.classList.add("trip-drag-placeholder");
+    });
+  });
+}
+
 function renderTripSelection() {
   const list = document.getElementById("tripSelectionList");
   const message = document.getElementById("tripSelectionMessage");
@@ -474,7 +567,7 @@ function renderTripSelection() {
   dateSortButton?.classList.toggle("is-active", tripSortMode === "date");
   manualSortButton?.classList.toggle("is-active", tripSortMode === "manual");
   if (sortHint) sortHint.textContent = tripSortMode === "manual"
-    ? "Mit den Pfeilen kannst du deine persönliche Reihenfolge ändern."
+    ? "Ziehe Reisen am Griff ⋮⋮ in deine persönliche Reihenfolge."
     : "Reisen werden nach dem Startdatum sortiert.";
 
   if (!availableTrips.length) {
@@ -520,31 +613,19 @@ function renderTripSelection() {
     actions.append(members, edit, remove);
     loadTripMembershipForCard(trip, edit, remove, actions);
     if (tripSortMode === "manual") {
-      const orderControls = document.createElement("div");
-      orderControls.className = "trip-order-controls";
-      const index = availableTrips.findIndex(item => item.id === trip.id);
-      const up = document.createElement("button");
-      up.type = "button";
-      up.className = "trip-order-button";
-      up.textContent = "↑";
-      up.title = "Reise nach oben verschieben";
-      up.setAttribute("aria-label", `${trip.name} nach oben verschieben`);
-      up.disabled = index === 0;
-      up.addEventListener("click", () => moveTripInSelection(trip.id, -1));
-      const down = document.createElement("button");
-      down.type = "button";
-      down.className = "trip-order-button";
-      down.textContent = "↓";
-      down.title = "Reise nach unten verschieben";
-      down.setAttribute("aria-label", `${trip.name} nach unten verschieben`);
-      down.disabled = index === availableTrips.length - 1;
-      down.addEventListener("click", () => moveTripInSelection(trip.id, 1));
-      orderControls.append(up, down);
-      actions.prepend(orderControls);
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = "trip-drag-handle";
+      handle.textContent = "⋮⋮";
+      handle.title = "Reise verschieben";
+      handle.setAttribute("aria-label", `${trip.name} verschieben`);
+      row.prepend(handle);
+      row.dataset.tripId = trip.id;
     }
     row.append(button, actions);
     list.appendChild(row);
   }
+  if (tripSortMode === "manual") wireTripSelectionDragAndDrop(list);
 }
 
 async function loadTripMembershipForCard(trip, editButton, deleteButton, actions) {
