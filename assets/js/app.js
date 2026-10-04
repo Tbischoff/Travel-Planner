@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.59.2";
+const APP_VERSION = "v1.60.0";
 
 
 function syncVersionLabels() {
@@ -1894,12 +1894,16 @@ function routeEndsAtAccommodation() {
 }
 
 function getRoutingStopsForDay(dayId) {
-  const planned = getRouteStopsForDay(dayId);
+  // Bereits besuchte Orte gehören nicht mehr in die aktive Tagesroute.
+  // Aktivitäten bleiben bestehen, weil sie keinen "besucht"-Status besitzen.
+  const planned = getRouteStopsForDay(dayId).filter(stop =>
+    stop.type !== "place" || !(state.places[stop.place?.id || stop.id] || {}).visited
+  );
   const hotel = accommodationStop();
   if (!hotel) return planned;
   const result = [...planned];
   if (getRouteStartMode() === "accommodation" && result[0]?.id !== hotel.id) result.unshift({ ...hotel, role: "start" });
-  if (routeEndsAtAccommodation() && result[result.length - 1]?.id !== hotel.id) result.push({ ...hotel, role: "end" });
+  if (routeEndsAtAccommodation() && result.length && result[result.length - 1]?.id !== hotel.id) result.push({ ...hotel, role: "end" });
   return result;
 }
 
@@ -7048,7 +7052,7 @@ function renderTodayView() {
     });
   });
 
-  const setTodayVisited = (placeId, visited) => {
+  const setTodayVisited = async (placeId, visited) => {
     const item = ensurePlaceState(placeId);
     item.visited = visited;
     saveState();
@@ -7056,6 +7060,7 @@ function renderTodayView() {
     // Die Heute-Ansicht sofort neu aufbauen: Fortschritt, Timeline und vor allem
     // „Nächster Ort“ wechseln ohne zusätzlichen Klick auf den nächsten Eintrag.
     renderTodayView();
+    await refreshActiveRouteAfterVisitedChange(placeId, visited);
   };
 
   container.querySelector("[data-what-now-complete]")?.addEventListener("click", event => {
@@ -8628,15 +8633,44 @@ function closeMobileSidebar() {
   setMobileView("map");
 }
 
-function toggleVisited(id) {
+async function refreshActiveRouteAfterVisitedChange(placeId, visited) {
+  const saved = state.places[placeId] || {};
+  const dayId = saved.plannedDay;
+  if (!dayId || activeRouteDay !== dayId) return;
+
+  // Eine sichtbare Tagesroute soll den Fortschritt sofort widerspiegeln:
+  // besuchte Stopps werden entfernt und die Route wird ab dem gewählten
+  // Startpunkt direkt zu den noch offenen Stopps neu berechnet.
+  clearRenderedRoute();
+  activeRouteDay = null;
+  activeRouteSummary = null;
+  updateRouteControls();
+
+  try {
+    await showDayRoute(dayId);
+    if (visited) {
+      const next = getNextUnvisitedPlace(dayId);
+      setStatus(next
+        ? `✓ Besucht · Route neu berechnet · nächstes Ziel: ${next.name}`
+        : "✓ Besucht · alle geplanten Orte dieses Tages erledigt.");
+    }
+  } catch (error) {
+    console.error("Route nach Besucht-Änderung:", error);
+  }
+}
+
+async function toggleVisited(id) {
   if (!requireTripEditPermission()) return;
   const item = ensurePlaceState(id);
   item.visited = !item.visited;
+  const visited = item.visited;
   saveState();
   applyFilters();
 
   const place = placesData.places.find(p => p.id === id);
   if (place) openPlace(place);
+
+  await refreshActiveRouteAfterVisitedChange(id, visited);
 }
 
 function ensurePlaceState(id) {
