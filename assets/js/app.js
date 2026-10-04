@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.63.16";
+const APP_VERSION = "v1.63.17";
 
 
 function syncVersionLabels() {
@@ -320,6 +320,10 @@ async function bootstrapAuth() {
     document.getElementById("tripSelectionAccount")?.addEventListener("click", openAccountDialog);
     document.getElementById("accountButton")?.addEventListener("click", openAccountDialog);
     document.getElementById("accountClose")?.addEventListener("click", () => document.getElementById("accountDialog")?.close());
+    document.getElementById("accountDialog")?.addEventListener("click", (event) => {
+      const dialog = event.currentTarget;
+      if (event.target === dialog) dialog.close();
+    });
     document.getElementById("profileForm")?.addEventListener("submit", handleProfileSave);
     document.getElementById("accountPasswordForm")?.addEventListener("submit", handleAccountPasswordChange);
     document.getElementById("adminInviteForm")?.addEventListener("submit", handleAdminInvite);
@@ -458,7 +462,8 @@ async function handlePasswordSetup(event) {
     if (error) throw error;
     pendingAuthFlow = null;
     cleanAuthUrl();
-    message.textContent = "Passwort gespeichert. Dein Konto ist eingerichtet.";
+    message.textContent = "";
+    document.getElementById("passwordSetupForm")?.classList.add("is-hidden");
     await enterAuthenticatedApp(data.user || currentUser);
   } catch (error) {
     console.error("Passwort festlegen:", error);
