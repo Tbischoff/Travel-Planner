@@ -4397,3 +4397,17 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
     color:var(--muted);
   }
 }
+
+
+/* v1.63.14 · Reiseziel beidseitig mit kurzen Trennern */
+.map-toolbar .map-add-button::before {
+  display:block !important;
+  content:"";
+  position:absolute;
+  left:0;
+  top:27%;
+  bottom:27%;
+  width:1px;
+  background:rgba(20,35,33,.32);
+  pointer-events:none;
+}
