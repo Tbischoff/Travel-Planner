@@ -1070,7 +1070,8 @@ async function openTripMembers(trip) {
   membersDialogTrip = trip;
   const dialog = document.getElementById("tripMembersDialog");
   document.getElementById("tripMembersTitle").textContent = `Mitglieder · ${trip.name}`;
-  document.getElementById("tripMemberEmail").value = "";
+  document.getElementById("tripMemberUser").value = "";
+  document.getElementById("tripMemberRole").value = "editor";
   document.getElementById("tripMembersMessage").textContent = "Mitglieder werden geladen …";
   dialog.showModal();
   await renderTripMembers();
@@ -1090,13 +1091,13 @@ async function renderTripMembers() {
       row.className = "trip-member-row";
       const own = member.user_id === currentUser?.id ? " · Du" : "";
       const role = member.role === "owner" ? "Besitzer" : member.role === "viewer" ? "Betrachter" : "Mitglied";
-      row.innerHTML = `<div><strong>${escapeHtml(member.email || "Benutzer")}</strong><small>${role}${own}</small></div>`;
+      row.innerHTML = `<div><strong>${escapeHtml(member.username || member.email || "Benutzer")}</strong><small>${role}${own}</small></div>`;
       if (isOwner && member.role !== "owner") {
         const controls = document.createElement("div");
         controls.className = "trip-member-controls";
         const roleSelect = document.createElement("select");
         roleSelect.className = "trip-member-role";
-        roleSelect.setAttribute("aria-label", `Rolle von ${member.email || "Mitglied"}`);
+        roleSelect.setAttribute("aria-label", `Rolle von ${member.username || member.email || "Mitglied"}`);
         roleSelect.innerHTML = '<option value="editor">Editor</option><option value="viewer">Viewer</option>';
         roleSelect.value = member.role === "viewer" ? "viewer" : "editor";
         roleSelect.addEventListener("change", () => changeTripMemberRole(member, roleSelect.value));
@@ -1111,7 +1112,12 @@ async function renderTripMembers() {
       list.appendChild(row);
     }
     document.getElementById("tripMemberAddForm").hidden = !isOwner;
-    message.textContent = isOwner ? "Neue Mitglieder müssen bereits einen Travel-Planner-Account besitzen." : "Nur der Besitzer kann Mitglieder hinzufügen oder entfernen.";
+    if (isOwner) {
+      await loadTripMemberCandidates(members);
+      message.textContent = "Wähle einen vorhandenen Travel-Planner-Benutzer und die gewünschte Rolle aus.";
+    } else {
+      message.textContent = "Nur der Besitzer kann Mitglieder hinzufügen oder entfernen.";
+    }
   } catch (error) {
     console.error("Mitglieder laden:", error);
     list.innerHTML = "";
@@ -1119,18 +1125,42 @@ async function renderTripMembers() {
   }
 }
 
+async function loadTripMemberCandidates(members = []) {
+  const select = document.getElementById("tripMemberUser");
+  if (!select) return;
+  const memberIds = new Set((members || []).map(item => item.user_id));
+  const { data, error } = await supabaseClient
+    .from("profiles")
+    .select("id,username")
+    .order("username", { ascending: true });
+  if (error) throw error;
+  select.innerHTML = '<option value="">Benutzer auswählen …</option>';
+  for (const profile of (data || []).filter(item => !memberIds.has(item.id))) {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.username || "Benutzer";
+    select.appendChild(option);
+  }
+  select.disabled = select.options.length <= 1;
+  if (select.disabled) select.options[0].textContent = "Keine weiteren Benutzer verfügbar";
+}
+
 async function addTripMember(event) {
   event.preventDefault();
   if (!membersDialogTrip) return;
-  const email = document.getElementById("tripMemberEmail").value.trim();
+  const userId = document.getElementById("tripMemberUser").value;
+  const role = document.getElementById("tripMemberRole").value;
   const button = document.getElementById("tripMemberAddButton");
   const message = document.getElementById("tripMembersMessage");
+  if (!userId || !["editor", "viewer"].includes(role)) return;
   button.disabled = true;
   message.textContent = "Mitglied wird hinzugefügt …";
   try {
-    const { error } = await supabaseClient.rpc("add_trip_member_by_email", { p_trip_id: membersDialogTrip.id, p_email: email });
+    const { error } = await supabaseClient
+      .from("trip_members")
+      .insert({ trip_id: membersDialogTrip.id, user_id: userId, role });
     if (error) throw error;
-    document.getElementById("tripMemberEmail").value = "";
+    document.getElementById("tripMemberUser").value = "";
     await renderTripMembers();
   } catch (error) {
     console.error("Mitglied hinzufügen:", error);
@@ -1148,7 +1178,7 @@ async function changeTripMemberRole(member, role) {
       p_role: role
     });
     if (error) throw error;
-    message.textContent = `${member.email} ist jetzt ${role === "viewer" ? "Viewer" : "Editor"}.`;
+    message.textContent = `${member.username || member.email || "Mitglied"} ist jetzt ${role === "viewer" ? "Viewer" : "Editor"}.`;
     await renderTripMembers();
   } catch (error) {
     console.error("Rolle ändern:", error);
@@ -1158,7 +1188,7 @@ async function changeTripMemberRole(member, role) {
 }
 
 async function removeTripMember(member) {
-  if (!membersDialogTrip || !window.confirm(`${member.email} aus „${membersDialogTrip.name}“ entfernen?`)) return;
+  if (!membersDialogTrip || !window.confirm(`${member.username || member.email || "Mitglied"} aus „${membersDialogTrip.name}“ entfernen?`)) return;
   const message = document.getElementById("tripMembersMessage");
   try {
     const { error } = await supabaseClient.rpc("remove_trip_member", { p_trip_id: membersDialogTrip.id, p_user_id: member.user_id });
