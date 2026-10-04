@@ -1,4 +1,4 @@
-# Travel Planner v1.63.18
+# Travel Planner v2.0.0
 
 Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner verbindet Reiseauswahl und Mitgliederrollen mit Karten, Orten, Aktivitäten, Tagesplanung, Wetter, Navigation, ÖPNV-Unterstützung, Backups und reisespezifischen Offline-Daten.
 
@@ -30,13 +30,6 @@ Historische Backup-Daten bleiben soweit vorgesehen aus Kompatibilitätsgründen 
 - Offline-Reisemodus und reisebezogene Offline-Karten.
 - Überarbeiteter App-Update-Workflow.
 - RLS-Hardening für Reise- und Ortszugriffe.
-
-
-### v1.63.18 – Vorbereitung auf v2.0.0
-- Dokumentation und Versionsreferenzen aktualisiert.
-- Veraltete Architekturhinweise bereinigt.
-- Manifest- und Service-Worker-Versionen vereinheitlicht.
-- Keine funktionale Änderung gegenüber v1.63.17.
 
 
 ### v1.63.18 – Vorbereitung auf v2.0.0
