@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.58.1";
+const APP_VERSION = "v1.59.0";
 
 
 function syncVersionLabels() {
@@ -3327,8 +3327,17 @@ function offlineMapContext() {
   catch { return null; }
 }
 function offlineBaseStyle(sourceKey) {
+  const nameExpression = [
+    "coalesce",
+    ["get", "name_de"],
+    ["get", "name:de"],
+    ["get", "name"],
+    ["get", "name_en"],
+    ""
+  ];
   return {
     version: 8,
+    glyphs: "https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf",
     sources: {
       basemap: {
         type: "vector",
@@ -3343,7 +3352,66 @@ function offlineBaseStyle(sourceKey) {
       { id:"landuse", type:"fill", source:"basemap", "source-layer":"landuse", paint:{ "fill-color":"#dfe8d8", "fill-opacity":0.55 } },
       { id:"buildings", type:"fill", source:"basemap", "source-layer":"buildings", minzoom:13, paint:{ "fill-color":"#ddd8d0", "fill-outline-color":"#c9c2b8" } },
       { id:"roads", type:"line", source:"basemap", "source-layer":"roads", paint:{ "line-color":"#ffffff", "line-width":["interpolate",["linear"],["zoom"],10,0.7,14,2.4,17,6] } },
-      { id:"boundaries", type:"line", source:"basemap", "source-layer":"boundaries", paint:{ "line-color":"#9ba7a3", "line-width":1, "line-dasharray":[3,2] } }
+      { id:"boundaries", type:"line", source:"basemap", "source-layer":"boundaries", paint:{ "line-color":"#9ba7a3", "line-width":1, "line-dasharray":[3,2] } },
+
+      // Orts-/Stadtbezeichnungen geben schon bei kleinen Zoomstufen Orientierung.
+      { id:"place-labels", type:"symbol", source:"basemap", "source-layer":"places", minzoom:5, maxzoom:16,
+        filter:["has","name"],
+        layout:{
+          "text-field":nameExpression,
+          "text-font":["Noto Sans Regular"],
+          "text-size":["interpolate",["linear"],["zoom"],6,11,10,13,14,15],
+          "text-max-width":10,
+          "text-padding":3,
+          "text-allow-overlap":false
+        },
+        paint:{ "text-color":"#45524f", "text-halo-color":"#f7f8f5", "text-halo-width":1.5 }
+      },
+
+      // Hauptstraßen etwas früher, Nebenstraßen erst bei näherem Zoom beschriften.
+      { id:"road-labels-major", type:"symbol", source:"basemap", "source-layer":"roads", minzoom:11,
+        filter:["all",["has","name"],["in",["get","kind"],["literal",["highway","major_road","medium_road"]]]],
+        layout:{
+          "symbol-placement":"line",
+          "text-field":nameExpression,
+          "text-font":["Noto Sans Regular"],
+          "text-size":["interpolate",["linear"],["zoom"],11,10,15,12,17,14],
+          "text-letter-spacing":0.02,
+          "text-max-angle":35,
+          "text-padding":2,
+          "text-keep-upright":true
+        },
+        paint:{ "text-color":"#59625f", "text-halo-color":"#ffffff", "text-halo-width":2 }
+      },
+      { id:"road-labels-local", type:"symbol", source:"basemap", "source-layer":"roads", minzoom:14,
+        filter:["has","name"],
+        layout:{
+          "symbol-placement":"line",
+          "text-field":nameExpression,
+          "text-font":["Noto Sans Regular"],
+          "text-size":["interpolate",["linear"],["zoom"],14,10,17,13],
+          "text-letter-spacing":0.01,
+          "text-max-angle":40,
+          "text-padding":2,
+          "text-keep-upright":true
+        },
+        paint:{ "text-color":"#68716f", "text-halo-color":"#ffffff", "text-halo-width":2 }
+      },
+
+      // Wichtige POIs ergänzen die eigenen Reise-Marker, ohne die Karte zu überladen.
+      { id:"poi-labels", type:"symbol", source:"basemap", "source-layer":"pois", minzoom:15,
+        filter:["has","name"],
+        layout:{
+          "text-field":nameExpression,
+          "text-font":["Noto Sans Regular"],
+          "text-size":11,
+          "text-max-width":12,
+          "text-offset":[0,0.8],
+          "text-padding":4,
+          "text-allow-overlap":false
+        },
+        paint:{ "text-color":"#59625f", "text-halo-color":"#ffffff", "text-halo-width":1.5 }
+      }
     ]
   };
 }
