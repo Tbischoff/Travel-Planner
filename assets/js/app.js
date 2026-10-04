@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.56.0";
+const APP_VERSION = "v1.57.0";
 
 
 function syncVersionLabels() {
@@ -152,36 +152,7 @@ let navigationLastPositionAt = 0;
 let navigationLastAccuracy = Infinity;
 const NAV_CACHED_POSITION_MAX_AGE_MS = 60000;
 const NAV_CACHED_POSITION_MAX_ACCURACY = 50;
-const LEGACY_NAV_SESSION_STORAGE_KEY = "travelPlannerActiveNavigation";
 const LAST_LOCATION_STORAGE_KEY = "travelPlannerLastKnownLocation";
-const LEGACY_MAP_STATE_STORAGE_KEY = "travelPlannerMapState";
-const LEGACY_ROUTE_END_ACCOMMODATION_STORAGE_KEY = "travelPlannerRouteEndAccommodation";
-const LEGACY_GEOCODE_CACHE_STORAGE_KEY = "travelPlannerGeocodeCache";
-
-function activeTripStorageKey(kind, tripId = currentTripId || getLastTripId()) {
-  return tripId ? `travelPlanner:${kind}:${tripId}` : null;
-}
-function mapStateStorageKey(tripId) { return activeTripStorageKey("mapStateV2", tripId); }
-function routeEndAccommodationStorageKey(tripId) { return activeTripStorageKey("routeEndAccommodationV2", tripId); }
-function geocodeCacheStorageKey(tripId) { return activeTripStorageKey("geocodeCacheV2", tripId); }
-function navigationSessionStorageKey(tripId) { return activeTripStorageKey("activeNavigationV2", tripId); }
-
-function migrateTripScopedLocalStorage(tripId = currentTripId || getLastTripId()) {
-  if (!tripId) return;
-  const pairs = [
-    [LEGACY_MAP_STATE_STORAGE_KEY, mapStateStorageKey(tripId)],
-    [LEGACY_ROUTE_END_ACCOMMODATION_STORAGE_KEY, routeEndAccommodationStorageKey(tripId)],
-    [LEGACY_GEOCODE_CACHE_STORAGE_KEY, geocodeCacheStorageKey(tripId)],
-    [LEGACY_NAV_SESSION_STORAGE_KEY, navigationSessionStorageKey(tripId)]
-  ];
-  for (const [legacyKey, scopedKey] of pairs) {
-    try {
-      if (scopedKey && localStorage.getItem(scopedKey) === null && localStorage.getItem(legacyKey) !== null) {
-        localStorage.setItem(scopedKey, localStorage.getItem(legacyKey));
-      }
-    } catch {}
-  }
-}
 
 const LAST_LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 const NAV_OFF_ROUTE_METERS = 45;
@@ -724,7 +695,6 @@ async function selectTrip(tripId) {
   currentTripId = trip.id;
   currentTrip = trip;
   rememberLastTripId(trip.id);
-  migrateTripScopedLocalStorage(trip.id);
   state = loadState();
   try {
     document.getElementById("authGate").classList.add("is-hidden");
@@ -1155,7 +1125,11 @@ async function bootstrap() {
     if (navigator.onLine === false) {
       const snapshot = loadOfflineTripSnapshot();
       if (!snapshot) throw new Error("Keine Offline-Reisedaten vorbereitet. Bitte einmal online „Offline-Daten vorbereiten“ ausführen.");
-      currentTripId = snapshot.currentTripId || getLastTripId() || null;
+      // Die ausgewählte Reise bleibt maßgeblich; Offline-Daten dürfen den
+      // aktiven Reisekontext niemals auf eine andere Reise umschalten.
+      if (!currentTripId || snapshot.currentTripId !== currentTripId) {
+        throw new Error("Die Offline-Daten gehören nicht zur ausgewählten Reise.");
+      }
       currentTrip = snapshot.currentTrip || currentTrip || null;
       currentTripDays = snapshot.currentTripDays || [];
       if (snapshot.tripMapCenter?.lat && snapshot.tripMapCenter?.lng) tripMapCenter = { ...snapshot.tripMapCenter };
@@ -2999,7 +2973,13 @@ function saveOfflineTripSnapshot() {
 function loadOfflineTripSnapshot(tripId = currentTripId || getLastTripId()) {
   try {
     const key = offlineTripStorageKey(tripId);
-    return key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+    const snapshot = key ? JSON.parse(localStorage.getItem(key) || "null") : null;
+    if (!snapshot) return null;
+    if (tripId && snapshot.currentTripId !== tripId) {
+      console.warn("Offline-Snapshot gehört zu einer anderen Reise und wird ignoriert.");
+      return null;
+    }
+    return snapshot;
   } catch { return null; }
 }
 function loadOfflineWeatherSnapshot(tripId = currentTripId || getLastTripId()) {
@@ -5769,16 +5749,20 @@ function estimatedWalkingMinutes(distanceMeters) {
   return Math.max(1, Math.round(distanceMeters / 80));
 }
 
-const MOBILITY_MODE_STORAGE_KEY = "travelPlannerMobilityModeV1";
+function mobilityModeStorageKey(tripId = currentTripId || getLastTripId()) {
+  return tripScopedStorageKey("mobilityModeV2", tripId);
+}
 const transitLegCache = new Map();
 
 function getMobilityMode() {
-  return localStorage.getItem(MOBILITY_MODE_STORAGE_KEY) || "auto";
+  const key = mobilityModeStorageKey();
+  return key ? (localStorage.getItem(key) || "auto") : "auto";
 }
 
 function setMobilityMode(value) {
   const mode = ["auto", "walk", "transit"].includes(value) ? value : "auto";
-  localStorage.setItem(MOBILITY_MODE_STORAGE_KEY, mode);
+  const key = mobilityModeStorageKey();
+  if (key) localStorage.setItem(key, mode);
   const select = document.getElementById("mobilityMode");
   if (select && select.value !== mode) select.value = mode;
   renderDayAgenda();
@@ -7821,8 +7805,8 @@ async function restoreSupabaseBackup(payload) {
   const sourceTripId = db.trip.id;
 
   // Ein Restore darf ausschließlich in genau die Reise zurückgeschrieben werden,
-  // aus der das Backup stammt. Das verhindert, dass z. B. ein Budapest-Backup
-  // versehentlich eine später geöffnete Rom-Reise überschreibt.
+  // aus der das Backup stammt. Dadurch kann ein Backup niemals versehentlich
+  // eine andere aktuell geöffnete Reise überschreiben.
   if (sourceTripId !== targetTripId) {
     const { data: targetTrip, error: targetTripError } = await supabaseClient
       .from("trips")
