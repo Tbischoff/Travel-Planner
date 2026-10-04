@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.57.0";
+const APP_VERSION = "v1.58.0";
 
 
 function syncVersionLabels() {
@@ -288,6 +288,9 @@ async function bootstrapAuth() {
     document.getElementById("switchTripButton")?.addEventListener("click", handleSwitchTrip);
     document.getElementById("tripSelectionLogout")?.addEventListener("click", handleLogout);
     document.getElementById("createTripButton")?.addEventListener("click", () => openTripEditor());
+    document.getElementById("tripSortDateBtn")?.addEventListener("click", () => setTripSortMode("date"));
+    document.getElementById("tripSortManualBtn")?.addEventListener("click", () => setTripSortMode("manual"));
+    tripSortMode = loadTripSortMode();
     document.getElementById("tripEditorClose")?.addEventListener("click", closeTripEditor);
     document.getElementById("tripEditorCancel")?.addEventListener("click", closeTripEditor);
     document.getElementById("tripEditorForm")?.addEventListener("submit", saveTripEditor);
@@ -352,22 +355,111 @@ function forgetLastTripId() {
   try { localStorage.removeItem(LAST_TRIP_STORAGE_KEY); } catch {}
 }
 
+const TRIP_SORT_MODE_STORAGE_KEY = "travelPlannerTripSortModeV1";
+let tripSortMode = "date";
+
+function loadTripSortMode() {
+  try {
+    return localStorage.getItem(TRIP_SORT_MODE_STORAGE_KEY) === "manual" ? "manual" : "date";
+  } catch { return "date"; }
+}
+
+function saveTripSortMode(mode) {
+  tripSortMode = mode === "manual" ? "manual" : "date";
+  try { localStorage.setItem(TRIP_SORT_MODE_STORAGE_KEY, tripSortMode); } catch {}
+}
+
+function sortAvailableTrips(trips) {
+  const copy = [...trips];
+  if (tripSortMode === "manual") {
+    return copy.sort((a, b) => {
+      const aPos = Number.isInteger(a.sort_position) ? a.sort_position : Number.MAX_SAFE_INTEGER;
+      const bPos = Number.isInteger(b.sort_position) ? b.sort_position : Number.MAX_SAFE_INTEGER;
+      if (aPos !== bPos) return aPos - bPos;
+      return String(a.start_date || "").localeCompare(String(b.start_date || ""));
+    });
+  }
+  return copy.sort((a, b) => String(a.start_date || "").localeCompare(String(b.start_date || "")));
+}
+
 async function loadAvailableTrips() {
-  const [{ data: trips, error: tripsError }, { data: memberships, error: membershipsError }] = await Promise.all([
+  const [{ data: trips, error: tripsError }, { data: memberships, error: membershipsError }, { data: preferences, error: preferencesError }] = await Promise.all([
     supabaseClient
       .from("trips")
-      .select("id,name,destination,start_date,end_date,updated_at")
-      .order("start_date", { ascending: false }),
+      .select("id,name,destination,start_date,end_date,updated_at"),
     supabaseClient
       .from("trip_members")
       .select("trip_id,role")
+      .eq("user_id", currentUser.id),
+    supabaseClient
+      .from("trip_user_preferences")
+      .select("trip_id,sort_position")
       .eq("user_id", currentUser.id)
   ]);
   if (tripsError) throw tripsError;
   if (membershipsError) throw membershipsError;
+  if (preferencesError) throw preferencesError;
 
   const roleByTrip = new Map((memberships || []).map(item => [item.trip_id, item.role]));
-  return (trips || []).map(trip => ({ ...trip, current_user_role: roleByTrip.get(trip.id) || null }));
+  const positionByTrip = new Map((preferences || []).map(item => [item.trip_id, item.sort_position]));
+  return sortAvailableTrips((trips || []).map(trip => ({
+    ...trip,
+    current_user_role: roleByTrip.get(trip.id) || null,
+    sort_position: positionByTrip.get(trip.id) ?? null
+  })));
+}
+
+async function persistManualTripOrder() {
+  if (!currentUser || !availableTrips.length) return;
+  const rows = availableTrips.map((trip, index) => ({
+    user_id: currentUser.id,
+    trip_id: trip.id,
+    sort_position: index,
+    updated_at: new Date().toISOString()
+  }));
+  const { error } = await supabaseClient.from("trip_user_preferences").upsert(rows, { onConflict: "user_id,trip_id" });
+  if (error) throw error;
+  availableTrips.forEach((trip, index) => { trip.sort_position = index; });
+}
+
+async function moveTripInSelection(tripId, direction) {
+  if (tripSortMode !== "manual") return;
+  const index = availableTrips.findIndex(item => item.id === tripId);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= availableTrips.length) return;
+  [availableTrips[index], availableTrips[target]] = [availableTrips[target], availableTrips[index]];
+  renderTripSelection();
+  try {
+    await persistManualTripOrder();
+    const message = document.getElementById("tripSelectionMessage");
+    if (message) message.textContent = "Manuelle Reihenfolge gespeichert.";
+  } catch (error) {
+    console.error("Reisesortierung:", error);
+    availableTrips = await loadAvailableTrips();
+    renderTripSelection();
+    const message = document.getElementById("tripSelectionMessage");
+    if (message) message.textContent = `Reihenfolge konnte nicht gespeichert werden: ${error.message}`;
+  }
+}
+
+async function setTripSortMode(mode) {
+  const nextMode = mode === "manual" ? "manual" : "date";
+  if (nextMode === "manual" && tripSortMode !== "manual") {
+    availableTrips = sortAvailableTrips(availableTrips);
+    availableTrips.forEach((trip, index) => { trip.sort_position = index; });
+    saveTripSortMode("manual");
+    try { await persistManualTripOrder(); }
+    catch (error) {
+      console.error("Reisesortierung:", error);
+      saveTripSortMode("date");
+      const message = document.getElementById("tripSelectionMessage");
+      if (message) message.textContent = `Manuelle Sortierung konnte nicht aktiviert werden: ${error.message}`;
+    }
+  } else {
+    saveTripSortMode(nextMode);
+  }
+  availableTrips = sortAvailableTrips(availableTrips);
+  renderTripSelection();
 }
 
 function renderTripSelection() {
@@ -376,6 +468,14 @@ function renderTripSelection() {
   if (!list || !message) return;
   list.innerHTML = "";
   message.textContent = "";
+  const dateSortButton = document.getElementById("tripSortDateBtn");
+  const manualSortButton = document.getElementById("tripSortManualBtn");
+  const sortHint = document.getElementById("tripSortHint");
+  dateSortButton?.classList.toggle("is-active", tripSortMode === "date");
+  manualSortButton?.classList.toggle("is-active", tripSortMode === "manual");
+  if (sortHint) sortHint.textContent = tripSortMode === "manual"
+    ? "Mit den Pfeilen kannst du deine persönliche Reihenfolge ändern."
+    : "Reisen werden nach dem Startdatum sortiert.";
 
   if (!availableTrips.length) {
     message.textContent = "Noch keine Reise vorhanden. Lege deine erste Reise an.";
@@ -419,6 +519,29 @@ function renderTripSelection() {
     remove.addEventListener("click", () => deleteTripFromSelection(trip));
     actions.append(members, edit, remove);
     loadTripMembershipForCard(trip, edit, remove, actions);
+    if (tripSortMode === "manual") {
+      const orderControls = document.createElement("div");
+      orderControls.className = "trip-order-controls";
+      const index = availableTrips.findIndex(item => item.id === trip.id);
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "trip-order-button";
+      up.textContent = "↑";
+      up.title = "Reise nach oben verschieben";
+      up.setAttribute("aria-label", `${trip.name} nach oben verschieben`);
+      up.disabled = index === 0;
+      up.addEventListener("click", () => moveTripInSelection(trip.id, -1));
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "trip-order-button";
+      down.textContent = "↓";
+      down.title = "Reise nach unten verschieben";
+      down.setAttribute("aria-label", `${trip.name} nach unten verschieben`);
+      down.disabled = index === availableTrips.length - 1;
+      down.addEventListener("click", () => moveTripInSelection(trip.id, 1));
+      orderControls.append(up, down);
+      actions.prepend(orderControls);
+    }
     row.append(button, actions);
     list.appendChild(row);
   }
