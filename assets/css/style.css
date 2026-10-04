@@ -4005,3 +4005,43 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .map-switch-trip-label { display:none; }
   .map-toolbar .map-switch-trip-button { width:38px; padding-left:0; padding-right:0; }
 }
+
+
+/* v1.63.3 · Mobile Toolbar einzeilig & E-Mail ohne Umbruch */
+.account-email strong {
+  white-space:nowrap;
+  overflow:visible;
+  overflow-wrap:normal;
+  word-break:normal;
+  font-size:clamp(.82rem, 3.6vw, 1rem);
+}
+@media (max-width:820px) {
+  .map-toolbar {
+    width:calc(100vw - 24px);
+    max-width:none;
+    box-sizing:border-box;
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr) auto;
+    align-items:center;
+    gap:4px;
+  }
+  .map-toolbar .floating-button { min-width:0; }
+  .map-toolbar #destinationBtn {
+    justify-content:center;
+    overflow:hidden;
+  }
+  .map-toolbar #destinationBtn [data-map-destination] {
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .map-toolbar .map-switch-trip-button {
+    width:auto;
+    padding-left:10px;
+    padding-right:10px;
+  }
+}
+@media (max-width:390px) {
+  .map-switch-trip-label { display:inline; }
+  .map-toolbar .map-switch-trip-button { width:auto; padding-left:8px; padding-right:8px; }
+}
