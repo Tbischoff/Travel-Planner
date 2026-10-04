@@ -3932,7 +3932,12 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 .trip-sort-toggle { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:4px; border-radius:12px; background:rgba(47,98,93,.07); }
 .trip-sort-button { border:0; border-radius:9px; padding:9px 10px; background:transparent; color:#52615e; font:inherit; font-size:.86rem; font-weight:750; cursor:pointer; }
 .trip-sort-button.is-active { background:#fff; color:#2f625d; box-shadow:0 2px 8px rgba(31,48,45,.09); }
-.trip-order-controls { display:flex; gap:3px; margin-right:auto; }
-.trip-order-button { width:34px; height:32px; border:1px solid rgba(47,98,93,.2); border-radius:9px; background:#fff; color:#2f625d; font:inherit; font-weight:900; cursor:pointer; }
-.trip-order-button:hover:not(:disabled) { background:rgba(47,98,93,.08); }
-.trip-order-button:disabled { opacity:.3; cursor:default; }
+/* v1.58.1 · Drag & Drop wie in der Tagesplanung */
+.trip-selection-row[data-trip-id] { position:relative; padding-left:38px; }
+.trip-drag-handle { position:absolute; left:0; top:15px; width:32px; height:44px; border:0; border-radius:10px; background:transparent; color:#6d7b78; font:inherit; font-size:1.2rem; font-weight:900; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+.trip-drag-handle:active { cursor:grabbing; background:rgba(47,98,93,.08); }
+.trip-drag-placeholder { opacity:.28; }
+.trip-selection-dragging { user-select:none; -webkit-user-select:none; overflow:hidden; }
+.trip-drag-ghost { position:fixed; z-index:10020; pointer-events:none; margin:0; opacity:.94; transform-origin:center; filter:drop-shadow(0 14px 24px rgba(31,48,45,.2)); transition:opacity .12s ease; }
+.trip-drag-ghost .trip-drag-handle { cursor:grabbing; }
+.trip-drag-ghost-out { opacity:0; }
