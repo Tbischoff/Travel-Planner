@@ -4411,3 +4411,21 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   background:rgba(20,35,33,.32);
   pointer-events:none;
 }
+
+
+/* v1.63.15 · Separator hinter Reiseziel zuverlässig sichtbar */
+.map-toolbar .map-add-button {
+  position:relative;
+}
+.map-toolbar .map-add-button::before {
+  display:block !important;
+  content:"";
+  position:absolute;
+  left:0;
+  top:27%;
+  bottom:27%;
+  width:1px;
+  background:rgba(20,35,33,.32);
+  pointer-events:none;
+  z-index:3;
+}
