@@ -1571,7 +1571,7 @@ function updateAccommodationFields() {
   }
 }
 
-function initGooglePlaceAutocomplete() {
+async function initGooglePlaceAutocomplete() {
   const host = document.getElementById("googlePlaceAutocomplete");
   if (!host || googlePlaceAutocompleteElement) return;
 
