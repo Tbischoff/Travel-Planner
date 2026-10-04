@@ -1,13 +1,13 @@
-const APP_VERSION = "v1.59.0";
-const CACHE_NAME = "travel-planner-v1.59.0";
+const APP_VERSION = "v1.59.1";
+const CACHE_NAME = "travel-planner-v1.59.1";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./assets/css/style.css?v=1.59.0",
-  "./assets/js/app.js?v=1.59.0",
+  "./assets/css/style.css?v=1.59.1",
+  "./assets/js/app.js?v=1.59.1",
   "./data/places.js",
   "./assets/icons/favicon.svg",
-  "./manifest.webmanifest?v=1.59.0"
+  "./manifest.webmanifest?v=1.59.1"
 ];
 const OPTIONAL_EXTERNAL = [
   "https://cdn.jsdelivr.net/npm/maplibre-gl@5.11.0/dist/maplibre-gl.css",
@@ -63,7 +63,11 @@ self.addEventListener("fetch", event => {
     return;
   }
 
-  if (url.origin === self.location.origin || url.hostname === "cdn.jsdelivr.net") {
+  if (
+    url.origin === self.location.origin ||
+    url.hostname === "cdn.jsdelivr.net" ||
+    (url.hostname === "protomaps.github.io" && url.pathname.startsWith("/basemaps-assets/fonts/"))
+  ) {
     event.respondWith((async () => {
       const cached = await caches.match(request);
       if (cached) return cached;
