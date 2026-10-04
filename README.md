@@ -14,13 +14,23 @@ Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner 
 - **Backup:** Supabase-Reisebackup pro Reise; alte v1-Backups bleiben aus Kompatibilitätsgründen importierbar.
 - **Daten:** Supabase-Synchronisation mit RLS und reisebezogener Datentrennung.
 
-## Übergang zu Travel Planner 2.0
+## Travel Planner 2.0
 
-v1.63.18 ist die letzte Aufräum- und Vorbereitungsversion vor v2.0.0. Die Anwendung ist vollständig auf Multi-Trip-Betrieb ausgelegt; historische Budapest-spezifische Laufzeit-Fallbacks sind entfernt. Alte Backup-Dateien mit der Kennung „Budapest Map“ bleiben ausschließlich aus Kompatibilitätsgründen lesbar.
+Mit v2.0.0 ist die frühere reisespezifische Anwendung vollständig zum Multi-Trip Travel Planner geworden. Reisen, Mitglieder, Rollen, Orte, Aktivitäten, Unterkünfte, Tagesplanung und Offline-Daten werden reisebezogen verwaltet. Benutzerkonten unterstützen Einladung, Passwort-Reset und Kontoverwaltung; globale Administratoren können Benutzer verwalten.
 
-Die 2.0-Vorbereitung umfasst außerdem Benutzerkonten mit Einladungs- und Passwort-Reset-Ablauf, globale App-Administration, reisebezogene Owner-/Editor-/Viewer-Rollen, Offline-Reisemodus und die gehärtete Rechteprüfung für Reiseinhalte.
-
+Historische Backup-Daten bleiben soweit vorgesehen aus Kompatibilitätsgründen lesbar.
 ## Version
+
+### v2.0.0 – Multi-Trip Release
+- Vollständige Multi-Trip-Architektur mit Reiseauswahl und Reiseverwaltung.
+- Rollen pro Reise: Owner, Editor und Viewer.
+- Benutzerkonten, Einladungen, Passwort-Reset und Kontoverwaltung.
+- Globale Benutzerverwaltung für App-Administratoren.
+- Reisebezogene Orte, Aktivitäten, Unterkünfte und Tagesplanung.
+- Offline-Reisemodus und reisebezogene Offline-Karten.
+- Überarbeiteter App-Update-Workflow.
+- RLS-Hardening für Reise- und Ortszugriffe.
+
 
 ### v1.63.18 – Vorbereitung auf v2.0.0
 - Dokumentation und Versionsreferenzen aktualisiert.
