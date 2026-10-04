@@ -4429,3 +4429,45 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   pointer-events:none;
   z-index:3;
 }
+
+
+/* v1.63.16 · Desktop-Header reparieren & Reiseziel sauber beidseitig trennen */
+.map-toolbar #destinationBtn {
+  position:relative;
+}
+.map-toolbar #destinationBtn::after {
+  content:"";
+  position:absolute;
+  right:0;
+  top:27%;
+  bottom:27%;
+  width:1px;
+  background:rgba(20,35,33,.32);
+  pointer-events:none;
+  z-index:3;
+}
+.map-toolbar .map-add-button::before {
+  display:none !important;
+  content:none !important;
+}
+@media (min-width:821px) {
+  .sidebar-header #switchTripButton {
+    display:none;
+  }
+  .sidebar-header {
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    align-items:start;
+    column-gap:18px;
+  }
+  .sidebar-header > div:first-child {
+    min-width:0;
+  }
+  .sidebar-header .account-actions {
+    margin-left:0;
+    justify-self:end;
+  }
+  .sidebar-header .session-actions {
+    flex:0 0 auto;
+  }
+}
