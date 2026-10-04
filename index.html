@@ -9,12 +9,12 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.11.0/dist/maplibre-gl.css" />
   <meta name="theme-color" content="#2f625d" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="stylesheet" href="assets/css/style.css?v=1.63.0" />
+  <link rel="stylesheet" href="assets/css/style.css?v=1.63.1" />
 </head>
 <body>
   <div id="authGate" class="auth-gate">
     <form id="loginForm" class="auth-card">
-      <div class="eyebrow">Travel Planner · <span id="loginVersion">v1.63.0</span></div>
+      <div class="eyebrow">Travel Planner · <span id="loginVersion">v1.63.1</span></div>
       <h1>Travel Planner</h1>
       <p>Bitte anmelden, um den gemeinsamen Reisestand zu laden.</p>
       <label class="form-field"><span>E-Mail</span><input id="loginEmail" type="email" autocomplete="username" required></label>
@@ -24,7 +24,7 @@
       <div id="loginMessage" class="form-message" aria-live="polite"></div>
     </form>
     <form id="passwordSetupForm" class="auth-card is-hidden">
-      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.0</span></div>
+      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.1</span></div>
       <h1 id="passwordSetupTitle">Konto einrichten</h1>
       <p id="passwordSetupText">Lege jetzt dein persönliches Passwort für den Travel Planner fest.</p>
       <label class="form-field"><span>Neues Passwort</span><input id="newPassword" type="password" autocomplete="new-password" minlength="8" required></label>
@@ -33,7 +33,7 @@
       <div id="passwordSetupMessage" class="form-message" aria-live="polite"></div>
     </form>
     <form id="passwordResetRequestForm" class="auth-card is-hidden">
-      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.0</span></div>
+      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.1</span></div>
       <h1>Passwort zurücksetzen</h1>
       <p>Gib deine E-Mail-Adresse ein. Du erhältst anschließend einen Link zum Festlegen eines neuen Passworts.</p>
       <label class="form-field"><span>E-Mail</span><input id="passwordResetEmail" type="email" autocomplete="email" required></label>
@@ -42,7 +42,7 @@
       <div id="passwordResetRequestMessage" class="form-message" aria-live="polite"></div>
     </form>
     <section id="tripSelection" class="auth-card trip-selection is-hidden" aria-labelledby="tripSelectionTitle">
-      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.0</span></div>
+      <div class="eyebrow">Travel Planner · <span class="app-version">v1.63.1</span></div>
       <h1 id="tripSelectionTitle">Meine Reisen</h1>
       <p>Wähle die Reise aus, die du öffnen möchtest.</p>
       <button id="createTripButton" class="primary-button trip-create-button" type="button">＋ Neue Reise</button>
@@ -58,7 +58,7 @@
       <div id="tripSelectionMessage" class="form-message" aria-live="polite"></div>
       <div class="trip-selection-update">
         <button id="tripSelectionUpdateBtn" data-check-app-update class="secondary-button" type="button">↻ App aktualisieren</button>
-        <small data-app-update-status>Installiert: v1.63.0</small>
+        <small data-app-update-status>Installiert: v1.63.1</small>
       </div>
       <div class="trip-selection-account-actions">
         <button id="tripSelectionAccount" class="text-button" type="button">👤 Mein Konto</button>
@@ -78,44 +78,6 @@
           <button id="tripMemberAddButton" class="primary-button" type="submit">Mitglied hinzufügen</button>
         </form>
         <div id="tripMembersMessage" class="form-message" aria-live="polite"></div>
-      </div>
-    </dialog>
-
-    <dialog id="accountDialog" class="trip-editor-dialog account-dialog">
-      <div class="trip-editor-form">
-        <div class="trip-editor-heading">
-          <div><div class="eyebrow">Benutzerkonto</div><h2>Mein Konto</h2></div>
-          <button id="accountClose" class="text-button" type="button" aria-label="Schließen">✕</button>
-        </div>
-        <section class="account-section">
-          <h3>Profil</h3>
-          <div class="account-email"><span>E-Mail</span><strong id="accountEmail">–</strong></div>
-          <form id="profileForm" class="account-form">
-            <label>Benutzername<input id="accountUsername" type="text" minlength="2" maxlength="50" required></label>
-            <button id="profileSaveButton" class="primary-button" type="submit">Benutzername speichern</button>
-          </form>
-          <div id="profileMessage" class="form-message" aria-live="polite"></div>
-        </section>
-        <section class="account-section">
-          <h3>Passwort ändern</h3>
-          <form id="accountPasswordForm" class="account-form">
-            <label>Neues Passwort<input id="accountNewPassword" type="password" autocomplete="new-password" minlength="8" required></label>
-            <label>Passwort wiederholen<input id="accountNewPasswordRepeat" type="password" autocomplete="new-password" minlength="8" required></label>
-            <button id="accountPasswordButton" class="primary-button" type="submit">Passwort ändern</button>
-          </form>
-          <div id="accountPasswordMessage" class="form-message" aria-live="polite"></div>
-        </section>
-        <section id="adminUsersSection" class="account-section admin-users-section is-hidden">
-          <div class="admin-users-heading"><div><div class="eyebrow">Administration</div><h3>Benutzerverwaltung</h3></div><button id="adminUsersRefresh" class="text-button" type="button">↻ Aktualisieren</button></div>
-          <form id="adminInviteForm" class="admin-invite-form">
-            <label>Benutzername<input id="adminInviteUsername" type="text" minlength="2" maxlength="50" required></label>
-            <label>E-Mail<input id="adminInviteEmail" type="email" required></label>
-            <button id="adminInviteButton" class="primary-button" type="submit">Benutzer einladen</button>
-          </form>
-          <div id="adminInviteMessage" class="form-message" aria-live="polite"></div>
-          <div id="adminUsersList" class="admin-users-list"></div>
-          <div id="adminUsersMessage" class="form-message" aria-live="polite"></div>
-        </section>
       </div>
     </dialog>
 
@@ -143,6 +105,44 @@
       </form>
     </dialog>
   </div>
+  <dialog id="accountDialog" class="trip-editor-dialog account-dialog">
+    <div class="trip-editor-form">
+      <div class="trip-editor-heading">
+        <div><div class="eyebrow">Benutzerkonto</div><h2>Mein Konto</h2></div>
+        <button id="accountClose" class="text-button" type="button" aria-label="Schließen">✕</button>
+      </div>
+      <section class="account-section">
+        <h3>Profil</h3>
+        <div class="account-email"><span>E-Mail</span><strong id="accountEmail">–</strong></div>
+        <form id="profileForm" class="account-form">
+          <label>Benutzername<input id="accountUsername" type="text" minlength="2" maxlength="50" required></label>
+          <button id="profileSaveButton" class="primary-button" type="submit">Benutzername speichern</button>
+        </form>
+        <div id="profileMessage" class="form-message" aria-live="polite"></div>
+      </section>
+      <section class="account-section">
+        <h3>Passwort ändern</h3>
+        <form id="accountPasswordForm" class="account-form">
+          <label>Neues Passwort<input id="accountNewPassword" type="password" autocomplete="new-password" minlength="8" required></label>
+          <label>Passwort wiederholen<input id="accountNewPasswordRepeat" type="password" autocomplete="new-password" minlength="8" required></label>
+          <button id="accountPasswordButton" class="primary-button" type="submit">Passwort ändern</button>
+        </form>
+        <div id="accountPasswordMessage" class="form-message" aria-live="polite"></div>
+      </section>
+      <section id="adminUsersSection" class="account-section admin-users-section is-hidden">
+        <div class="admin-users-heading"><div><div class="eyebrow">Administration</div><h3>Benutzerverwaltung</h3></div><button id="adminUsersRefresh" class="text-button" type="button">↻ Aktualisieren</button></div>
+        <form id="adminInviteForm" class="admin-invite-form">
+          <label>Benutzername<input id="adminInviteUsername" type="text" minlength="2" maxlength="50" required></label>
+          <label>E-Mail<input id="adminInviteEmail" type="email" required></label>
+          <button id="adminInviteButton" class="primary-button" type="submit">Benutzer einladen</button>
+        </form>
+        <div id="adminInviteMessage" class="form-message" aria-live="polite"></div>
+        <div id="adminUsersList" class="admin-users-list"></div>
+        <div id="adminUsersMessage" class="form-message" aria-live="polite"></div>
+      </section>
+    </div>
+  </dialog>
+
   <div class="app-shell">
     <aside class="sidebar" aria-label="Reiseplanung">
       <div class="mobile-sheet-handle mobile-only" aria-hidden="true"></div>
@@ -150,7 +150,7 @@
         <div>
           <div class="eyebrow" data-trip-eyebrow>Reise</div>
           <h1 data-trip-name>Travel Planner</h1>
-        <div class="mobile-header-meta"><div class="app-version">v1.63.0</div><div class="app-connectivity" data-app-connectivity>🟢 Online</div></div>
+        <div class="mobile-header-meta"><div class="app-version">v1.63.1</div><div class="app-connectivity" data-app-connectivity>🟢 Online</div></div>
         </div>
         <div class="account-actions">
           <button id="switchTripButton" class="text-button" type="button">Reise wechseln</button>
@@ -295,7 +295,7 @@
           <h3>🔄 App aktualisieren</h3>
           <p class="form-hint">Prüft, ob eine neuere Version des Travel Planners verfügbar ist.</p>
           <button id="toolsCheckAppUpdateBtn" data-check-app-update class="secondary-button" type="button">🔎 Nach Updates suchen</button>
-          <div id="appUpdateStatus" class="app-update-status">Installiert: v1.63.0</div>
+          <div id="appUpdateStatus" class="app-update-status">Installiert: v1.63.1</div>
         </div>
         <div class="tools-card backup-section">
           <h3>💾 Datensicherung</h3>
@@ -553,7 +553,7 @@
   
   <script src="data/places.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@googlemaps/markerclusterer@2.6.2/dist/index.min.js"></script>
-  <script src="assets/js/app.js?v=1.63.0"></script>
+  <script src="assets/js/app.js?v=1.63.1"></script>
   <div id="appUpdateBanner" class="app-update-banner" hidden role="status" aria-live="polite">
     <div><strong>Neue App-Version verfügbar</strong><span>Die Aktualisierung ist bereit.</span></div>
     <button id="applyAppUpdateBtn" type="button">Jetzt aktualisieren</button>
