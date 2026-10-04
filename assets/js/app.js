@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.61.3";
+const APP_VERSION = "v1.61.4";
 
 
 function syncVersionLabels() {
@@ -9092,11 +9092,11 @@ async function checkForAppUpdate({ manual = false } = {}) {
       return;
     }
     appUpdateRegistration = registration;
-    if (manual && status) status.textContent = "Suche nach neuer Version …";
+    if (manual) setAppUpdateStatus("Suche nach neuer Version …");
     await registration.update();
     if (registration.waiting && await showAppUpdateAvailable(registration)) return;
     hideAppUpdateAvailable();
-    if (manual && status) status.textContent = `Installiert: ${APP_VERSION} · keine neuere Version gefunden.`;
+    if (manual) setAppUpdateStatus(`Installiert: ${APP_VERSION} · keine neuere Version gefunden.`);
   } catch (error) {
     console.warn("Update-Prüfung:", error);
     setAppUpdateStatus("Update-Prüfung fehlgeschlagen. Bitte später erneut versuchen.");
