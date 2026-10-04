@@ -1,55 +1,61 @@
 # Projektstruktur
 
-Die Anwendung ist weiterhin eine statische GitHub-Pages-Webanwendung.
+Der Travel Planner ist eine installierbare Multi-Trip-PWA. Die produktive Anwendung wird über Cloudflare Pages ausgeliefert. Authentifizierung sowie Benutzer-, Reise- und Planungsdaten liegen in Supabase.
 
 ## Root
 
 ### `index.html`
-Einziger Einstiegspunkt der Anwendung. Verlinkt CSS, Daten und JavaScript aus den Unterordnern.
+Einstiegspunkt und Oberflächenstruktur der Anwendung.
+
+### `sw.js`
+Service Worker für App-Shell, Offline-Verfügbarkeit und Versionswechsel.
+
+### `manifest.webmanifest`
+PWA-Metadaten für Installation und Darstellung.
 
 ### `README.md`
-Projektübersicht und Bedien-/Entwicklungsdokumentation.
+Projektübersicht und Versionshistorie.
+
+### `_headers`
+HTTP-Sicherheits- und Cache-Header für das Deployment.
 
 ## `assets/`
 
-Statische Ressourcen der Benutzeroberfläche.
-
 ### `assets/css/style.css`
-Komplettes Styling der Anwendung.
+Styling für Desktop- und Mobilansicht.
 
 ### `assets/js/app.js`
-Anwendungslogik:
-- Google Maps
-- Marker
-- Filter
-- Tagesplanung
-- Reihenfolge
-- Uhrzeiten
-- Standort und Entfernung
-- Tagesroute
-- lokaler UI-Zustand für die Reiseplanung
-- Supabase-Synchronisierung und eigene Orte
+Zentrale Anwendungslogik, darunter:
+- Authentifizierung, Einladung und Passwort-Reset
+- Konto- und Benutzerverwaltung
+- Reiseauswahl und Multi-Trip-Verwaltung
+- Owner-/Editor-/Viewer-Rollen
+- Orte, Kategorien und Google Places
+- Tagesplanung, Aktivitäten und Unterkünfte
+- Navigation, Routen und ÖPNV-Unterstützung
+- Wetter
+- Backup und Offline-Reisemodus
+- App-Update-Mechanismus
 
-### `assets/icons/favicon.svg`
-Browser-/Tab-Icon.
+### `assets/icons/`
+PWA- und Browser-Icons.
+
+### `assets/maps/`
+Ressourcen für die Offline-Kartendarstellung.
 
 ## `data/`
 
-Daten der Anwendung.
-
 ### `data/places.js`
-Enthält nur noch öffentliche Metadaten und `tryInBudapest`. Die eigentlichen Orte werden nach erfolgreicher Anmeldung aus Supabase geladen.
-
-Die frühere Datei `data/places.json` wurde entfernt. Sie war nach der Supabase-Migration ungenutzt und hätte veraltete Ortsdaten öffentlich über GitHub Pages ausgeliefert.
+Öffentliche Kompatibilitäts- und Metadaten. Produktive Reise- und Ortsdaten werden aus Supabase geladen.
 
 ## `docs/`
+Aktuelle technische Dokumentation, insbesondere zur Einrichtung externer Dienste.
 
-Technische Dokumentation und Abnahmetests.
+## `.github/workflows/`
 
-### `docs/tests/`
-Versionierte Test-/Abnahmebeschreibungen.
+### `build-offline-map.yml`
+Erzeugt reisebezogene PMTiles-Kartenpakete und legt sie in Supabase Storage ab. Zugangsdaten werden über GitHub Secrets bereitgestellt.
 
-## Warum diese Struktur?
+## Sicherheitsmodell
 
-Code, Styling, Daten, Icons und Dokumentation sind voneinander getrennt. Das macht spätere
-Erweiterungen wie Datenbank, mobile Oberfläche oder PWA deutlich übersichtlicher.
+Supabase Row Level Security schützt Reise- und Ortsdaten. Reisemitglieder dürfen freigegebene Daten lesen; schreibende Zugriffe richten sich nach der jeweiligen Owner-/Editor-/Viewer-Rolle. Administrative Benutzerverwaltung erfolgt serverseitig und verwendet keine privilegierten Schlüssel im Frontend.
