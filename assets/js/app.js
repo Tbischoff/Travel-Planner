@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.59.1";
+const APP_VERSION = "v1.59.2";
 
 
 function syncVersionLabels() {
@@ -274,11 +274,22 @@ function requestStartupLocation() {
 async function bootstrapAuth() {
   try {
     // Ein vorbereiteter Offline-Trip darf nicht von Supabase-Auth abhängen.
-    if (navigator.onLine === false && loadOfflineTripSnapshot()) {
-      currentUser = { id: "offline", email: "offline@local" };
-      document.getElementById("authGate").classList.add("is-hidden");
-      await bootstrap();
-      return;
+    // Beim Kaltstart existiert currentTripId noch nicht. Deshalb den zuletzt
+    // gewählten Trip explizit wiederherstellen, bevor der Snapshot geladen wird.
+    if (navigator.onLine === false) {
+      const offlineTripId = getLastTripId();
+      const snapshot = offlineTripId ? loadOfflineTripSnapshot(offlineTripId) : null;
+      if (snapshot) {
+        currentUser = { id: "offline", email: "offline@local" };
+        currentTripId = snapshot.currentTripId || offlineTripId;
+        currentTrip = snapshot.currentTrip || null;
+        currentTripDays = snapshot.currentTripDays || [];
+        state = loadState();
+        document.getElementById("authGate").classList.add("is-hidden");
+        applyCurrentTripContext();
+        await bootstrap();
+        return;
+      }
     }
     if (!window.supabase?.createClient) throw new Error("Supabase-Bibliothek konnte nicht geladen werden.");
     supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.publishableKey);
