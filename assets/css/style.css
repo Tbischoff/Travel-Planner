@@ -4486,3 +4486,15 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   position:sticky;
   top:0;
 }
+
+
+/* v2.0.0 · Reisemitglieder per Benutzername auswählen */
+.trip-member-add-form select {
+  width:100%;
+  box-sizing:border-box;
+  padding:11px 12px;
+  border:1px solid rgba(47,98,93,.25);
+  border-radius:10px;
+  font:inherit;
+  background:#fff;
+}
