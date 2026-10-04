@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.61.4";
+const APP_VERSION = "v1.62.0";
 
 
 function syncVersionLabels() {
@@ -15,6 +15,19 @@ const SUPABASE_CONFIG = {
 };
 let supabaseClient = null;
 let currentUser = null;
+let pendingAuthFlow = null;
+
+function detectAuthFlowFromUrl() {
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const type = search.get("type") || hash.get("type");
+  return type === "invite" || type === "recovery" ? type : null;
+}
+
+function cleanAuthUrl() {
+  if (!window.history?.replaceState) return;
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
 let currentTripId = null;
 let currentTrip = null;
 let availableTrips = [];
@@ -294,7 +307,12 @@ async function bootstrapAuth() {
     if (!window.supabase?.createClient) throw new Error("Supabase-Bibliothek konnte nicht geladen werden.");
     supabaseClient = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.publishableKey);
 
+    pendingAuthFlow = detectAuthFlowFromUrl();
     document.getElementById("loginForm").addEventListener("submit", handleLogin);
+    document.getElementById("forgotPasswordButton")?.addEventListener("click", showPasswordResetRequest);
+    document.getElementById("passwordResetBackButton")?.addEventListener("click", () => showLogin());
+    document.getElementById("passwordResetRequestForm")?.addEventListener("submit", handlePasswordResetRequest);
+    document.getElementById("passwordSetupForm")?.addEventListener("submit", handlePasswordSetup);
     document.getElementById("logoutButton").addEventListener("click", handleLogout);
     document.getElementById("switchTripButton")?.addEventListener("click", handleSwitchTrip);
     document.getElementById("tripSelectionLogout")?.addEventListener("click", handleLogout);
@@ -314,7 +332,9 @@ async function bootstrapAuth() {
 
     if (session?.user) {
       currentUser = session.user;
-      if (sessionStorage.getItem("travelPlannerShowTripSelection") === "1") {
+      if (pendingAuthFlow) {
+        showPasswordSetup(pendingAuthFlow);
+      } else if (sessionStorage.getItem("travelPlannerShowTripSelection") === "1") {
         sessionStorage.removeItem("travelPlannerShowTripSelection");
         await showTripSelection();
       } else {
@@ -325,12 +345,26 @@ async function bootstrapAuth() {
     }
 
     supabaseClient.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_OUT") showLogin();
+      if (event === "SIGNED_OUT") {
+        showLogin();
+        return;
+      }
+      if (event === "PASSWORD_RECOVERY" && session?.user) {
+        currentUser = session.user;
+        pendingAuthFlow = "recovery";
+        showPasswordSetup("recovery");
+      }
     });
   } catch (error) {
     console.error(error);
     showLogin(error.message);
   }
+}
+
+function hideAuthCards() {
+  ["loginForm", "passwordSetupForm", "passwordResetRequestForm", "tripSelection"].forEach(id => {
+    document.getElementById(id)?.classList.add("is-hidden");
+  });
 }
 
 function showLogin(message = "") {
@@ -339,9 +373,91 @@ function showLogin(message = "") {
   currentTrip = null;
   availableTrips = [];
   document.getElementById("authGate").classList.remove("is-hidden");
+  hideAuthCards();
   document.getElementById("loginForm")?.classList.remove("is-hidden");
-  document.getElementById("tripSelection")?.classList.add("is-hidden");
   document.getElementById("loginMessage").textContent = message;
+}
+
+function showPasswordResetRequest() {
+  document.getElementById("authGate").classList.remove("is-hidden");
+  hideAuthCards();
+  document.getElementById("passwordResetRequestForm")?.classList.remove("is-hidden");
+  const email = document.getElementById("loginEmail")?.value?.trim() || "";
+  const resetEmail = document.getElementById("passwordResetEmail");
+  if (resetEmail) resetEmail.value = email;
+  const message = document.getElementById("passwordResetRequestMessage");
+  if (message) message.textContent = "";
+  window.setTimeout(() => resetEmail?.focus(), 20);
+}
+
+function showPasswordSetup(flow = "invite") {
+  document.getElementById("authGate").classList.remove("is-hidden");
+  hideAuthCards();
+  document.getElementById("passwordSetupForm")?.classList.remove("is-hidden");
+  const isRecovery = flow === "recovery";
+  document.getElementById("passwordSetupTitle").textContent = isRecovery ? "Neues Passwort festlegen" : "Konto einrichten";
+  document.getElementById("passwordSetupText").textContent = isRecovery
+    ? "Lege jetzt ein neues Passwort für dein Travel-Planner-Konto fest."
+    : "Willkommen beim Travel Planner! Lege jetzt dein persönliches Passwort fest.";
+  document.getElementById("passwordSetupButton").textContent = isRecovery ? "Passwort ändern" : "Konto einrichten";
+  document.getElementById("passwordSetupMessage").textContent = "";
+  document.getElementById("newPassword").value = "";
+  document.getElementById("newPasswordRepeat").value = "";
+  window.setTimeout(() => document.getElementById("newPassword")?.focus(), 20);
+}
+
+async function handlePasswordResetRequest(event) {
+  event.preventDefault();
+  const email = document.getElementById("passwordResetEmail").value.trim();
+  const button = document.getElementById("passwordResetRequestButton");
+  const message = document.getElementById("passwordResetRequestMessage");
+  button.disabled = true;
+  message.textContent = "Reset-Link wird versendet …";
+  try {
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+      redirectTo: "https://trip-planner-smart.pages.dev/"
+    });
+    if (error) throw error;
+    message.textContent = "Wenn ein Konto mit dieser E-Mail-Adresse existiert, wurde ein Reset-Link versendet.";
+  } catch (error) {
+    console.error("Passwort-Reset:", error);
+    message.textContent = `Reset-Link konnte nicht versendet werden: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function handlePasswordSetup(event) {
+  event.preventDefault();
+  const password = document.getElementById("newPassword").value;
+  const repeat = document.getElementById("newPasswordRepeat").value;
+  const button = document.getElementById("passwordSetupButton");
+  const message = document.getElementById("passwordSetupMessage");
+
+  if (password.length < 8) {
+    message.textContent = "Das Passwort muss mindestens 8 Zeichen lang sein.";
+    return;
+  }
+  if (password !== repeat) {
+    message.textContent = "Die beiden Passwörter stimmen nicht überein.";
+    return;
+  }
+
+  button.disabled = true;
+  message.textContent = "Passwort wird gespeichert …";
+  try {
+    const { data, error } = await supabaseClient.auth.updateUser({ password });
+    if (error) throw error;
+    pendingAuthFlow = null;
+    cleanAuthUrl();
+    message.textContent = "Passwort gespeichert. Dein Konto ist eingerichtet.";
+    await enterAuthenticatedApp(data.user || currentUser);
+  } catch (error) {
+    console.error("Passwort festlegen:", error);
+    message.textContent = `Passwort konnte nicht gespeichert werden: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function formatTripSelectionDate(value) {
