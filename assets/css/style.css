@@ -4287,3 +4287,26 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
     align-self:start;
   }
 }
+
+
+/* v1.63.8 · Trennung Kartenaktionen & kompakter Reiseheader */
+.map-toolbar > .map-toolbar-button + .map-toolbar-button::before {
+  content:"";
+  position:absolute;
+  left:-3px;
+  top:18%;
+  bottom:18%;
+  width:1px;
+  background:rgba(47,98,93,.24);
+  z-index:2;
+  pointer-events:none;
+}
+@media (max-width:820px) {
+  .sidebar-header {
+    border-bottom:0;
+  }
+  .sidebar-header::after {
+    display:none;
+    content:none;
+  }
+}
