@@ -1945,7 +1945,7 @@ h2 {
 }
 
 
-/* v1.5.0 – trip-specific "In Budapest probieren" */
+/* v1.5.0 – trip-specific "Probieren"-Liste */
 .try-summary { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; font-size:12px; }
 .compact-button { width:auto; padding:7px 9px; white-space:nowrap; }
 .try-progress { height:6px; overflow:hidden; border-radius:999px; background:var(--surface-soft); margin-bottom:8px; }
