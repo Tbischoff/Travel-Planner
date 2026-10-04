@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.63.1";
+const APP_VERSION = "v1.63.2";
 
 
 function syncVersionLabels() {
@@ -315,6 +315,7 @@ async function bootstrapAuth() {
     document.getElementById("passwordSetupForm")?.addEventListener("submit", handlePasswordSetup);
     document.getElementById("logoutButton").addEventListener("click", handleLogout);
     document.getElementById("switchTripButton")?.addEventListener("click", handleSwitchTrip);
+    document.getElementById("switchTripMapButton")?.addEventListener("click", handleSwitchTrip);
     document.getElementById("tripSelectionLogout")?.addEventListener("click", handleLogout);
     document.getElementById("tripSelectionAccount")?.addEventListener("click", openAccountDialog);
     document.getElementById("accountButton")?.addEventListener("click", openAccountDialog);
