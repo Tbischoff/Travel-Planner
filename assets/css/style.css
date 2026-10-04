@@ -3924,3 +3924,15 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 .trip-role-badge.role-viewer { background: rgba(100, 112, 108, .12); color: #596460; }
 .trip-role-badge.role-unknown,
 .trip-role-badge.is-loading { background: rgba(100, 112, 108, .08); color: #77807d; }
+
+/* v1.58.0 · Sortierung der Reiseauswahl */
+.trip-sort-controls { display:grid; gap:7px; margin:14px 0 2px; }
+.trip-sort-controls > span { font-size:.82rem; font-weight:800; color:#52615e; }
+.trip-sort-controls > small { color:#77807d; font-size:.78rem; }
+.trip-sort-toggle { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding:4px; border-radius:12px; background:rgba(47,98,93,.07); }
+.trip-sort-button { border:0; border-radius:9px; padding:9px 10px; background:transparent; color:#52615e; font:inherit; font-size:.86rem; font-weight:750; cursor:pointer; }
+.trip-sort-button.is-active { background:#fff; color:#2f625d; box-shadow:0 2px 8px rgba(31,48,45,.09); }
+.trip-order-controls { display:flex; gap:3px; margin-right:auto; }
+.trip-order-button { width:34px; height:32px; border:1px solid rgba(47,98,93,.2); border-radius:9px; background:#fff; color:#2f625d; font:inherit; font-weight:900; cursor:pointer; }
+.trip-order-button:hover:not(:disabled) { background:rgba(47,98,93,.08); }
+.trip-order-button:disabled { opacity:.3; cursor:default; }
