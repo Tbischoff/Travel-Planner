@@ -1,16 +1,22 @@
-# Travel Planner v1.49.1
+# Travel Planner v1.56.0
 
-Mobile Reise-PWA für die Budapest-Reise vom **03.–07.10.2026**. Die App verbindet Reiseplanung, gespeicherte Orte, Aktivitäten, Wetter, Öffnungszeiten, Tagesrouten, Live-Fußnavigation und Offline-Funktionen in einer Oberfläche.
+Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner verbindet Reiseauswahl und Mitgliederrollen mit Karten, Orten, Aktivitäten, Tagesplanung, Wetter, Navigation, ÖPNV-Unterstützung, Backups und reisespezifischen Offline-Daten.
 
 ## Aktueller Funktionsumfang
 
-- **Karte:** Google Maps online, Budapest-Offline-Karte mit MapLibre/PMTiles, Marker für Orte und Aktivitäten, eigener Standort und Kartenaktionen.
-- **Heute:** „Was jetzt?“, freie Zeit sinnvoll nutzen, Orte in der Nähe, Tagesfortschritt, Wetter und relevante Machbarkeitswarnungen.
-- **Plan:** Reiseübersicht, fünf Reisetage, offene Orte, gemeinsame Timeline aus Orten und Aktivitäten, Gehzeit-Schätzungen, Öffnungszeiten, Wetter und Machbarkeitsprüfung.
-- **Orte:** Suche, Kategorien, eigene Orte, Local-Tipps, Planung, Besuchsstatus und Entfernung im Großraum Budapest.
-- **Navigation:** In-App-Fußnavigation mit Tagesstopps, GPS-Follow, Kartenrotation, Rerouting, Zeitplanhinweisen, Pause/Fortsetzen, Stopps überspringen, Wake Lock und Wiederaufnahme nach App-Wechsel.
-- **Offline/PWA:** installierbare PWA, Offline-Reise-Snapshot, Budapest-Karte, Tagesrouten, Wetterstand und Offline-Start ohne Supabase/Google Maps.
-- **Daten:** Supabase-Synchronisation für Orte, Reiseplanung und Aktivitäten.
+- **Multi-Trip:** beliebig viele Reisen mit eigenem Reiseziel und Zeitraum; Auswahl über „Meine Reisen“.
+- **Zusammenarbeit:** Owner-, Editor- und Viewer-Rollen mit Mitgliederverwaltung.
+- **Karte & Orte:** dynamisches Reiseziel, Google Maps/Places, Kategorien, Local-Tipps, Besuchsstatus und Planung.
+- **Tagesplanung:** Orte und Aktivitäten je Reisetag, Zeitfenster, Reihenfolge und Machbarkeitsübersicht.
+- **Navigation:** Fuß- und ÖPNV-Unterstützung, Tagesrouten, GPS-Follow, Rerouting und Navigationsfortsetzung.
+- **Wetter:** aktuelle Bedingungen und Prognosen passend zum jeweiligen Reiseziel.
+- **Offline/PWA:** installierbare PWA, reisespezifische Offline-Snapshots, PMTiles-Karten, Tagesrouten und Wetterdaten.
+- **Backup:** Supabase-Reisebackup pro Reise; alte v1-Backups bleiben aus Kompatibilitätsgründen importierbar.
+- **Daten:** Supabase-Synchronisation mit RLS und reisebezogener Datentrennung.
+
+## Übergang zu Travel Planner 2.0
+
+Seit v1.56.0 enthält der laufende Betrieb keine Budapest-spezifischen LocalStorage-/Offline-Fallbacks mehr. Alte Backup-Dateien mit der historischen Kennung „Budapest Map“ bleiben bewusst lesbar. Die verbleibende 1.x-Reihe dient der Multi-Trip-Härtung vor v2.0.0.
 
 ## Version
 
