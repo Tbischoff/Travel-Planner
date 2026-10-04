@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v1.55.1";
+const APP_VERSION = "v1.56.0";
 
 
 function syncVersionLabels() {
@@ -183,22 +183,6 @@ function migrateTripScopedLocalStorage(tripId = currentTripId || getLastTripId()
   }
 }
 
-function migrateLegacyLocalStorage() {
-  const pairs = [
-    ["budapestActiveNavigation", LEGACY_NAV_SESSION_STORAGE_KEY],
-    ["budapestLastKnownLocation", LAST_LOCATION_STORAGE_KEY],
-
-    ["budapestMobilityModeV1", "travelPlannerMobilityModeV1"]
-  ];
-  for (const [legacyKey, newKey] of pairs) {
-    try {
-      if (localStorage.getItem(newKey) === null && localStorage.getItem(legacyKey) !== null) {
-        localStorage.setItem(newKey, localStorage.getItem(legacyKey));
-      }
-    } catch {}
-  }
-}
-migrateLegacyLocalStorage();
 const LAST_LOCATION_MAX_AGE_MS = 30 * 60 * 1000;
 const NAV_OFF_ROUTE_METERS = 45;
 const NAV_OFF_ROUTE_SAMPLES = 3;
@@ -2983,10 +2967,6 @@ function buildRouteRequestPoints(routeStops) {
   };
 }
 
-const LEGACY_OFFLINE_ROUTES_STORAGE_KEY = "budapestOfflineDayRoutesV1";
-const LEGACY_OFFLINE_TRIP_STORAGE_KEY = "budapestOfflineTripV1";
-const LEGACY_OFFLINE_WEATHER_STORAGE_KEY = "budapestOfflineWeatherV1";
-
 function tripScopedStorageKey(kind, tripId = currentTripId || getLastTripId()) {
   return tripId ? `travelPlanner:${kind}:${tripId}` : null;
 }
@@ -3019,25 +2999,13 @@ function saveOfflineTripSnapshot() {
 function loadOfflineTripSnapshot(tripId = currentTripId || getLastTripId()) {
   try {
     const key = offlineTripStorageKey(tripId);
-    if (key) {
-      const scoped = JSON.parse(localStorage.getItem(key) || "null");
-      if (scoped) return scoped;
-    }
-    // Einmalige Lesekompatibilität für den alten Budapest-Snapshot.
-    const legacy = JSON.parse(localStorage.getItem(LEGACY_OFFLINE_TRIP_STORAGE_KEY) || "null");
-    return legacy && (!tripId || legacy.currentTripId === tripId) ? legacy : null;
+    return key ? JSON.parse(localStorage.getItem(key) || "null") : null;
   } catch { return null; }
 }
 function loadOfflineWeatherSnapshot(tripId = currentTripId || getLastTripId()) {
   try {
     const key = offlineWeatherStorageKey(tripId);
-    if (key) {
-      const scoped = JSON.parse(localStorage.getItem(key) || "null");
-      if (scoped) return scoped;
-    }
-    const legacyTrip = loadOfflineTripSnapshot(tripId);
-    if (!legacyTrip || legacyTrip.currentTripId !== tripId) return null;
-    return JSON.parse(localStorage.getItem(LEGACY_OFFLINE_WEATHER_STORAGE_KEY) || "null");
+    return key ? JSON.parse(localStorage.getItem(key) || "null") : null;
   } catch { return null; }
 }
 function offlineSnapshotTime() {
@@ -3451,12 +3419,7 @@ function renderOfflineRouteOnMapLibre(cached) {
 function loadOfflineDayRoutes() {
   try {
     const key = offlineRoutesStorageKey();
-    if (!key) return {};
-    const scoped = JSON.parse(localStorage.getItem(key) || "null");
-    if (scoped) return scoped;
-    const legacyTrip = loadOfflineTripSnapshot();
-    if (legacyTrip?.currentTripId !== currentTripId) return {};
-    return JSON.parse(localStorage.getItem(LEGACY_OFFLINE_ROUTES_STORAGE_KEY) || "{}");
+    return key ? (JSON.parse(localStorage.getItem(key) || "null") || {}) : {};
   } catch { return {}; }
 }
 
@@ -7807,7 +7770,8 @@ async function exportBackup() {
 }
 
 function validateBackupPayload(payload) {
-  if (!payload || !["Budapest Map", "Travel Planner"].includes(payload.app)) {
+  const supportedAppNames = ["Travel Planner", "Budapest Map"]; // "Budapest Map" nur für alte v1-Backups.
+  if (!payload || !supportedAppNames.includes(payload.app)) {
     throw new Error("Die Datei ist kein unterstütztes Travel-Planner-Backup.");
   }
 
