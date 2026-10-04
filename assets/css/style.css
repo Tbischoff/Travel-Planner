@@ -4045,3 +4045,44 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .map-switch-trip-label { display:inline; }
   .map-toolbar .map-switch-trip-button { width:auto; padding-left:8px; padding-right:8px; }
 }
+
+
+/* v1.63.4 · Kompakte Kartenleiste & vollständige E-Mail */
+.account-dialog { width:min(700px, calc(100vw - 20px)); }
+.account-email strong {
+  white-space:nowrap;
+  overflow:visible;
+  font-size:clamp(.72rem, 3.35vw, 1rem);
+  letter-spacing:-.01em;
+}
+@media (max-width:820px) {
+  .map-toolbar {
+    width:max-content;
+    max-width:calc(100vw - 20px);
+    display:flex;
+    grid-template-columns:none;
+    gap:4px;
+  }
+  .map-toolbar .map-switch-trip-button {
+    flex:0 0 auto;
+    width:auto;
+    padding-left:10px;
+    padding-right:10px;
+    white-space:nowrap;
+  }
+  .map-toolbar #destinationBtn {
+    flex:0 1 auto;
+    width:auto;
+    min-width:0;
+    padding-left:10px;
+    padding-right:10px;
+  }
+  .map-toolbar .map-add-button {
+    flex:0 0 auto;
+  }
+}
+@media (max-width:390px) {
+  .map-switch-trip-label { display:inline; }
+  .map-toolbar .map-switch-trip-button { width:auto; padding-left:7px; padding-right:7px; }
+  .map-toolbar #destinationBtn { padding-left:7px; padding-right:7px; }
+}
