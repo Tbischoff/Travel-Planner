@@ -4310,3 +4310,20 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
     content:none;
   }
 }
+
+
+/* v1.63.9 · Sichtbare Abgrenzung der Kartenfunktionen */
+.map-toolbar {
+  gap:6px;
+}
+.map-toolbar > .map-toolbar-button {
+  border:1px solid rgba(20,35,33,.55);
+  border-radius:12px;
+}
+.map-toolbar > .map-toolbar-button + .map-toolbar-button::before {
+  display:none;
+  content:none;
+}
+.map-toolbar .map-add-button {
+  border-color:rgba(20,35,33,.7);
+}
