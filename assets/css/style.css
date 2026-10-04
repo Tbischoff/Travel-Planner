@@ -4136,3 +4136,79 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .sidebar-header .account-actions #switchTripButton { display:none; }
   .session-actions { margin-left:auto; }
 }
+
+
+/* v1.63.6 · Header-Aktionen klar gruppieren & E-Mail vollständig */
+.account-dialog {
+  width:min(760px, calc(100vw - 8px));
+}
+.account-dialog .trip-editor-form {
+  overflow-x:visible;
+}
+.account-email {
+  width:100%;
+  max-width:none;
+  overflow:visible;
+}
+.account-email strong {
+  display:block;
+  width:max-content;
+  max-width:none;
+  white-space:nowrap;
+  overflow:visible;
+  text-overflow:clip;
+  overflow-wrap:normal;
+  word-break:normal;
+  font-size:clamp(.58rem, 2.75vw, 1rem);
+  letter-spacing:-.035em;
+}
+@media (max-width:820px) {
+  .sidebar-header {
+    position:relative;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto;
+    column-gap:12px;
+    row-gap:0;
+    padding-bottom:76px;
+  }
+  .sidebar-header .account-actions {
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:0;
+    display:flex;
+    width:100%;
+    min-height:58px;
+    margin:0;
+    padding:12px 0 0;
+    border-top:1px solid var(--border);
+    justify-content:flex-end;
+    align-items:center;
+  }
+  .sidebar-header .session-actions {
+    margin-left:0;
+    border:0;
+    border-radius:0;
+    overflow:visible;
+    display:flex;
+    align-items:stretch;
+    gap:10px;
+  }
+  .sidebar-header .session-actions .text-button {
+    min-height:42px;
+    padding:9px 14px;
+    border:1px solid var(--border);
+    border-radius:12px;
+    background:var(--surface);
+  }
+  .sidebar-header .session-actions .session-logout-button {
+    border:1px solid var(--border);
+    color:var(--muted);
+    background:var(--surface-soft);
+  }
+  .sidebar-header #mobileClose {
+    position:absolute;
+    right:0;
+    top:0;
+  }
+}
