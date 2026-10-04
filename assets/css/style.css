@@ -3954,3 +3954,33 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 #passwordResetRequestForm {
   width:min(430px, calc(100vw - 32px));
 }
+
+
+/* v1.63.0 · Konto & Benutzerverwaltung */
+.trip-selection-account-actions { display:flex; justify-content:center; align-items:center; gap:14px; margin-top:10px; }
+.trip-selection-account-actions .trip-selection-logout { margin-top:0; }
+.account-dialog { width:min(620px,calc(100vw - 28px)); }
+.account-section { display:grid; gap:12px; padding-top:4px; }
+.account-section + .account-section { border-top:1px solid rgba(47,98,93,.14); padding-top:18px; }
+.account-section h3 { margin:0; }
+.account-email { display:grid; gap:3px; }
+.account-email span { color:#77807d; font-size:.8rem; font-weight:700; }
+.account-email strong { overflow-wrap:anywhere; }
+.account-form { display:grid; gap:10px; }
+.account-form label,.admin-invite-form label { display:flex; flex-direction:column; gap:6px; font-size:.9rem; font-weight:700; }
+.account-form input,.admin-invite-form input { width:100%; box-sizing:border-box; padding:11px 12px; border:1px solid rgba(47,98,93,.25); border-radius:10px; font:inherit; background:#fff; }
+.admin-users-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.admin-users-heading h3 { margin:3px 0 0; }
+.admin-invite-form { display:grid; grid-template-columns:1fr 1.4fr auto; gap:9px; align-items:end; }
+.admin-users-list { display:flex; flex-direction:column; gap:8px; }
+.admin-user-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 12px; border:1px solid rgba(47,98,93,.16); border-radius:11px; }
+.admin-user-info { min-width:0; display:flex; flex-direction:column; gap:3px; }
+.admin-user-info > div { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.admin-user-info small { color:#77807d; overflow-wrap:anywhere; }
+.admin-user-actions { flex:0 0 auto; }
+.admin-badge { display:inline-flex; padding:2px 7px; border-radius:999px; background:rgba(181,135,36,.14); color:#765a18; font-size:.72rem; font-weight:800; }
+@media (max-width:620px) {
+  .admin-invite-form { grid-template-columns:1fr; }
+  .admin-user-row { align-items:flex-start; }
+  .account-actions { flex-wrap:wrap; }
+}
