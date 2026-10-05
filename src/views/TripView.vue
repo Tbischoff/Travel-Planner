@@ -176,13 +176,15 @@ async function renderMap() {
     center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
-  const clustererModule = await import('@googlemaps/markerclusterer')
-  placeMarkerClusterer = new clustererModule.MarkerClusterer({
-    map,
-    markers: [],
-    renderer: { render: createClusterMarker },
-    onClusterClick: null,
-  })
+  const MarkerClusterer = (window as any).markerClusterer?.MarkerClusterer
+  if (MarkerClusterer) {
+    placeMarkerClusterer = new MarkerClusterer({
+      map,
+      markers: [],
+      renderer: { render: createClusterMarker },
+      onClusterClick: null,
+    })
+  }
   const bounds = new googleMaps.LatLngBounds()
   let markerCount = 0
   for (const place of places.value) {
