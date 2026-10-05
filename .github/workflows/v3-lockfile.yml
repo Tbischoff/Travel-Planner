@@ -10,16 +10,25 @@ permissions:
 
 jobs:
   lockfile:
-    if: ${{ hashFiles('package-lock.json') == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check for existing lockfile
+        id: lock
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Generate package lock
+        if: steps.lock.outputs.exists == 'false'
         run: npm install --package-lock-only --ignore-scripts
       - name: Commit package lock
+        if: steps.lock.outputs.exists == 'false'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
