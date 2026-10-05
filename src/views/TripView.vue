@@ -182,8 +182,8 @@ async function restoreTrip() {
 }
 
 function getMarkerLibrarySync() {
-  const googleWithMarker = window.google as typeof window.google & {
-    maps: typeof window.google.maps & { marker: { AdvancedMarkerElement: new (options: Record<string, unknown>) => AdvancedMarkerInstance } }
+  const googleWithMarker = window.google as unknown as {
+    maps: { marker: { AdvancedMarkerElement: new (options: Record<string, unknown>) => AdvancedMarkerInstance } }
   }
   return googleWithMarker.maps.marker
 }
