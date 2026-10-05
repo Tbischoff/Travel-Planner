@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import AccountView from '../views/AccountView.vue'
 import ForgotPasswordView from '../views/ForgotPasswordView.vue'
 import LoginView from '../views/LoginView.vue'
 import ResetPasswordView from '../views/ResetPasswordView.vue'
@@ -12,6 +13,7 @@ const router = createRouter({
     { path: '/forgot-password', name: 'forgot-password', component: ForgotPasswordView, meta: { guestOnly: true } },
     { path: '/reset-password', name: 'reset-password', component: ResetPasswordView },
     { path: '/trips', name: 'trips', component: TripSelectionView, meta: { requiresAuth: true } },
+    { path: '/account', name: 'account', component: AccountView, meta: { requiresAuth: true } },
   ],
 })
 

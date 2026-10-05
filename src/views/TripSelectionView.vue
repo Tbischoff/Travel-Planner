@@ -18,7 +18,8 @@ async function logout(): Promise<void> {
       <h1>Angemeldet</h1>
       <p>Die Authentifizierung funktioniert. Die Reiseauswahl wird im nächsten Migrationsschritt übernommen.</p>
       <p v-if="auth.user?.email"><strong>{{ auth.user.email }}</strong></p>
-      <button type="button" @click="logout">Abmelden</button>
+      <button type="button" @click="router.push('/account')">Konto & Benutzerverwaltung</button>
+      <button type="button" class="link-button" @click="logout">Abmelden</button>
     </section>
   </main>
 </template>
