@@ -15,6 +15,21 @@ export interface TripPlace {
   planned_order: number | null
 }
 
+export interface TripDay {
+  id: string
+  day_date: string
+}
+
+export async function listTripDays(tripId: string): Promise<TripDay[]> {
+  const { data, error } = await supabase
+    .from('trip_days')
+    .select('id,day_date')
+    .eq('trip_id', tripId)
+    .order('day_date')
+  if (error) throw error
+  return data ?? []
+}
+
 export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
   const { data: relations, error: relationError } = await supabase
     .from('trip_places')
