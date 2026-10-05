@@ -20,6 +20,7 @@ const selectedPlaceId = ref<string | null>(null)
 let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
+const markerElements = new Map<string, HTMLElement>()
 
 const visiblePlaces = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('de')
@@ -41,14 +42,41 @@ const categoryIcons: Record<string,string> = { food:'🍴', cafe:'☕', bar:'�
 const markerColors: Record<string,string> = { food:'#f97316', cafe:'#a16207', bar:'#7c3aed', sight:'#2563eb', culture:'#db2777', leisure:'#16a34a', thermal:'#0891b2', viewpoint:'#ca8a04', transport:'#475569', area:'#dc2626', hotel:'#0f766e', other:'#64748b' }
 
 function markerContent(place: TripPlace) {
-  const pin = document.createElement('div')
-  pin.className = 'v3-place-marker'
-  pin.style.background = markerColors[place.category || 'other'] || markerColors.other
-  pin.style.opacity = place.visited ? '0.42' : '1'
-  pin.style.transform = place.is_local_tip ? 'scale(1.12)' : 'scale(1)'
-  pin.textContent = place.category === 'hotel' ? '🏨' : place.is_local_tip ? '★' : (categoryIcons[place.category || 'other'] || '•')
-  pin.title = place.name
-  return pin
+  const marker = document.createElement('div')
+  marker.className = 'v3-place-marker'
+  marker.dataset.placeId = place.id
+  marker.style.setProperty('--marker-color', markerColors[place.category || 'other'] || markerColors.other)
+  if (place.visited) marker.classList.add('v3-place-marker--visited')
+  if (place.category === 'hotel') marker.classList.add('v3-place-marker--hotel')
+  if (place.is_local_tip) marker.classList.add('v3-place-marker--tip')
+  marker.title = place.name
+
+  const pin = document.createElement('span')
+  pin.className = 'v3-place-marker__pin'
+  const icon = document.createElement('span')
+  icon.className = 'v3-place-marker__icon'
+  icon.textContent = place.category === 'hotel' ? '🏨' : (categoryIcons[place.category || 'other'] || '•')
+  pin.appendChild(icon)
+
+  if (place.is_local_tip) {
+    const tip = document.createElement('span')
+    tip.className = 'v3-place-marker__tip'
+    tip.textContent = '★'
+    pin.appendChild(tip)
+  }
+
+  const name = document.createElement('span')
+  name.className = 'v3-place-marker__label'
+  name.textContent = place.name
+  marker.append(pin, name)
+  markerElements.set(place.id, marker)
+  return marker
+}
+
+function syncSelectedMarker() {
+  for (const [id, element] of markerElements) {
+    element.classList.toggle('v3-place-marker--selected', id === selectedPlaceId.value)
+  }
 }
 
 function infoHtml(place: TripPlace) {
@@ -63,6 +91,7 @@ function openPlace(place: TripPlace, focus = false) {
   const marker = markers.get(place.id)
   if (!marker) return
   selectedPlaceId.value = place.id
+  syncSelectedMarker()
   infoWindow?.close()
   infoWindow?.setContent(infoHtml(place))
   infoWindow?.open({ map, anchor: marker })
@@ -77,6 +106,7 @@ function syncMarkerVisibility() {
   for (const [id, marker] of markers) marker.map = visibleIds.has(id) ? map : null
   if (selectedPlaceId.value && !visibleIds.has(selectedPlaceId.value)) {
     selectedPlaceId.value = null
+    syncSelectedMarker()
     infoWindow?.close()
   }
 }
@@ -187,8 +217,20 @@ onMounted(async () => {
 
 <style scoped>
 .trip-workspace{min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px;background:#f6f7f9}.trip-header{max-width:1400px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.trip-header h1{margin:4px 0}.trip-header p{margin:0}.trip-map-layout{max-width:1400px;margin:auto;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;height:calc(100vh - 150px);min-height:560px}.places-panel,.map-panel{background:#fff;border:1px solid #dde2e8;border-radius:18px;overflow:hidden}.places-panel{padding:16px;overflow:auto}.places-panel__heading h2{margin:0 0 10px;display:flex;align-items:center;gap:8px}.count-badge{font-size:.72rem;color:#65717d;background:#f2f4f7;border:1px solid #e1e5ea;border-radius:999px;padding:3px 8px}.place-search{box-sizing:border-box;width:100%;padding:11px 12px;margin-bottom:10px;border:1px solid #d8dee6;border-radius:11px;background:#f8f9fb;color:inherit;font:inherit}.places-panel__toolbar{margin-bottom:12px}.places-panel__toolbar select{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #d8dee6;border-radius:10px;background:#fff}.trip-workspace button,.trip-workspace select{font:inherit}.trip-workspace button{font-weight:700}.place-row{width:100%;display:block;text-align:left;padding:10px 11px;margin:0 0 7px;background:#f8f9fb;border:1px solid #e1e5ea;border-radius:12px;color:inherit;cursor:pointer;transition:transform .12s ease,border-color .12s ease,background .12s ease}.place-row:hover{transform:translateY(-1px);border-color:#c7ced7;background:#fff}.place-row--active{border-color:#2f625d;background:#fff;box-shadow:0 0 0 2px rgba(47,98,93,.08)}.place-row__content{display:block;min-width:0}.place-row__title{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.place-row strong{font-size:.9rem}.place-row small{display:block;overflow-wrap:anywhere}.place-row__meta{margin-top:4px;color:#65717d;font-size:.75rem}.place-row__note{margin-top:6px;color:#56616d;font-size:.75rem;line-height:1.35}.place-row .badge{margin:0;flex:0 0 auto;font-size:.68rem}.map-panel{position:relative}.trip-map{width:100%;height:100%;min-height:500px}.trip-error{max-width:1400px;margin:0 auto 16px;color:#a21d1d}.muted{color:#65717d}.mobile-sheet-handle,.mobile-panel-head,.map-mobile-actions{display:none}
-:global(.v3-place-marker){width:32px;height:32px;border:2px solid #fff;border-radius:50% 50% 50% 0;display:grid;place-items:center;color:#fff;font-size:15px;font-weight:800;box-shadow:0 2px 6px rgba(0,0,0,.28);transform:rotate(-45deg);transform-origin:50% 70%}
-:global(.v3-place-marker)::first-letter{transform:rotate(45deg)}
+:global(.v3-place-marker){position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;transform:translateY(-3px);transition:transform .14s ease,filter .14s ease;isolation:isolate}
+:global(.v3-place-marker__pin){position:relative;width:34px;height:34px;display:grid;place-items:center;border:2.5px solid #fff;border-radius:50%;background:var(--marker-color,#64748b);box-shadow:0 3px 9px rgba(15,23,42,.34);transition:transform .14s ease,box-shadow .14s ease}
+:global(.v3-place-marker__pin)::after{content:"";position:absolute;z-index:-1;left:50%;bottom:-5px;width:10px;height:10px;background:var(--marker-color,#64748b);border-right:2px solid #fff;border-bottom:2px solid #fff;transform:translateX(-50%) rotate(45deg);border-radius:0 0 3px 0}
+:global(.v3-place-marker__icon){display:grid;place-items:center;width:100%;height:100%;color:#fff;font-size:15px;line-height:1;text-shadow:0 1px 2px rgba(0,0,0,.18)}
+:global(.v3-place-marker__tip){position:absolute;right:-7px;top:-7px;display:grid;place-items:center;width:18px;height:18px;border:2px solid #fff;border-radius:50%;background:#f59e0b;color:#fff;font-size:10px;line-height:1;box-shadow:0 2px 5px rgba(15,23,42,.25)}
+:global(.v3-place-marker__label){position:absolute;left:50%;top:43px;max-width:180px;padding:4px 7px;border:1px solid rgba(15,23,42,.12);border-radius:7px;background:rgba(255,255,255,.96);box-shadow:0 2px 8px rgba(15,23,42,.14);color:#172033;font:700 11px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;pointer-events:none;transform:translate(-50%,-3px);transition:opacity .12s ease,transform .12s ease}
+:global(.v3-place-marker:hover){z-index:1000!important;filter:brightness(1.03)}
+:global(.v3-place-marker:hover .v3-place-marker__pin){transform:scale(1.1)}
+:global(.v3-place-marker:hover .v3-place-marker__label),:global(.v3-place-marker--selected .v3-place-marker__label){opacity:1;transform:translate(-50%,0)}
+:global(.v3-place-marker--selected){z-index:1100!important}
+:global(.v3-place-marker--selected .v3-place-marker__pin){transform:scale(1.16);box-shadow:0 0 0 4px rgba(255,255,255,.9),0 5px 14px rgba(15,23,42,.42)}
+:global(.v3-place-marker--hotel .v3-place-marker__pin){width:38px;height:38px}
+:global(.v3-place-marker--visited){opacity:.5;filter:saturate(.45)}
+:global(.v3-place-marker--visited:hover),:global(.v3-place-marker--visited.v3-place-marker--selected){opacity:.9;filter:none}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 @media(max-width:760px){
