@@ -23,23 +23,33 @@ const busy = ref(false)
 async function loadAccount(): Promise<void> {
   if (!auth.user) return
   busy.value = true
+  profileMessage.value = ''
   try {
-    const [profile, adminStatus] = await Promise.all([
-      getCurrentProfile(auth.user.id),
-      isAppAdmin(),
-    ])
+    const profile = await getCurrentProfile(auth.user.id)
     username.value = profile.username || ''
-    admin.value = adminStatus
-    if (adminStatus) await loadUsers()
   } catch (error) {
-    profileMessage.value = `Konto konnte nicht geladen werden: ${messageOf(error)}`
+    profileMessage.value = `Profil konnte nicht geladen werden: ${messageOf(error)}`
+  }
+
+  try {
+    admin.value = await isAppAdmin()
+    if (admin.value) await loadUsers()
+  } catch (error) {
+    admin.value = false
+    adminMessage.value = `Adminstatus konnte nicht geladen werden: ${messageOf(error)}`
+    if (!profileMessage.value) profileMessage.value = adminMessage.value
   } finally {
     busy.value = false
   }
 }
 
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unbekannter Fehler'
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  if (typeof error === 'string') return error
+  return 'Unbekannter Fehler'
 }
 
 async function saveProfile(): Promise<void> {
