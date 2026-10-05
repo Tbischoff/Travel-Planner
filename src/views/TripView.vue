@@ -3,18 +3,19 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
-import { listTripPlaces, type TripPlace } from '../services/supabase/places'
+import { listTripDays, listTripPlaces, type TripDay, type TripPlace } from '../services/supabase/places'
 import { geocodeDestination, getGoogleMaps, getMarkerLibrary, loadGoogleMaps, type AdvancedMarkerInstance, type InfoWindowInstance, type MapInstance } from '../services/google/maps'
 
 const trips = useTripStore()
 const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
+const tripDays = ref<TripDay[]>([])
 const loading = ref(true)
 const error = ref('')
 const mapHost = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
-const selectedDay = ref('all')
+const selectedDay = ref('unplanned')
 const searchQuery = ref('')
 const mobilePlacesOpen = ref(false)
 const selectedPlaceId = ref<string | null>(null)
@@ -53,7 +54,7 @@ const visiblePlaces = computed(() => {
   })
 })
 const categories = computed(() => [...new Set(places.value.map(place => place.category || 'other'))].sort())
-const tripDays = computed(() => [...new Set(places.value.map(place => place.planned_day).filter((day): day is string => Boolean(day)))].sort())
+
 
 function label(category: string) {
   return ({ food:'Essen', cafe:'Café', bar:'Bar', sight:'Sehenswürdigkeit', culture:'Kultur', leisure:'Freizeit', thermal:'Thermalbad', viewpoint:'Aussicht', transport:'Verkehr', area:'Gebiet', hotel:'Unterkunft', other:'Sonstiges' } as Record<string,string>)[category] || category
@@ -68,7 +69,7 @@ function markerContent(place: TripPlace) {
   marker.className = 'v3-place-marker'
   marker.dataset.placeId = place.id
   marker.style.setProperty('--marker-color', markerColors[category] || markerColors.other)
-  const concreteDaySelected = selectedDay.value !== 'all' && selectedDay.value !== 'unplanned'
+  const concreteDaySelected = tripDays.value.some(day => day.day_date === selectedDay.value)
   const isInSelectedDay = concreteDaySelected && place.planned_day === selectedDay.value
   if (place.visited) marker.classList.add('v3-place-marker--visited')
   if (place.category === 'hotel') marker.classList.add('v3-place-marker--hotel')
@@ -123,7 +124,7 @@ function refreshMarkerAppearances() {
     current.replaceWith(replacement)
     marker.content = replacement
     marker.zIndex = place.category === 'hotel' ? 900 :
-      (selectedDay.value !== 'all' && selectedDay.value !== 'unplanned' && place.planned_day === selectedDay.value)
+      (tripDays.value.some(day => day.day_date === selectedDay.value) && place.planned_day === selectedDay.value)
         ? 500 + (place.planned_order || 0)
         : place.is_local_tip ? 100 : 1
   }
@@ -269,7 +270,7 @@ onMounted(async () => {
   try {
     await restoreTrip()
     if (!trips.currentTrip) { await router.replace('/trips'); return }
-    places.value = await listTripPlaces(trips.currentTrip.id)
+    ;[places.value, tripDays.value] = await Promise.all([listTripPlaces(trips.currentTrip.id), listTripDays(trips.currentTrip.id)])
     await nextTick()
     await renderMap()
   } catch (cause) {
@@ -302,9 +303,8 @@ onMounted(async () => {
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
           </select>
           <select v-model="selectedDay" aria-label="Tag hervorheben">
-            <option value="all">Alle Tage</option>
-            <option value="unplanned">Ohne Tagesplanung</option>
-            <option v-for="day in tripDays" :key="day" :value="day">{{ new Date(day + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
+            <option value="unplanned">Noch offen</option>
+            <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
         </div>
         <p v-if="loading">Orte werden geladen …</p>
@@ -334,9 +334,9 @@ onMounted(async () => {
 :global(.v3-place-marker__icon){display:grid;place-items:center;width:20px;height:20px;color:#fff}
 :global(.v3-place-marker__icon svg){width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 :global(.v3-place-marker__label){position:absolute;left:50%;top:44px;max-width:190px;padding:5px 8px;border:1px solid rgba(15,23,42,.12);border-radius:7px;background:rgba(255,255,255,.97);box-shadow:0 2px 8px rgba(15,23,42,.15);color:#172033;font:700 11px/1.2 Inter,ui-sans-serif,system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:0;pointer-events:none;transform:translateX(-50%)}
-:global(.v3-place-marker--tip .v3-place-marker__pin){box-shadow:0 0 0 3px #fbbf24,0 2px 8px rgba(15,23,42,.34)}
+:global(.v3-place-marker--tip .v3-place-marker__pin){transform:scale(1.12);box-shadow:0 2px 8px rgba(15,23,42,.34)}
 :global(.v3-place-marker--hotel .v3-place-marker__pin){width:40px;height:40px}
-:global(.v3-place-marker--day-stop .v3-place-marker__pin){background:#2f625d;transform:scale(1.16)}
+:global(.v3-place-marker--day-stop .v3-place-marker__pin){background:#2f625d;transform:scale(1.16);border-radius:12px}
 :global(.v3-place-marker__order){font-size:15px;font-weight:800;color:#fff}
 :global(.v3-place-marker--day-muted){opacity:.35;transform:translateY(-4px) scale(.92)}
 :global(.v3-place-marker--day-stop.v3-place-marker--visited){opacity:.42;filter:none}
@@ -346,7 +346,7 @@ onMounted(async () => {
 :global(.v3-place-marker--selected .v3-place-marker__label){opacity:1}
 :global(.v3-place-marker--visited){opacity:.5;filter:saturate(.45)}
 :global(.v3-place-marker--visited.v3-place-marker--selected){opacity:1;filter:none}
-:global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
+:global(.v3-marker-cluster){min-width:42px;height:32px;padding:0 11px;border:2px solid rgba(255,255,255,.96);border-radius:9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#172033;color:#fff;font:800 13px/1 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:.02em;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}:global(.v3-marker-cluster)::before{content:'ORTE';font-size:8px;margin-right:5px;opacity:.72}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 @media(max-width:760px){
