@@ -13,6 +13,8 @@ export interface TripPlace {
   visited: boolean
   planned_day: string | null
   planned_order: number | null
+  start_time: string | null
+  end_time: string | null
 }
 
 export interface TripDay {
@@ -33,7 +35,7 @@ export async function listTripDays(tripId: string): Promise<TripDay[]> {
 export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
   const { data: relations, error: relationError } = await supabase
     .from('trip_places')
-    .select('place_id,visited,trip_day_id,planned_order')
+    .select('place_id,visited,trip_day_id,planned_order,start_time,end_time')
     .eq('trip_id', tripId)
   if (relationError) throw relationError
 
@@ -64,5 +66,31 @@ export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
     visited: Boolean(relationByPlace.get(place.id)?.visited),
     planned_day: dayById.get(relationByPlace.get(place.id)?.trip_day_id ?? '') ?? null,
     planned_order: relationByPlace.get(place.id)?.planned_order ?? null,
+    start_time: relationByPlace.get(place.id)?.start_time?.slice(0, 5) ?? null,
+    end_time: relationByPlace.get(place.id)?.end_time?.slice(0, 5) ?? null,
   })) as TripPlace[]
+}
+
+export async function updateTripPlacePlanning(tripId: string, place: TripPlace, dayId: string | null, order: number | null, startTime: string | null, endTime: string | null, visited = place.visited): Promise<void> {
+  const { error } = await supabase.from('trip_places').update({
+    trip_day_id: dayId,
+    planned_order: order,
+    start_time: startTime || null,
+    end_time: endTime || null,
+    visited,
+  }).eq('trip_id', tripId).eq('place_id', place.id)
+  if (error) throw error
+}
+
+export async function updatePlaceDetails(place: TripPlace, input: { name: string; address: string; category: string; note: string; isLocalTip: boolean }): Promise<void> {
+  const { error } = await supabase.from('places').update({
+    name: input.name, address: input.address || null, category: input.category,
+    note: input.note || null, is_local_tip: input.isLocalTip,
+  }).eq('id', place.id)
+  if (error) throw error
+}
+
+export async function deleteTripPlace(tripId: string, placeId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_place_from_trip', { p_trip_id: tripId, p_place_id: placeId })
+  if (error) throw error
 }
