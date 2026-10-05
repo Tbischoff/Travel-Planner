@@ -97,8 +97,10 @@ async function renderMap() {
   try { center = await geocodeDestination(trips.currentTrip.destination) } catch { /* fallback */ }
   const googleMaps = getGoogleMaps()
   const { AdvancedMarkerElement } = await getMarkerLibrary()
+  const mapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID
+  if (!mapId) throw new Error('Google-Maps-Karten-ID fehlt.')
   map = new googleMaps.Map(mapHost.value, {
-    center, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
+    center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
   const bounds = new googleMaps.LatLngBounds()
