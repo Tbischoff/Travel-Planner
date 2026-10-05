@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
-import { listTripDays, listTripPlaces, type TripDay, type TripPlace } from '../services/supabase/places'
+import { deleteTripPlace, listTripDays, listTripPlaces, updatePlaceDetails, updateTripPlacePlanning, type TripDay, type TripPlace } from '../services/supabase/places'
 import { geocodeDestination, getGoogleMaps, getMarkerLibrary, loadGoogleMaps, type AdvancedMarkerInstance, type InfoWindowInstance, type MapInstance } from '../services/google/maps'
 
 const trips = useTripStore()
@@ -19,6 +19,11 @@ const selectedDay = ref('unplanned')
 const searchQuery = ref('')
 const mobilePlacesOpen = ref(false)
 const selectedPlaceId = ref<string | null>(null)
+const activePlace = ref<TripPlace | null>(null)
+const editingPlace = ref(false)
+const popupDay = ref('')
+const popupStart = ref('')
+const popupEnd = ref('')
 let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
@@ -165,19 +170,71 @@ function infoHtml(place: TripPlace) {
     (place.note ? '<div style="margin-top:6px">' + escapeHtml(place.note) + '</div>' : '') + '</div>'
 }
 
+function closePlacePopup() {
+  infoWindow?.close()
+  activePlace.value = null
+  editingPlace.value = false
+  selectedPlaceId.value = null
+  syncSelectedMarker()
+}
+
 function openPlace(place: TripPlace, focus = false) {
   if (!map) return
   const marker = markers.get(place.id)
   if (!marker) return
+  activePlace.value = place
+  popupDay.value = place.planned_day || ''
+  popupStart.value = place.start_time || ''
+  popupEnd.value = place.end_time || ''
   selectedPlaceId.value = place.id
   syncSelectedMarker()
-  infoWindow?.close()
-  infoWindow?.setContent(infoHtml(place))
-  infoWindow?.open({ map, anchor: marker })
   if (focus && place.latitude != null && place.longitude != null) {
     map.panTo({ lat: Number(place.latitude), lng: Number(place.longitude) })
     map.setZoom(Math.max(map.getZoom() || 0, 16))
   }
+}
+
+async function savePlanning() {
+  const place = activePlace.value
+  const trip = trips.currentTrip
+  if (!place || !trip) return
+  const day = tripDays.value.find(item => item.day_date === popupDay.value)
+  let order = place.planned_order
+  if (day && place.planned_day !== day.day_date) {
+    order = Math.max(0, ...places.value.filter(item => item.planned_day === day.day_date).map(item => item.planned_order || 0)) + 1
+  }
+  if (!day) order = null
+  await updateTripPlacePlanning(trip.id, place, day?.id || null, order, day ? popupStart.value || null : null, day ? popupEnd.value || null : null)
+  place.planned_day = day?.day_date || null; place.planned_order = order
+  place.start_time = day ? popupStart.value || null : null; place.end_time = day ? popupEnd.value || null : null
+  refreshMarkerAppearances()
+}
+
+async function toggleVisited() {
+  const place = activePlace.value; const trip = trips.currentTrip
+  if (!place || !trip) return
+  place.visited = !place.visited
+  const day = tripDays.value.find(item => item.day_date === place.planned_day)
+  await updateTripPlacePlanning(trip.id, place, day?.id || null, place.planned_order, place.start_time, place.end_time, place.visited)
+  refreshMarkerAppearances()
+}
+
+async function savePlaceEdit() {
+  const place = activePlace.value
+  if (!place) return
+  await updatePlaceDetails(place, { name: place.name, address: place.address || '', category: place.category || 'other', note: place.note || '', isLocalTip: Boolean(place.is_local_tip) })
+  editingPlace.value = false
+  refreshMarkerAppearances()
+}
+
+async function removeActivePlace() {
+  const place = activePlace.value; const trip = trips.currentTrip
+  if (!place || !trip || !confirm(`„${place.name}“ wirklich aus der Reise löschen?`)) return
+  await deleteTripPlace(trip.id, place.id)
+  const marker = markers.get(place.id); if (marker) marker.map = null
+  markers.delete(place.id); markerElements.delete(place.id)
+  places.value = places.value.filter(item => item.id !== place.id)
+  closePlacePopup(); syncMarkerVisibility()
 }
 
 function createClusterMarker({ count, position }: ClusterRendererInput, _stats: unknown, clusterMap: ClusterMap) {
@@ -250,6 +307,7 @@ async function renderMap() {
     center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
+  map.addListener('click', () => closePlacePopup())
   const MarkerClusterer = (window as MarkerClustererWindow).markerClusterer?.MarkerClusterer
   if (MarkerClusterer) {
     placeMarkerClusterer = new MarkerClusterer({
@@ -342,7 +400,32 @@ onMounted(async () => {
           <button type="button" @click="mobilePlacesOpen = true">☰ Orte <span>{{ visiblePlaces.length }}</span></button>
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
-        <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div></section>
+        <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
+        <div v-if="activePlace" class="place-popup" @click.stop>
+          <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
+          <template v-if="!editingPlace">
+            <h3>{{ activePlace.name }}</h3>
+            <p class="muted">{{ label(activePlace.category || 'other') }}<template v-if="activePlace.address"> · {{ activePlace.address }}</template></p>
+            <p v-if="activePlace.note">{{ activePlace.note }}</p>
+            <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
+            <div class="place-popup__times"><label>Von<input v-model="popupStart" type="time" :disabled="!popupDay"></label><label>Bis<input v-model="popupEnd" type="time" :disabled="!popupDay"></label></div>
+            <button type="button" @click="savePlanning">Planung speichern</button>
+            <button type="button" @click="toggleVisited">{{ activePlace.visited ? '✓ Besucht' : '○ Als besucht markieren' }}</button>
+            <button type="button" @click="editingPlace = true">Bearbeiten</button>
+            <button type="button" class="danger" @click="removeActivePlace">Aus Reise löschen</button>
+          </template>
+          <template v-else>
+            <h3>Ort bearbeiten</h3>
+            <label>Name<input v-model="activePlace.name"></label>
+            <label>Adresse<input v-model="activePlace.address"></label>
+            <label>Kategorie<select v-model="activePlace.category"><option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option></select></label>
+            <label>Notiz<textarea v-model="activePlace.note"></textarea></label>
+            <label class="place-popup__check"><input v-model="activePlace.is_local_tip" type="checkbox"> Local-Tipp</label>
+            <button type="button" @click="savePlaceEdit">Änderungen speichern</button>
+            <button type="button" @click="editingPlace = false">Abbrechen</button>
+          </template>
+        </div>
+      </section>
     </section>
   </main>
 </template>
@@ -369,6 +452,7 @@ onMounted(async () => {
 :global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
+.place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-popup__times{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}
 @media(max-width:760px){
-.trip-workspace{padding:0;background:#fff;overflow:hidden}.trip-header{display:none}.trip-map-layout{display:block;height:100dvh;min-height:0;margin:0}.map-panel{height:100dvh;border:0;border-radius:0}.trip-map{height:100dvh;min-height:0}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:0 auto 0 0;width:min(90vw,390px);box-sizing:border-box;border:0;border-radius:0 18px 18px 0;padding:12px 16px 20px;background:#fff;box-shadow:12px 0 34px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}.places-panel--open{transform:translateX(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
+.trip-workspace{padding:0;background:#fff;overflow:hidden}.trip-header{display:none}.trip-map-layout{display:block;height:100dvh;min-height:0;margin:0}.map-panel{height:100dvh;border:0;border-radius:0}.trip-map{height:100dvh;min-height:0}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:0 auto 0 0;width:min(90vw,390px);box-sizing:border-box;border:0;border-radius:0 18px 18px 0;padding:12px 16px 20px;background:#fff;box-shadow:12px 0 34px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}.places-panel--open{transform:translateX(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{left:12px;right:12px;top:auto;bottom:12px;width:auto;max-height:70dvh;overflow:auto}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
 </style>
