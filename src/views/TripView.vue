@@ -21,7 +21,25 @@ let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
 const markerElements = new Map<string, HTMLElement>()
-let placeMarkerClusterer: any = null
+type ClusterPosition = { lat: number | (() => number); lng: number | (() => number) }
+type ClusterMap = MapInstance & { setCenter: (position: { lat: number; lng: number }) => void }
+type ClusterRendererInput = { count: number; position: ClusterPosition }
+type MarkerClustererInstance = {
+  clearMarkers: (noDraw?: boolean) => void
+  addMarkers: (markers: AdvancedMarkerInstance[], noDraw?: boolean) => void
+  render: () => void
+}
+type MarkerClustererConstructor = new (options: {
+  map: MapInstance
+  markers: AdvancedMarkerInstance[]
+  renderer: { render: (cluster: ClusterRendererInput, stats: unknown, map: ClusterMap) => AdvancedMarkerInstance }
+  onClusterClick: null
+}) => MarkerClustererInstance
+type MarkerClustererWindow = Window & {
+  markerClusterer?: { MarkerClusterer?: MarkerClustererConstructor }
+}
+
+let placeMarkerClusterer: MarkerClustererInstance | null = null
 
 const visiblePlaces = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('de')
@@ -113,12 +131,12 @@ function openPlace(place: TripPlace, focus = false) {
   }
 }
 
-function createClusterMarker({ count, position }: any, _stats: any, clusterMap: any) {
+function createClusterMarker({ count, position }: ClusterRendererInput, _stats: unknown, clusterMap: ClusterMap) {
   const element = document.createElement('div')
   element.className = 'v3-marker-cluster'
   element.textContent = String(count)
   element.setAttribute('aria-label', count + ' Orte in diesem Bereich')
-  const AdvancedMarkerElement = (window.google as any).maps.marker.AdvancedMarkerElement
+  const { AdvancedMarkerElement } = getMarkerLibrarySync()
   const clusterMarker = new AdvancedMarkerElement({
     position, content: element, zIndex: 1000 + Number(count || 0),
     title: count + ' Orte', gmpClickable: true,
@@ -163,6 +181,13 @@ async function restoreTrip() {
   if (trip) trips.select(trip)
 }
 
+function getMarkerLibrarySync() {
+  const googleWithMarker = window.google as typeof window.google & {
+    maps: typeof window.google.maps & { marker: { AdvancedMarkerElement: new (options: Record<string, unknown>) => AdvancedMarkerInstance } }
+  }
+  return googleWithMarker.maps.marker
+}
+
 async function renderMap() {
   if (!trips.currentTrip || !mapHost.value) return
   await loadGoogleMaps()
@@ -176,7 +201,7 @@ async function renderMap() {
     center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
-  const MarkerClusterer = (window as any).markerClusterer?.MarkerClusterer
+  const MarkerClusterer = (window as MarkerClustererWindow).markerClusterer?.MarkerClusterer
   if (MarkerClusterer) {
     placeMarkerClusterer = new MarkerClusterer({
       map,
