@@ -8,6 +8,10 @@ export interface TripPlace {
   longitude: number | null
   category: string | null
   note: string | null
+  website: string | null
+  phone: string | null
+  opening_hours: string | null
+  google_place_id: string | null
   is_local_tip: boolean | null
   favorite: boolean | null
   visited: boolean
