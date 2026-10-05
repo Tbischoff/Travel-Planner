@@ -21,9 +21,16 @@ let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
 
-const visiblePlaces = computed(() => selectedCategory.value === 'all'
-  ? places.value
-  : places.value.filter(place => (place.category || 'other') === selectedCategory.value))
+const visiblePlaces = computed(() => {
+  const query = searchQuery.value.trim().toLocaleLowerCase('de')
+  return places.value.filter((place) => {
+    const categoryMatches = selectedCategory.value === 'all' || (place.category || 'other') === selectedCategory.value
+    const searchMatches = !query || [place.name, place.address, place.note]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase('de').includes(query))
+    return categoryMatches && searchMatches
+  })
+})
 const categories = computed(() => [...new Set(places.value.map(place => place.category || 'other'))].sort())
 
 function label(category: string) {
@@ -72,6 +79,7 @@ function syncMarkerVisibility() {
     selectedPlaceId.value = null
     infoWindow?.close()
   }
+}
 
 async function restoreTrip() {
   if (trips.currentTrip) return
