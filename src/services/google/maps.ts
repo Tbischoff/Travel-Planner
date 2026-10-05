@@ -1,7 +1,17 @@
 declare global {
   interface Window {
-    google?: any
+    google?: GoogleMapsApi
     __travelPlannerGoogleMapsReady?: () => void
+  }
+}
+
+interface GoogleMapsApi {
+  maps: {
+    Geocoder: new () => { geocode: (request: { address: string }) => Promise<{ results?: Array<{ geometry?: { location?: { lat: () => number; lng: () => number } } }> }> }
+    Map: new (element: HTMLElement, options: Record<string, unknown>) => any
+    Marker: new (options: Record<string, unknown>) => any
+    InfoWindow: new (options: Record<string, unknown>) => any
+    LatLngBounds: new () => any
   }
 }
 
