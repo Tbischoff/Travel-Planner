@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
 import { listTripPlaces, type TripPlace } from '../services/supabase/places'
-import { geocodeDestination, loadGoogleMaps } from '../services/google/maps'
+import { geocodeDestination, getGoogleMaps, loadGoogleMaps } from '../services/google/maps'
 
 const trips = useTripStore()
 const auth = useAuthStore()
@@ -38,16 +38,16 @@ async function renderMap() {
   await loadGoogleMaps()
   let center = { lat: 50.1109, lng: 8.6821 }
   try { center = await geocodeDestination(trips.currentTrip.destination) } catch { /* fallback */ }
-  const map = new window.google.maps.Map(mapHost.value, {
+  const googleMaps = getGoogleMaps()\n  const map = new googleMaps.Map(mapHost.value, {
     center, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
-  const bounds = new window.google.maps.LatLngBounds()
+  const bounds = new googleMaps.LatLngBounds()
   let markerCount = 0
   for (const place of places.value) {
     if (place.latitude == null || place.longitude == null) continue
     const position = { lat: Number(place.latitude), lng: Number(place.longitude) }
-    const marker = new window.google.maps.Marker({ map, position, title: place.name })
-    const info = new window.google.maps.InfoWindow({
+    const marker = new googleMaps.Marker({ map, position, title: place.name })
+    const info = new googleMaps.InfoWindow({
       content: '<div class="v3-map-info"><strong>' + escapeHtml(place.name) + '</strong><br>' + escapeHtml(place.address || '') + '</div>'
     })
     marker.addListener('click', () => info.open({ map, anchor: marker }))
