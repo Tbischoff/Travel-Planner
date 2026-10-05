@@ -2,6 +2,7 @@ export interface BoundsInstance {
   extend: (position: { lat: number; lng: number }) => void
 }
 export interface MapInstance {
+  addListener: (event: string, handler: () => void) => unknown
   fitBounds: (bounds: BoundsInstance, padding?: number) => void
   panTo: (position: { lat: number; lng: number }) => void
   setZoom: (zoom: number) => void
