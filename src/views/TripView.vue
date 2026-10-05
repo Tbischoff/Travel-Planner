@@ -163,13 +163,6 @@ function syncSelectedMarker() {
   }
 }
 
-function infoHtml(place: TripPlace) {
-  return '<div class="v3-map-info"><strong>' + escapeHtml(place.name) + '</strong><div>' +
-    escapeHtml(categoryIcons[place.category || 'other'] + ' ' + label(place.category || 'other') + (place.is_local_tip ? ' · ⭐ Local-Tipp' : '')) +
-    '</div><div>' + escapeHtml(place.address || '') + '</div>' +
-    (place.note ? '<div style="margin-top:6px">' + escapeHtml(place.note) + '</div>' : '') + '</div>'
-}
-
 function closePlacePopup() {
   infoWindow?.close()
   activePlace.value = null
