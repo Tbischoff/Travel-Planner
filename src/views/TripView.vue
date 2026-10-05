@@ -21,6 +21,7 @@ let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
 const markerElements = new Map<string, HTMLElement>()
+let placeMarkerClusterer: any = null
 
 const visiblePlaces = computed(() => {
   const query = searchQuery.value.trim().toLocaleLowerCase('de')
@@ -112,9 +113,40 @@ function openPlace(place: TripPlace, focus = false) {
   }
 }
 
+function createClusterMarker({ count, position }: any, _stats: any, clusterMap: any) {
+  const element = document.createElement('div')
+  element.className = 'v3-marker-cluster'
+  element.textContent = String(count)
+  element.setAttribute('aria-label', count + ' Orte in diesem Bereich')
+  const AdvancedMarkerElement = (window.google as any).maps.marker.AdvancedMarkerElement
+  const clusterMarker = new AdvancedMarkerElement({
+    position, content: element, zIndex: 1000 + Number(count || 0),
+    title: count + ' Orte', gmpClickable: true,
+  })
+  clusterMarker.addEventListener('gmp-click', () => {
+    if (!clusterMap || !position) return
+    const lat = typeof position.lat === 'function' ? position.lat() : position.lat
+    const lng = typeof position.lng === 'function' ? position.lng() : position.lng
+    clusterMap.setCenter({ lat, lng })
+    clusterMap.setZoom(Math.min((Number(clusterMap.getZoom()) || 0) + 2, 20))
+  })
+  return clusterMarker
+}
+
 function syncMarkerVisibility() {
   const visibleIds = new Set(visiblePlaces.value.map((place) => place.id))
-  for (const [id, marker] of markers) marker.map = visibleIds.has(id) ? map : null
+  const visibleMarkers: AdvancedMarkerInstance[] = []
+  for (const [id, marker] of markers) {
+    marker.map = null
+    if (visibleIds.has(id)) visibleMarkers.push(marker)
+  }
+  if (placeMarkerClusterer) {
+    placeMarkerClusterer.clearMarkers(true)
+    placeMarkerClusterer.addMarkers(visibleMarkers, true)
+    placeMarkerClusterer.render()
+  } else {
+    for (const marker of visibleMarkers) marker.map = map
+  }
   if (selectedPlaceId.value && !visibleIds.has(selectedPlaceId.value)) {
     selectedPlaceId.value = null
     syncSelectedMarker()
@@ -144,6 +176,13 @@ async function renderMap() {
     center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
+  const clustererModule = await import('@googlemaps/markerclusterer')
+  placeMarkerClusterer = new clustererModule.MarkerClusterer({
+    map,
+    markers: [],
+    renderer: { render: createClusterMarker },
+    onClusterClick: null,
+  })
   const bounds = new googleMaps.LatLngBounds()
   let markerCount = 0
   for (const place of places.value) {
@@ -240,6 +279,7 @@ onMounted(async () => {
 :global(.v3-place-marker--selected .v3-place-marker__label){opacity:1}
 :global(.v3-place-marker--visited){opacity:.5;filter:saturate(.45)}
 :global(.v3-place-marker--visited.v3-place-marker--selected){opacity:1;filter:none}
+:global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 @media(max-width:760px){
