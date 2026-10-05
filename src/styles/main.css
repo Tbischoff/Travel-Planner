@@ -251,3 +251,34 @@ body {
     flex-direction: column;
   }
 }
+
+
+.trips-page { min-height: 100vh; padding: 32px 20px; }
+.trips-shell { width: min(1050px,100%); margin: 0 auto; display: grid; gap: 20px; }
+.trips-header,.trips-toolbar,.trip-card,.empty-card { background: white; border-radius: 20px; box-shadow: 0 12px 36px rgba(23,32,51,.09); }
+.trips-header { padding: 26px; display:flex; justify-content:space-between; gap:18px; align-items:start; }
+.trips-header h1,.trips-header p,.trips-toolbar p { margin:0; }
+.trips-header > div:first-child { display:grid; gap:7px; }
+.header-actions,.trip-card-actions,.dialog-actions,.member-controls { display:flex; gap:8px; flex-wrap:wrap; }
+.trips-toolbar { padding:18px 22px; display:flex; align-items:center; gap:18px; }
+.trips-page button,.trips-page select,.trips-page input { font:inherit; }
+.trips-page button { min-height:40px; padding:9px 14px; border:0; border-radius:11px; font-weight:700; cursor:pointer; }
+.trip-grid { display:grid; gap:12px; }
+.trip-card { padding:16px; display:flex; justify-content:space-between; gap:16px; align-items:center; }
+.trip-card-main { flex:1; text-align:left; background:transparent; display:grid; gap:4px; justify-items:start; }
+.trip-card-main strong { font-size:1.1rem; }
+.trip-card-actions { justify-content:flex-end; }
+.empty-card { padding:28px; text-align:center; }
+.app-dialog { border:0; padding:0; background:transparent; max-width:none; width:100%; height:100%; }
+.app-dialog[open] { display:grid; place-items:center; background:rgba(20,27,40,.38); }
+.dialog-card { width:min(540px,calc(100% - 32px)); max-height:calc(100vh - 48px); overflow:auto; display:grid; gap:14px; padding:26px; border-radius:20px; background:white; box-shadow:0 20px 60px rgba(0,0,0,.22); }
+.dialog-card h2 { margin:0; }
+.dialog-card label { display:grid; gap:7px; font-weight:650; }
+.dialog-card input,.dialog-card select,.member-add select,.member-controls select { width:100%; padding:11px 12px; border:1px solid #c9d1df; border-radius:10px; }
+.dialog-actions { justify-content:flex-end; }
+.dialog-heading { display:flex; justify-content:space-between; align-items:start; gap:12px; }
+.member-add { display:grid; grid-template-columns:1fr auto auto; gap:8px; }
+.member-list { display:grid; gap:9px; }
+.member-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border:1px solid #e0e5ee; border-radius:12px; }
+.member-row > div:first-child { display:grid; gap:3px; }
+@media(max-width:700px){.trips-header,.trip-card,.member-row{align-items:stretch;flex-direction:column}.trip-card-actions{justify-content:flex-start}.member-add{grid-template-columns:1fr}.dialog-heading{flex-direction:column}.trips-toolbar{align-items:flex-start;flex-direction:column}}
