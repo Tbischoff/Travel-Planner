@@ -310,3 +310,19 @@ body {
 }
 .app-modal-backdrop .secondary-button { background: #eef1f6; }
 .app-modal-backdrop .danger-button { background: #feecec; }
+
+/* Keep native date controls typographically consistent with the app. */
+.app-modal-backdrop input[type="date"] {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+}
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-text,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-day-field,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-month-field,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-year-field {
+  font-family: inherit;
+  font-weight: inherit;
+}
