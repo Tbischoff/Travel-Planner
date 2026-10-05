@@ -10,6 +10,8 @@ export interface MapInstance {
 export interface AdvancedMarkerInstance {
   map: MapInstance | null
   position?: { lat: number; lng: number }
+  content?: Node | null
+  zIndex?: number
   addEventListener: (event: string, handler: () => void) => void
 }
 export interface InfoWindowInstance {
