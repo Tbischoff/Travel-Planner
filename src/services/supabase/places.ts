@@ -35,7 +35,7 @@ export async function listTripDays(tripId: string): Promise<TripDay[]> {
 export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
   const { data: relations, error: relationError } = await supabase
     .from('trip_places')
-    .select('place_id,visited,trip_day_id,planned_order,start_time,end_time')
+    .select('place_id,visited,trip_day_id,planned_order,planned_time,planned_end_time')
     .eq('trip_id', tripId)
   if (relationError) throw relationError
 
@@ -66,8 +66,8 @@ export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
     visited: Boolean(relationByPlace.get(place.id)?.visited),
     planned_day: dayById.get(relationByPlace.get(place.id)?.trip_day_id ?? '') ?? null,
     planned_order: relationByPlace.get(place.id)?.planned_order ?? null,
-    start_time: relationByPlace.get(place.id)?.start_time?.slice(0, 5) ?? null,
-    end_time: relationByPlace.get(place.id)?.end_time?.slice(0, 5) ?? null,
+    start_time: relationByPlace.get(place.id)?.planned_time?.slice(0, 5) ?? null,
+    end_time: relationByPlace.get(place.id)?.planned_end_time?.slice(0, 5) ?? null,
   })) as TripPlace[]
 }
 
@@ -75,8 +75,8 @@ export async function updateTripPlacePlanning(tripId: string, place: TripPlace, 
   const { error } = await supabase.from('trip_places').update({
     trip_day_id: dayId,
     planned_order: order,
-    start_time: startTime || null,
-    end_time: endTime || null,
+    planned_time: startTime || null,
+    planned_end_time: endTime || null,
     visited,
   }).eq('trip_id', tripId).eq('place_id', place.id)
   if (error) throw error
