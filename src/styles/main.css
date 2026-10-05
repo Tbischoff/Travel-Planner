@@ -122,3 +122,132 @@ body {
 .auth-message {
   line-height: 1.5;
 }
+
+
+.account-page {
+  min-height: 100vh;
+  padding: 32px 20px;
+}
+
+.account-shell {
+  width: min(900px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 20px;
+}
+
+.account-header,
+.account-section {
+  padding: 28px;
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 12px 36px rgba(23, 32, 51, 0.09);
+}
+
+.account-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.account-header h1,
+.account-header p,
+.account-section h2 {
+  margin: 0;
+}
+
+.account-header > div {
+  display: grid;
+  gap: 8px;
+}
+
+.account-form,
+.admin-invite {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.account-form label,
+.admin-invite label {
+  display: grid;
+  gap: 7px;
+  font-weight: 650;
+}
+
+.account-form input,
+.admin-invite input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #c9d1df;
+  border-radius: 12px;
+  font: inherit;
+}
+
+.account-page button {
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.account-page button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.secondary-button {
+  background: #eef1f6;
+}
+
+.danger-button {
+  background: #feecec;
+}
+
+.admin-users {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.admin-user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #e0e5ee;
+  border-radius: 14px;
+}
+
+.admin-user > div {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-user small {
+  display: block;
+}
+
+.badge {
+  display: inline-block;
+  width: fit-content;
+  margin-left: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .account-header,
+  .admin-user {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
