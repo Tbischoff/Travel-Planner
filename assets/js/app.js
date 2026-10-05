@@ -617,7 +617,14 @@ function renderAdminUsers(users) {
   const list = document.getElementById("adminUsersList");
   if (!list) return;
   list.innerHTML = "";
-  for (const item of users) {
+  const sortedUsers = [...users].sort((a, b) => {
+    if (a.id === currentUser?.id) return -1;
+    if (b.id === currentUser?.id) return 1;
+    const aName = (a.username || a.email || "").trim();
+    const bName = (b.username || b.email || "").trim();
+    return aName.localeCompare(bName, "de", { sensitivity: "base" });
+  });
+  for (const item of sortedUsers) {
     const row = document.createElement("div");
     row.className = "admin-user-row";
     const info = document.createElement("div");
