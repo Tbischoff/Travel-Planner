@@ -11,6 +11,14 @@ export default [
   ...tseslint.configs.recommended,
   ...pluginVue.configs['flat/recommended'],
   {
+    files: ['src/**/*.vue'],
+    languageOptions: {
+      parserOptions: {
+        parser: tseslint.parser,
+      },
+    },
+  },
+  {
     files: ['src/**/*.{ts,vue}', 'vite.config.ts'],
     languageOptions: {
       globals: {
