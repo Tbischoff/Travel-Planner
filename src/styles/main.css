@@ -251,3 +251,139 @@ body {
     flex-direction: column;
   }
 }
+
+
+.trips-page { min-height: 100vh; padding: 32px 20px; }
+.trips-shell { width: min(1050px,100%); margin: 0 auto; display: grid; gap: 20px; }
+.trips-header,.trips-toolbar,.trip-card,.empty-card { background: white; border-radius: 20px; box-shadow: 0 12px 36px rgba(23,32,51,.09); }
+.trips-header { padding: 26px; display:flex; justify-content:space-between; gap:18px; align-items:start; }
+.trips-header h1,.trips-header p,.trips-toolbar p { margin:0; }
+.trips-header > div:first-child { display:grid; gap:7px; }
+.header-actions,.trip-card-actions,.dialog-actions,.member-controls { display:flex; gap:8px; flex-wrap:wrap; }
+.trips-toolbar { padding:18px 22px; display:flex; align-items:center; gap:18px; }
+.trips-page button,.trips-page select,.trips-page input { font:inherit; }
+.trips-page button { min-height:40px; padding:9px 14px; border:0; border-radius:11px; font-weight:700; cursor:pointer; }
+.trip-grid { display:grid; gap:12px; }
+.trip-card { padding:16px; display:flex; justify-content:space-between; gap:16px; align-items:center; }
+.trip-card-main { flex:1; text-align:left; background:transparent; display:grid; gap:4px; justify-items:start; }
+.trip-card-main strong { font-size:1.1rem; }
+.trip-card-actions { justify-content:flex-end; }
+.empty-card { padding:28px; text-align:center; }
+.dialog-card { width:min(540px,calc(100% - 32px)); max-height:calc(100vh - 48px); overflow:auto; display:grid; gap:14px; padding:26px; border-radius:20px; background:white; box-shadow:0 20px 60px rgba(0,0,0,.22); }
+.dialog-card h2 { margin:0; }
+.dialog-card label { display:grid; gap:7px; font-weight:650; }
+.dialog-card input,.dialog-card select,.member-add select,.member-controls select { width:100%; padding:11px 12px; border:1px solid #c9d1df; border-radius:10px; }
+.dialog-actions { justify-content:flex-end; }
+.dialog-heading { display:flex; justify-content:space-between; align-items:start; gap:12px; }
+.member-add { display:grid; grid-template-columns:1fr auto auto; gap:8px; }
+.member-list { display:grid; gap:9px; }
+.member-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border:1px solid #e0e5ee; border-radius:12px; }
+.member-row > div:first-child { display:grid; gap:3px; }
+@media(max-width:700px){.trips-header,.trip-card,.member-row{align-items:stretch;flex-direction:column}.trip-card-actions{justify-content:flex-start}.member-add{grid-template-columns:1fr}.dialog-heading{flex-direction:column}.trips-toolbar{align-items:flex-start;flex-direction:column}}
+
+.app-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow-y: auto;
+  background: rgba(20, 27, 40, .52);
+  backdrop-filter: blur(2px);
+}
+.app-modal-backdrop .dialog-card { position: relative; margin: auto; }
+
+/* Modal controls live in Teleport outside .trips-page, so style them explicitly. */
+.app-modal-backdrop button {
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 0;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.app-modal-backdrop button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+.app-modal-backdrop .secondary-button { background: #eef1f6; }
+.app-modal-backdrop .danger-button { background: #feecec; }
+
+/* Keep native date controls typographically consistent with the app. */
+.app-modal-backdrop input[type="date"] {
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 400;
+}
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-text,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-day-field,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-month-field,
+.app-modal-backdrop input[type="date"]::-webkit-datetime-edit-year-field {
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+@media (max-width: 700px) {
+  .app-modal-backdrop { padding: 12px; align-items: center; }
+  .app-modal-backdrop .members-card {
+    width: min(100%, 520px);
+    max-height: calc(100dvh - 24px);
+    padding: 20px;
+    gap: 16px;
+    border-radius: 20px;
+  }
+  .members-card .dialog-heading {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: 12px;
+  }
+  .members-card .dialog-heading h2 {
+    min-width: 0;
+    font-size: clamp(1.45rem, 7vw, 2rem);
+    line-height: 1.12;
+    overflow-wrap: anywhere;
+  }
+  .members-card .dialog-heading .secondary-button {
+    min-height: 38px;
+    padding: 7px 10px;
+  }
+  .members-card .member-add {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .members-card .member-add select,
+  .members-card .member-add button {
+    width: 100%;
+    min-width: 0;
+  }
+  .members-card .member-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+  .members-card .member-row strong,
+  .members-card .member-row small {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .members-card .member-controls {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 10px;
+  }
+  .members-card .member-controls select { min-width: 0; }
+  .members-card .member-controls .danger-button { white-space: nowrap; }
+}
+@media (max-width: 430px) {
+  .members-card .dialog-heading { grid-template-columns: 1fr; }
+  .members-card .dialog-heading .secondary-button { width: fit-content; }
+  .members-card .member-controls { grid-template-columns: 1fr; }
+  .members-card .member-controls .danger-button { width: 100%; }
+}
