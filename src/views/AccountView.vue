@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { updatePassword } from '../services/supabase/auth'
@@ -15,6 +15,13 @@ const repeatPassword = ref('')
 const passwordMessage = ref('')
 const admin = ref(false)
 const users = ref<AdminUser[]>([])
+const sortedUsers = computed(() => [...users.value].sort((a, b) => {
+  if (a.id === auth.user?.id) return -1
+  if (b.id === auth.user?.id) return 1
+  const aName = (a.username || a.email || '').trim()
+  const bName = (b.username || b.email || '').trim()
+  return aName.localeCompare(bName, 'de', { sensitivity: 'base' })
+}))
 const adminMessage = ref('')
 const inviteUsername = ref('')
 const inviteEmail = ref('')
@@ -183,7 +190,7 @@ onMounted(loadAccount)
         </form>
         <p v-if="adminMessage" class="auth-message">{{ adminMessage }}</p>
         <div class="admin-users">
-          <article v-for="item in users" :key="item.id" class="admin-user">
+          <article v-for="item in sortedUsers" :key="item.id" class="admin-user">
             <div>
               <strong>{{ item.username || 'Ohne Benutzername' }}</strong>
               <span v-if="item.is_admin" class="badge">Admin</span>
