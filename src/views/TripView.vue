@@ -65,7 +65,6 @@ function label(category: string) {
   return ({ food:'Essen', cafe:'Café', bar:'Bar', sight:'Sehenswürdigkeit', culture:'Kultur', leisure:'Freizeit', thermal:'Thermalbad', viewpoint:'Aussicht', transport:'Verkehr', area:'Gebiet', hotel:'Unterkunft', other:'Sonstiges' } as Record<string,string>)[category] || category
 }
 
-const categoryIcons: Record<string,string> = { food:'🍴', cafe:'☕', bar:'🍸', sight:'🏛️', culture:'🎭', leisure:'🌳', thermal:'♨️', viewpoint:'🌇', transport:'🚇', area:'📍', hotel:'🏨', other:'•' }
 const markerColors: Record<string,string> = { food:'#f97316', cafe:'#a16207', bar:'#7c3aed', sight:'#2563eb', culture:'#db2777', leisure:'#16a34a', thermal:'#0891b2', viewpoint:'#ca8a04', transport:'#475569', area:'#dc2626', hotel:'#0f766e', other:'#64748b' }
 
 function markerState(place: TripPlace) {
@@ -331,11 +330,7 @@ async function renderMap() {
 watch(visiblePlaces, () => syncMarkerVisibility())
 watch(selectedDay, () => refreshMarkerAppearances())
 
-function escapeHtml(value: string) {
-  const div = document.createElement('div')
-  div.textContent = value
-  return div.innerHTML
-}
+
 
 onMounted(async () => {
   try {
