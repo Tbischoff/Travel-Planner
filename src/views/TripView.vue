@@ -346,7 +346,7 @@ onMounted(async () => {
 :global(.v3-place-marker--selected .v3-place-marker__label){opacity:1}
 :global(.v3-place-marker--visited){opacity:.5;filter:saturate(.45)}
 :global(.v3-place-marker--visited.v3-place-marker--selected){opacity:1;filter:none}
-:global(.v3-marker-cluster){min-width:42px;height:32px;padding:0 11px;border:2px solid rgba(255,255,255,.96);border-radius:9px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#172033;color:#fff;font:800 13px/1 Inter,ui-sans-serif,system-ui,sans-serif;letter-spacing:.02em;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}:global(.v3-marker-cluster)::before{content:'ORTE';font-size:8px;margin-right:5px;opacity:.72}
+:global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 @media(max-width:760px){
