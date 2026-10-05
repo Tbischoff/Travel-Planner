@@ -38,7 +38,8 @@ async function renderMap() {
   await loadGoogleMaps()
   let center = { lat: 50.1109, lng: 8.6821 }
   try { center = await geocodeDestination(trips.currentTrip.destination) } catch { /* fallback */ }
-  const googleMaps = getGoogleMaps()\n  const map = new googleMaps.Map(mapHost.value, {
+  const googleMaps = getGoogleMaps()
+  const map = new googleMaps.Map(mapHost.value, {
     center, zoom: 12, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   const bounds = new googleMaps.LatLngBounds()
