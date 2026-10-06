@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
 import type { Trip, TripInput, TripRole } from '../services/supabase/trips'
+import { geocodeDestination } from '../services/google/maps'
 import { addTripMember, listMemberCandidates, listTripMembers, removeTripMember, setTripMemberRole, type MemberCandidate, type TripMember } from '../services/supabase/members'
 
 const auth = useAuthStore()
@@ -22,6 +23,7 @@ const selectedCandidate = ref('')
 const selectedRole = ref<'editor' | 'viewer'>('editor')
 const membersMessage = ref('')
 const busy = ref(false)
+const destinationMessage = ref('')
 
 const sortedTrips = computed(() => [...trips.trips].sort((a,b) => a.start_date.localeCompare(b.start_date) || a.name.localeCompare(b.name, 'de')))
 const meIsOwner = computed(() => members.value.find(m => m.user_id === auth.user?.id)?.role === 'owner')
@@ -51,6 +53,7 @@ function openEditor(trip?: Trip): void {
   form.destination = trip?.destination ?? ''
   form.startDate = trip?.start_date ?? ''
   form.endDate = trip?.end_date ?? trip?.start_date ?? ''
+  destinationMessage.value = ''
   editorOpen.value = true
 }
 function syncEndDate(): void { if (!form.endDate || form.endDate < form.startDate) form.endDate = form.startDate }
@@ -58,8 +61,21 @@ async function saveTrip(): Promise<void> {
   if (!auth.user) return
   if (form.endDate < form.startDate) { message.value = 'Das Enddatum darf nicht vor dem Startdatum liegen.'; return }
   busy.value = true
+  destinationMessage.value = 'Reiseziel wird geprüft …'
   try {
-    const input = { ...form }
+    const destination = form.destination.trim()
+    if (!destination) {
+      destinationMessage.value = 'Bitte ein Reiseziel eingeben.'
+      return
+    }
+    try {
+      await geocodeDestination(destination)
+    } catch {
+      destinationMessage.value = 'Das Reiseziel konnte nicht gefunden werden. Bitte Stadt oder Ort genauer angeben.'
+      return
+    }
+    destinationMessage.value = ''
+    const input = { ...form, destination }
     if (editing.value) await trips.update(editing.value.id, input, auth.user.id)
     else await trips.create(input, auth.user.id)
     editorOpen.value = false
@@ -129,7 +145,7 @@ onMounted(load)
 </section>
 
 <Teleport to="body"><div v-if="editorOpen" class="app-modal-backdrop" @click.self="editorOpen=false"><form class="dialog-card" @submit.prevent="saveTrip"><h2>{{ editing ? 'Reise bearbeiten' : 'Neue Reise' }}</h2>
-<label>Name<input v-model="form.name" required></label><label>Reiseziel<input v-model="form.destination" required></label><label>Startdatum<input v-model="form.startDate" type="date" required @change="syncEndDate"></label><label>Enddatum<input v-model="form.endDate" type="date" :min="form.startDate" required></label>
+<label>Name<input v-model="form.name" required></label><label>Reiseziel<input v-model="form.destination" required></label><p v-if="destinationMessage" class="destination-validation">{{ destinationMessage }}</p><label>Startdatum<input v-model="form.startDate" type="date" required @change="syncEndDate"></label><label>Enddatum<input v-model="form.endDate" type="date" :min="form.startDate" required></label>
 <div class="dialog-actions"><button type="button" class="secondary-button" @click="editorOpen=false">Abbrechen</button><button :disabled="busy" type="submit">Speichern</button></div></form></div></Teleport>
 
 <Teleport to="body"><div v-if="membersOpen" class="app-modal-backdrop" @click.self="membersOpen=false"><section class="dialog-card members-card"><div class="dialog-heading"><h2>Mitglieder · {{ membersTrip?.name }}</h2><button class="secondary-button" @click="membersOpen=false">Schließen</button></div>
