@@ -48,7 +48,7 @@ export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
 
   const { data: places, error: placesError } = await supabase
     .from('places')
-    .select('id,name,address,latitude,longitude,category,note,is_local_tip,favorite')
+    .select('id,name,address,latitude,longitude,category,note,website,phone,opening_hours,google_place_id,is_local_tip,favorite')
     .in('id', ids)
     .order('name')
   if (placesError) throw placesError
