@@ -10,6 +10,7 @@ const auth = useAuthStore()
 const trips = useTripStore()
 const router = useRouter()
 const message = ref('')
+const loadFailed = ref(false)
 const editorOpen = ref(false)
 const editing = ref<Trip | null>(null)
 const form = reactive<TripInput>({ name: '', destination: '', startDate: '', endDate: '' })
@@ -35,7 +36,14 @@ function dateRange(t: Trip): string { return `${new Date(t.start_date + 'T00:00:
 async function load(): Promise<void> {
   if (!auth.user) return
   message.value = 'Reisen werden geladen …'
-  try { await trips.load(auth.user.id); message.value = '' } catch (e) { message.value = `Reisen konnten nicht geladen werden: ${errorMessage(e)}` }
+  loadFailed.value = false
+  try {
+    await trips.load(auth.user.id)
+    message.value = ''
+  } catch (e) {
+    loadFailed.value = true
+    message.value = `Reisen konnten nicht geladen werden: ${errorMessage(e)}`
+  }
 }
 function openEditor(trip?: Trip): void {
   editing.value = trip ?? null
@@ -112,7 +120,7 @@ onMounted(load)
 <div class="header-actions"><button @click="router.push('/account')" class="secondary-button">Konto</button><button @click="logout" class="secondary-button">Abmelden</button></div></header>
 <div class="trips-toolbar"><button @click="openEditor()">+ Neue Reise</button><p v-if="message">{{ message }}</p></div>
 <section v-if="trips.loading" class="empty-card">Reisen werden geladen …</section>
-<section v-else-if="!sortedTrips.length" class="empty-card">Noch keine Reisen vorhanden.</section>
+<section v-else-if="!sortedTrips.length && !loadFailed" class="empty-card">Noch keine Reisen vorhanden.</section>
 <section v-else class="trip-grid">
 <article v-for="trip in sortedTrips" :key="trip.id" class="trip-card">
 <button class="trip-card-main" @click="openTrip(trip)"><strong>{{ trip.name }}</strong><span>{{ trip.destination }}</span><small>{{ dateRange(trip) }}</small><span class="badge">{{ roleLabel(trip.current_user_role) }}</span></button>
