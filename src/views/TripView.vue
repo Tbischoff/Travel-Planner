@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
-import { addTripPlace, deleteTripPlace, listTripDays, listTripPlaces, updatePlaceDetails, updateTripPlacePlanning, type TripDay, type TripPlace } from '../services/supabase/places'
+import { addTripPlace, deleteTripPlace, listTripDays, listTripPlaces, updatePlaceDetails, updateTripPlacePlanning, updateTripPlaceStay, type TripDay, type TripPlace } from '../services/supabase/places'
 import { geocodeDestination, getGoogleMaps, getMarkerLibrary, getPlacesLibrary, loadGoogleMaps, type AdvancedMarkerInstance, type InfoWindowInstance, type MapInstance } from '../services/google/maps'
 
 const trips = useTripStore()
@@ -35,6 +35,8 @@ const addPlaceCategory = ref('other')
 const addPlaceNote = ref('')
 const addPlaceLocalTip = ref(false)
 const addPlaceDay = ref('')
+const addPlaceStayFrom = ref('')
+const addPlaceStayUntil = ref('')
 const addPlaceSaving = ref(false)
 const addPlaceMessage = ref('')
 const sortByDistance = ref(false)
@@ -137,6 +139,7 @@ async function openAddPlace() {
   selectedGooglePlace = null
   addPlaceName.value = ''; addPlaceAddress.value = ''; addPlaceCategory.value = 'other'
   addPlaceNote.value = ''; addPlaceLocalTip.value = false; addPlaceDay.value = ''
+  addPlaceStayFrom.value = trips.currentTrip?.start_date || ''; addPlaceStayUntil.value = trips.currentTrip?.end_date || ''
   await nextTick()
   if (!addPlaceHost.value) return
   addPlaceHost.value.innerHTML = ''
@@ -172,12 +175,16 @@ async function saveNewPlace() {
     addPlaceMessage.value = 'Bitte Name und Adresse eintragen.'
     return
   }
+  if (addPlaceCategory.value === 'hotel' && (!addPlaceStayFrom.value || !addPlaceStayUntil.value || addPlaceStayUntil.value < addPlaceStayFrom.value)) {
+    addPlaceMessage.value = 'Bitte einen gültigen Aufenthaltszeitraum für die Unterkunft eintragen.'
+    return
+  }
   addPlaceSaving.value = true
   try {
     let position = selectedGooglePlace?.location
       ? { lat: selectedGooglePlace.location.lat(), lng: selectedGooglePlace.location.lng() }
       : await geocodeDestination(addPlaceName.value + ', ' + addPlaceAddress.value)
-    const day = tripDays.value.find(item => item.day_date === addPlaceDay.value)
+    const day = addPlaceCategory.value === 'hotel' ? undefined : tripDays.value.find(item => item.day_date === addPlaceDay.value)
     const order = day ? Math.max(0, ...places.value.filter(item => item.planned_day === day.day_date).map(item => item.planned_order || 0)) + 1 : null
     const placeId = await addTripPlace(trip.id, {
       name: addPlaceName.value.trim(), address: addPlaceAddress.value.trim(),
@@ -186,6 +193,8 @@ async function saveNewPlace() {
       website: selectedGooglePlace?.websiteURI || null, phone: selectedGooglePlace?.nationalPhoneNumber || null,
       openingHours: selectedGooglePlace?.regularOpeningHours?.weekdayDescriptions?.join('\n') || null,
       isLocalTip: addPlaceLocalTip.value, dayId: day?.id || null, plannedOrder: order,
+      stayFrom: addPlaceCategory.value === 'hotel' ? addPlaceStayFrom.value : null,
+      stayUntil: addPlaceCategory.value === 'hotel' ? addPlaceStayUntil.value : null,
     })
     places.value = await listTripPlaces(trip.id)
     const added = places.value.find(item => item.id === placeId)
@@ -412,6 +421,17 @@ async function savePlaceEdit() {
     note: place.note || '', isLocalTip: Boolean(place.is_local_tip),
     latitude: position?.lat, longitude: position?.lng,
   })
+  const trip = trips.currentTrip
+  if (trip) {
+    if (place.category === 'hotel') {
+      if (!place.stay_from || !place.stay_until || place.stay_until < place.stay_from) return
+      await updateTripPlaceStay(trip.id, place.id, place.stay_from, place.stay_until)
+      place.planned_day = null; place.planned_order = null; place.start_time = null; place.end_time = null; place.visited = false
+    } else if (place.stay_from || place.stay_until) {
+      await updateTripPlaceStay(trip.id, place.id, null, null)
+      place.stay_from = null; place.stay_until = null
+    }
+  }
   if (position) {
     place.latitude = position.lat
     place.longitude = position.lng
@@ -433,6 +453,10 @@ async function savePlaceEdit() {
     markers.set(place.id, marker)
   }
   refreshMarkerAppearances()
+  // Editing marker content can temporarily detach an AdvancedMarker from the
+  // cluster. Re-run the same visibility pass that a later search input would trigger.
+  syncMarkerVisibility()
+  window.requestAnimationFrame(() => syncMarkerVisibility())
   if (position) {
     // Force the clusterer to rebuild immediately. Vue's next reactive change
     // (for example typing in search) must not be required to redraw the marker.
@@ -667,6 +691,7 @@ onMounted(async () => {
             <label>Name<input v-model="activePlace.name"></label>
             <label>Adresse<input v-model="activePlace.address"></label>
             <label>Kategorie<select v-model="activePlace.category"><option v-for="category in placeCategories" :key="category" :value="category">{{ label(category) }}</option></select></label>
+            <div v-if="activePlace.category === 'hotel'" class="place-popup__times"><label>Aufenthalt von<input v-model="activePlace.stay_from" type="date" :min="trips.currentTrip?.start_date" :max="trips.currentTrip?.end_date"></label><label>Aufenthalt bis<input v-model="activePlace.stay_until" type="date" :min="activePlace.stay_from || trips.currentTrip?.start_date" :max="trips.currentTrip?.end_date"></label></div>
             <label>Notiz<textarea v-model="activePlace.note"></textarea></label>
             <label class="place-popup__check"><input v-model="activePlace.is_local_tip" type="checkbox"> Local-Tipp</label>
             <button class="popup-button popup-button--primary" type="button" @click="savePlaceEdit">Änderungen speichern</button>
@@ -685,7 +710,8 @@ onMounted(async () => {
         <label>Name<input v-model="addPlaceName" type="text"></label>
         <label>Adresse<input v-model="addPlaceAddress" type="text"></label>
         <label>Kategorie<select v-model="addPlaceCategory"><option v-for="category in placeCategories" :key="category" :value="category">{{ label(category) }}</option></select></label>
-        <label>Reisetag<select v-model="addPlaceDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
+        <div v-if="addPlaceCategory === 'hotel'" class="place-dialog__stay"><label>Aufenthalt von<input v-model="addPlaceStayFrom" type="date" :min="trips.currentTrip?.start_date" :max="trips.currentTrip?.end_date"></label><label>Aufenthalt bis<input v-model="addPlaceStayUntil" type="date" :min="addPlaceStayFrom || trips.currentTrip?.start_date" :max="trips.currentTrip?.end_date"></label></div>
+        <label v-else>Reisetag<select v-model="addPlaceDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
         <label>Notiz<textarea v-model="addPlaceNote"></textarea></label>
         <label class="place-dialog__check"><input v-model="addPlaceLocalTip" type="checkbox"> ⭐ Als Local-Tipp markieren</label>
         <p v-if="addPlaceMessage" class="muted">{{ addPlaceMessage }}</p>
@@ -717,7 +743,7 @@ onMounted(async () => {
 :global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
-.place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-popup__times{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__distance{color:#2f625d;font-weight:700}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
+.place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-popup__times,.place-dialog__stay{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__distance{color:#2f625d;font-weight:700}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
 .place-dialog-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.45)}.place-dialog{position:relative;width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3)}.place-dialog h2{margin:4px 0 16px}.place-dialog>label{display:grid;gap:6px;margin:11px 0;font-size:.84rem;font-weight:700}.place-dialog input,.place-dialog select,.place-dialog textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:9px;background:#fff;font:inherit}.place-dialog textarea{min-height:72px}.place-dialog__close{position:absolute;right:12px;top:12px;border:0;background:transparent;cursor:pointer}.place-dialog__check{display:flex!important;align-items:center;gap:8px!important}.place-dialog__check input{width:auto}.place-dialog__divider{text-align:center;color:#7a8590;font-size:.76rem;margin:12px 0}.google-place-host{margin-top:6px;min-height:44px;max-width:100%;overflow:visible}.google-place-host gmp-place-autocomplete{display:block;width:100%;max-width:100%;box-sizing:border-box}.place-dialog__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.place-dialog__actions button{min-height:40px;padding:8px 12px;border:1px solid #cbd3db;border-radius:10px;background:#fff;cursor:pointer}.place-dialog__actions .popup-button--primary{background:#2f625d;color:#fff;border-color:#2f625d}
 @media(max-width:760px){.place-dialog{width:calc(100vw - 32px);max-width:390px;padding:18px;overflow-x:hidden}.google-place-host{width:100%;max-width:100%;overflow:visible}.google-place-host gmp-place-autocomplete{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important}.google-place-host gmp-place-autocomplete::part(input){width:100%;max-width:100%;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trip-workspace{position:fixed;inset:0;padding:0;background:#fff;overflow:hidden;overscroll-behavior:none}.trip-header{display:none}.trip-map-layout{position:absolute;inset:0;display:block;height:auto;min-height:0;margin:0}.map-panel{position:absolute;inset:0;height:auto;border:0;border-radius:0;overflow:hidden}.trip-map{position:absolute;inset:0;width:100%;height:auto;min-height:0}.map-toolbar{top:62px;left:12px;right:12px}.map-toolbar button{font-size:.76rem;padding:7px 8px}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:0 auto 0 0;width:min(90vw,390px);box-sizing:border-box;border:0;border-radius:0 18px 18px 0;padding:12px 16px 20px;background:#fff;box-shadow:12px 0 34px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}.places-panel--open{transform:translateX(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{position:fixed;z-index:15;left:auto;right:12px;top:82px;bottom:auto;width:min(84vw,360px);max-height:calc(100dvh - 98px);padding:14px;overflow:auto;overscroll-behavior:contain;border-radius:16px}.place-popup--editing{width:min(90vw,390px);max-height:calc(100dvh - 98px)}.place-popup h3{font-size:1rem;line-height:1.2;margin-bottom:3px}.place-popup p{font-size:.82rem;line-height:1.3;margin:5px 0}.place-popup label{margin:9px 0 5px}.place-popup input,.place-popup select{min-height:38px;padding:7px 9px}.place-popup__times{gap:8px}.popup-button{min-height:38px;padding:7px 10px;font-size:.8rem}.place-popup__actions{grid-template-columns:1fr;gap:7px}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status,.place-popup__actions .popup-button--edit,.place-popup__actions .popup-button--danger{grid-column:1;width:100%;justify-content:flex-start;text-align:left;white-space:nowrap}.place-popup__actions .popup-button--primary{justify-content:center;text-align:center}.popup-button--status,.popup-button--edit{font-size:.78rem}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
