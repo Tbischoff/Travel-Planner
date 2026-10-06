@@ -433,8 +433,30 @@ async function savePlaceEdit() {
     markers.set(place.id, marker)
   }
   refreshMarkerAppearances()
-  syncMarkerVisibility()
-  if (position && (previousLat !== position.lat || previousLng !== position.lng)) map?.panTo(position)
+  if (position) {
+    // Force the clusterer to rebuild immediately. Vue's next reactive change
+    // (for example typing in search) must not be required to redraw the marker.
+    if (placeMarkerClusterer) {
+      const visibleIds = new Set(visiblePlaces.value.map(item => item.id))
+      const visibleMarkers = [...markers.entries()]
+        .filter(([id]) => visibleIds.has(id))
+        .map(([, item]) => item)
+      placeMarkerClusterer.clearMarkers(true)
+      placeMarkerClusterer.addMarkers(visibleMarkers, true)
+      placeMarkerClusterer.render()
+    } else if (marker) {
+      marker.map = map
+    }
+  } else {
+    syncMarkerVisibility()
+  }
+  if (position && (previousLat !== position.lat || previousLng !== position.lng)) {
+    map?.panTo(position)
+    window.requestAnimationFrame(() => {
+      map?.panBy(0, 0)
+      window.dispatchEvent(new Event('resize'))
+    })
+  }
 }
 
 async function removeActivePlace() {
