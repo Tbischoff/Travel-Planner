@@ -575,7 +575,7 @@ onMounted(async () => {
         </div>
         <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
         <div class="map-toolbar">
-          <button type="button" title="Reiseziel" @click="centerOnDestination">📍 Ziel</button>
+          <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
           <button type="button" title="Aktueller Standort" @click="centerOnCurrentLocation">◎ Standort</button>
           <button type="button" title="Alle Orte anzeigen" @click="fitAllPlaces">⌗ Alle</button>
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
