@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as tripService from '../services/supabase/trips'
 import type { Trip, TripInput } from '../services/supabase/trips'
+import { getSession, sessionTiming, waitUntilSessionIsUsable } from '../services/supabase/auth'
 
 const LAST_TRIP_KEY = 'travelPlannerLastTripId'
 
@@ -16,23 +17,28 @@ export const useTripStore = defineStore('trip', () => {
   async function load(userId: string): Promise<void> {
     loading.value = true
     try {
-      let lastError: unknown = null
-      for (let attempt = 0; attempt < 4; attempt++) {
-        try {
-          trips.value = await tripService.listTrips(userId)
-          lastError = null
-          break
-        } catch (error) {
-          lastError = error
-          const message = error instanceof Error ? error.message : String(error)
-          if (!/jwt issued at future/i.test(message) || attempt === 3) throw error
-          // Supabase can briefly reject a freshly issued token while the auth
-          // and database clocks converge. Refreshing immediately creates
-          // another equally new token, so wait and retry the same session.
-          await new Promise(resolve => window.setTimeout(resolve, 1000 * (attempt + 1)))
+      const session = await getSession()
+      if (session) await waitUntilSessionIsUsable(session)
+      try {
+        trips.value = await tripService.listTrips(userId)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (!/jwt issued at future/i.test(message)) throw error
+        // If PostgREST still reports a future-issued token, use the token's
+        // actual iat value to wait the remaining skew instead of blind retries.
+        const retrySession = await getSession()
+        if (!retrySession) throw error
+        const timing = sessionTiming(retrySession)
+        if (timing.issuedInFutureBySeconds > 30) {
+          throw new Error(`JWT-Zeitabweichung zu groß (${timing.issuedInFutureBySeconds}s). Bitte Gerätezeit prüfen.`)
         }
+        if (timing.issuedInFutureBySeconds > 0) {
+          await new Promise(resolve => window.setTimeout(resolve, (timing.issuedInFutureBySeconds + 1) * 1000))
+        } else {
+          await new Promise(resolve => window.setTimeout(resolve, 1500))
+        }
+        trips.value = await tripService.listTrips(userId)
       }
-      if (lastError) throw lastError
     } finally { loading.value = false }
   }
   async function create(input: TripInput, userId: string): Promise<void> { await tripService.createTrip(input); await load(userId) }
