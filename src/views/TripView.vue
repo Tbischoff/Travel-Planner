@@ -22,6 +22,7 @@ const selectedPlaceId = ref<string | null>(null)
 const placePopup = ref<HTMLElement | null>(null)
 const activePlace = ref<TripPlace | null>(null)
 const editingPlace = ref(false)
+const editOriginalAddress = ref('')
 const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
@@ -401,20 +402,26 @@ async function savePlaceEdit() {
   if (!place) return
   const previousLat = place.latitude
   const previousLng = place.longitude
-  const position = await geocodeDestination([place.name, place.address].filter(Boolean).join(', '))
+  const addressChanged = (place.address || '').trim() !== editOriginalAddress.value.trim()
+  let position: { lat: number; lng: number } | null = null
+  if (addressChanged && place.address?.trim()) {
+    position = await geocodeDestination(place.address.trim())
+  }
   await updatePlaceDetails(place, {
     name: place.name, address: place.address || '', category: place.category || 'other',
     note: place.note || '', isLocalTip: Boolean(place.is_local_tip),
-    latitude: position.lat, longitude: position.lng,
+    latitude: position?.lat, longitude: position?.lng,
   })
-  place.latitude = position.lat
-  place.longitude = position.lng
+  if (position) {
+    place.latitude = position.lat
+    place.longitude = position.lng
+  }
   editingPlace.value = false
   const marker = markers.get(place.id)
-  if (marker) marker.position = position
+  if (marker && position) marker.position = position
   refreshMarkerAppearances()
   syncMarkerVisibility()
-  if (previousLat !== position.lat || previousLng !== position.lng) map?.panTo(position)
+  if (position && (previousLat !== position.lat || previousLng !== position.lng)) map?.panTo(position)
 }
 
 async function removeActivePlace() {
@@ -616,7 +623,7 @@ onMounted(async () => {
             <div class="place-popup__actions">
               <button class="popup-button popup-button--primary" type="button" @click="savePlanning">Planung speichern</button>
               <button class="popup-button popup-button--status" :class="{ 'popup-button--visited': activePlace.visited }" type="button" @click="toggleVisited"><span class="popup-button__icon">{{ activePlace.visited ? '✓' : '○' }}</span><span>{{ activePlace.visited ? 'Besucht' : 'Als besucht markieren' }}</span></button>
-              <button class="popup-button popup-button--edit" type="button" @click="editingPlace = true"><span class="popup-button__icon">✎</span><span>Bearbeiten</span></button>
+              <button class="popup-button popup-button--edit" type="button" @click="editOriginalAddress = activePlace.address || ''; editingPlace = true"><span class="popup-button__icon">✎</span><span>Bearbeiten</span></button>
               <button class="popup-button popup-button--danger" type="button" @click="removeActivePlace">Aus Reise löschen</button>
             </div>
           </template>
