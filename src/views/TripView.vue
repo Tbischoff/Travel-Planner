@@ -549,7 +549,7 @@ onMounted(async () => {
         <input v-model="searchQuery" class="place-search" type="search" placeholder="Orte durchsuchen …">
         <div class="places-panel__toolbar">
           <button type="button" class="place-add-button" @click="openAddPlace">＋ Ort hinzufügen</button>
-          <button type="button" class="place-sort-button" :class="{ 'place-sort-button--active': sortByDistance }" @click="sortByDistance = !sortByDistance">📍 {{ sortByDistance ? 'Nach Entfernung sortiert' : 'Nach Entfernung sortieren' }}</button>
+          <button type="button" class="place-sort-button" :class="{ 'place-sort-button--active': sortByDistance }" @click="sortByDistance = !sortByDistance">{{ sortByDistance ? 'A–Z Alphabetisch sortieren' : '📍 Nach Entfernung sortieren' }}</button>
           <select v-model="selectedCategory" aria-label="Kategorie filtern">
             <option value="all">Alle Kategorien</option>
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
