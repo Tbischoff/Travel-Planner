@@ -19,6 +19,8 @@ export interface TripPlace {
   planned_order: number | null
   start_time: string | null
   end_time: string | null
+  stay_from: string | null
+  stay_until: string | null
 }
 
 export interface TripDay {
@@ -39,7 +41,7 @@ export async function listTripDays(tripId: string): Promise<TripDay[]> {
 export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
   const { data: relations, error: relationError } = await supabase
     .from('trip_places')
-    .select('place_id,visited,trip_day_id,planned_order,planned_time,planned_end_time')
+    .select('place_id,visited,trip_day_id,planned_order,planned_time,planned_end_time,stay_from,stay_until')
     .eq('trip_id', tripId)
   if (relationError) throw relationError
 
@@ -72,6 +74,8 @@ export async function listTripPlaces(tripId: string): Promise<TripPlace[]> {
     planned_order: relationByPlace.get(place.id)?.planned_order ?? null,
     start_time: relationByPlace.get(place.id)?.planned_time?.slice(0, 5) ?? null,
     end_time: relationByPlace.get(place.id)?.planned_end_time?.slice(0, 5) ?? null,
+    stay_from: relationByPlace.get(place.id)?.stay_from ?? null,
+    stay_until: relationByPlace.get(place.id)?.stay_until ?? null,
   })) as TripPlace[]
 }
 
@@ -83,6 +87,15 @@ export async function updateTripPlacePlanning(tripId: string, place: TripPlace, 
     planned_end_time: endTime || null,
     visited,
   }).eq('trip_id', tripId).eq('place_id', place.id)
+  if (error) throw error
+}
+
+export async function updateTripPlaceStay(tripId: string, placeId: string, stayFrom: string | null, stayUntil: string | null): Promise<void> {
+  const { error } = await supabase.from('trip_places').update({
+    stay_from: stayFrom,
+    stay_until: stayUntil,
+    ...(stayFrom && stayUntil ? { trip_day_id: null, planned_order: null, planned_time: null, planned_end_time: null, visited: false } : {}),
+  }).eq('trip_id', tripId).eq('place_id', placeId)
   if (error) throw error
 }
 
@@ -115,6 +128,8 @@ export interface NewTripPlaceInput {
   isLocalTip?: boolean
   dayId?: string | null
   plannedOrder?: number | null
+  stayFrom?: string | null
+  stayUntil?: string | null
 }
 
 export async function addTripPlace(tripId: string, input: NewTripPlaceInput): Promise<string> {
@@ -130,6 +145,8 @@ export async function addTripPlace(tripId: string, input: NewTripPlaceInput): Pr
         place_id: status.place_id,
         trip_day_id: input.dayId || null,
         planned_order: input.plannedOrder ?? null,
+        stay_from: input.stayFrom || null,
+        stay_until: input.stayUntil || null,
       })
       if (linkError) throw linkError
       return status.place_id
@@ -157,6 +174,8 @@ export async function addTripPlace(tripId: string, input: NewTripPlaceInput): Pr
     place_id: place.id,
     trip_day_id: input.dayId || null,
     planned_order: input.plannedOrder ?? null,
+    stay_from: input.stayFrom || null,
+    stay_until: input.stayUntil || null,
   })
   if (relationError) {
     await supabase.from('places').delete().eq('id', place.id)
