@@ -474,27 +474,6 @@ async function savePlaceEdit() {
     markers.set(place.id, marker)
   }
   refreshMarkerAppearances()
-  // Editing marker content can temporarily detach an AdvancedMarker from the
-  // cluster. Re-run the same visibility pass that a later search input would trigger.
-  syncMarkerVisibility()
-  window.requestAnimationFrame(() => syncMarkerVisibility())
-  if (position) {
-    // Force the clusterer to rebuild immediately. Vue's next reactive change
-    // (for example typing in search) must not be required to redraw the marker.
-    if (placeMarkerClusterer) {
-      const visibleIds = new Set(visiblePlaces.value.map(item => item.id))
-      const visibleMarkers = [...markers.entries()]
-        .filter(([id]) => visibleIds.has(id))
-        .map(([, item]) => item)
-      placeMarkerClusterer.clearMarkers(true)
-      placeMarkerClusterer.addMarkers(visibleMarkers, true)
-      placeMarkerClusterer.render()
-    } else if (marker) {
-      marker.map = map
-    }
-  } else {
-    syncMarkerVisibility()
-  }
   if (position && (previousLat !== position.lat || previousLng !== position.lng)) {
     map?.panTo(position)
     window.requestAnimationFrame(() => {
@@ -537,17 +516,23 @@ function createClusterMarker({ count, position }: ClusterRendererInput, _stats: 
 function syncMarkerVisibility() {
   const visibleIds = new Set(visiblePlaces.value.map((place) => place.id))
   const visibleMarkers: AdvancedMarkerInstance[] = []
-  for (const [id, marker] of markers) {
-    marker.map = null
-    if (visibleIds.has(id)) visibleMarkers.push(marker)
-  }
+
+  // MarkerClusterer owns marker.map while clustering. Do not detach markers
+  // manually before clearMarkers(): doing both races the cluster render and is
+  // why filtered markers only came back after the next search change.
   if (placeMarkerClusterer) {
     placeMarkerClusterer.clearMarkers(true)
+    for (const [id, marker] of markers) {
+      if (visibleIds.has(id)) visibleMarkers.push(marker)
+    }
     placeMarkerClusterer.addMarkers(visibleMarkers, true)
     placeMarkerClusterer.render()
   } else {
-    for (const marker of visibleMarkers) marker.map = map
+    for (const [id, marker] of markers) {
+      marker.map = visibleIds.has(id) ? map : null
+    }
   }
+
   if (selectedPlaceId.value && !visibleIds.has(selectedPlaceId.value)) {
     selectedPlaceId.value = null
     syncSelectedMarker()
@@ -613,11 +598,7 @@ async function renderMap() {
   syncMarkerVisibility()
 }
 
-watch(visiblePlaces, () => {
-  // Wait until Vue has committed the search/filter state before rebuilding the
-  // cluster. This prevents a clicked search result from being detached again.
-  nextTick(() => syncMarkerVisibility())
-}, { flush: 'post' })
+watch(visiblePlaces, () => syncMarkerVisibility(), { flush: 'post' })
 watch(selectedDay, () => refreshMarkerAppearances())
 
 
