@@ -417,8 +417,21 @@ async function savePlaceEdit() {
     place.longitude = position.lng
   }
   editingPlace.value = false
-  const marker = markers.get(place.id)
-  if (marker && position) marker.position = position
+  let marker = markers.get(place.id)
+  if (marker && position) {
+    // MarkerClusterer keeps its own spatial state. Recreate the marker so the
+    // new coordinates are reflected immediately instead of only after reload.
+    marker.map = null
+    markers.delete(place.id)
+    markerElements.delete(place.id)
+    const { AdvancedMarkerElement } = await getMarkerLibrary()
+    marker = new AdvancedMarkerElement({
+      map, position, title: place.name, content: markerContent(place), gmpClickable: true,
+      zIndex: place.category === 'hotel' ? 900 : place.is_local_tip ? 100 : 1,
+    })
+    marker.addEventListener('gmp-click', () => openPlace(place))
+    markers.set(place.id, marker)
+  }
   refreshMarkerAppearances()
   syncMarkerVisibility()
   if (position && (previousLat !== position.lat || previousLng !== position.lng)) map?.panTo(position)
