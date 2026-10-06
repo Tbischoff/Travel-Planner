@@ -321,46 +321,44 @@ function markerSvg(category: string) {
   }
   return '<svg viewBox="0 0 24 24" aria-hidden="true">' + (icons[category] || icons.other) + '</svg>'
 }
-async function refreshMarkerAppearances() {
-  const { AdvancedMarkerElement } = await getMarkerLibrary()
-  const visibleIds = new Set(visiblePlaces.value.map(place => place.id))
-  const rebuiltMarkers: AdvancedMarkerInstance[] = []
-
+function refreshMarkerAppearances() {
+  // Keep the existing AdvancedMarker instances stable. MarkerClusterer tracks
+  // those object identities; replacing them during search/edit can leave the
+  // newly created marker detached until another filter change.
   for (const place of places.value) {
-    const oldMarker = markers.get(place.id)
-    if (!oldMarker || place.latitude == null || place.longitude == null) continue
+    const marker = markers.get(place.id)
+    const element = markerElements.get(place.id)
+    if (!marker || !element) continue
+    const state = markerState(place)
+    element.style.setProperty('--marker-color', state.color)
+    element.style.setProperty('--marker-scale', String(state.scale))
+    element.style.opacity = String(state.opacity)
+    element.title = place.name
 
-    // AdvancedMarker content nodes must not be swapped while MarkerClusterer owns
-    // the marker. Recreate the marker instead; otherwise the clusterer can keep a
-    // detached marker until the next filter/search update.
-    oldMarker.map = null
-    markerElements.delete(place.id)
-    const marker = new AdvancedMarkerElement({
-      map: null,
-      position: { lat: Number(place.latitude), lng: Number(place.longitude) },
-      title: place.name,
-      content: markerContent(place),
-      gmpClickable: true,
-      zIndex: place.category === 'hotel' ? 900 :
-        (tripDays.value.some(day => day.day_date === selectedDay.value) && place.planned_day === selectedDay.value)
-          ? 500 + (place.planned_order || 0)
-          : place.is_local_tip ? 100 : 1,
-    })
-    marker.addEventListener('gmp-click', () => openPlace(place))
-    markers.set(place.id, marker)
-    if (visibleIds.has(place.id)) rebuiltMarkers.push(marker)
+    const icon = element.querySelector('.v3-place-marker__icon') as HTMLElement | null
+    const labelElement = element.querySelector('.v3-place-marker__label') as HTMLElement | null
+    if (icon) {
+      icon.className = 'v3-place-marker__icon'
+      if (state.order != null) {
+        icon.classList.add('v3-place-marker__order')
+        icon.textContent = String(state.order)
+      } else if (state.localTip) {
+        icon.classList.add('v3-place-marker__star')
+        icon.textContent = '★'
+      } else {
+        icon.innerHTML = markerSvg(place.category || 'other')
+      }
+    }
+    if (labelElement) labelElement.textContent = place.name
+    marker.title = place.name
+    marker.zIndex = place.category === 'hotel' ? 900 :
+      (tripDays.value.some(day => day.day_date === selectedDay.value) && place.planned_day === selectedDay.value)
+        ? 500 + (place.planned_order || 0)
+        : place.is_local_tip ? 100 : 1
   }
-
   syncSelectedMarker()
-  if (placeMarkerClusterer) {
-    placeMarkerClusterer.clearMarkers(true)
-    placeMarkerClusterer.addMarkers(rebuiltMarkers, true)
-    placeMarkerClusterer.render()
-  } else {
-    for (const marker of rebuiltMarkers) marker.map = map
-  }
+  syncMarkerVisibility()
 }
-
 function syncSelectedMarker() {
   for (const [id, element] of markerElements) {
     element.classList.toggle('v3-place-marker--selected', id === selectedPlaceId.value)
@@ -379,20 +377,6 @@ function openPlace(place: TripPlace, focus = false) {
   if (!map) return
   const marker = markers.get(place.id)
   if (!marker) return
-
-  // A list/search result can be the only visible place. Make sure its marker is
-  // attached immediately before opening the details; the clusterer otherwise
-  // may still be between two filter redraws and temporarily hide it.
-  if (focus) {
-    if (placeMarkerClusterer) {
-      placeMarkerClusterer.clearMarkers(true)
-      placeMarkerClusterer.addMarkers([marker], true)
-      placeMarkerClusterer.render()
-    } else {
-      marker.map = map
-    }
-  }
-
   activePlace.value = place
   popupDay.value = place.planned_day || ''
   popupStart.value = place.start_time || ''
@@ -489,7 +473,7 @@ async function savePlaceEdit() {
     marker.addEventListener('gmp-click', () => openPlace(place))
     markers.set(place.id, marker)
   }
-  await refreshMarkerAppearances()
+  refreshMarkerAppearances()
   // Editing marker content can temporarily detach an AdvancedMarker from the
   // cluster. Re-run the same visibility pass that a later search input would trigger.
   syncMarkerVisibility()
