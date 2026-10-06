@@ -142,7 +142,7 @@ async function openAddPlace() {
   try {
     const { PlaceAutocompleteElement } = await getPlacesLibrary()
     const autocomplete = new PlaceAutocompleteElement({
-      locationRestriction: { west: tripCenter.lng - .65, east: tripCenter.lng + .65, south: tripCenter.lat - .45, north: tripCenter.lat + .45 },
+      locationBias: { center: { lat: tripCenter.lat, lng: tripCenter.lng }, radius: 50000 },
     })
     autocomplete.placeholder = 'Restaurant, Café, Sehenswürdigkeit …'
     autocomplete.addEventListener('gmp-select', async event => {
@@ -157,8 +157,11 @@ async function openAddPlace() {
       addPlaceMessage.value = 'Google-Ort ausgewählt – Daten werden beim Speichern übernommen.'
     })
     addPlaceHost.value.appendChild(autocomplete)
-  } catch {
-    addPlaceMessage.value = 'Google-Ortssuche ist gerade nicht verfügbar. Der Ort kann manuell eingetragen werden.'
+  } catch (cause) {
+    console.error('Google Places autocomplete could not be initialized', cause)
+    addPlaceMessage.value = cause instanceof Error
+      ? `Google-Ortssuche ist gerade nicht verfügbar: ${cause.message}`
+      : 'Google-Ortssuche ist gerade nicht verfügbar. Der Ort kann manuell eingetragen werden.'
   }
 }
 
