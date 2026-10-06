@@ -76,6 +76,7 @@ const visiblePlaces = computed(() => {
     return distanceFromUser(a) - distanceFromUser(b)
   })
 })
+const placeCategories = ['food','cafe','bar','sight','culture','leisure','thermal','viewpoint','transport','area','hotel','other']
 const categories = computed(() => [...new Set(places.value.map(place => place.category || 'other'))].sort())
 
 const activePlaceDistance = computed(() => {
@@ -607,7 +608,7 @@ onMounted(async () => {
             <h3>Ort bearbeiten</h3>
             <label>Name<input v-model="activePlace.name"></label>
             <label>Adresse<input v-model="activePlace.address"></label>
-            <label>Kategorie<select v-model="activePlace.category"><option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option></select></label>
+            <label>Kategorie<select v-model="activePlace.category"><option v-for="category in placeCategories" :key="category" :value="category">{{ label(category) }}</option></select></label>
             <label>Notiz<textarea v-model="activePlace.note"></textarea></label>
             <label class="place-popup__check"><input v-model="activePlace.is_local_tip" type="checkbox"> Local-Tipp</label>
             <button class="popup-button popup-button--primary" type="button" @click="savePlaceEdit">Änderungen speichern</button>
@@ -625,7 +626,7 @@ onMounted(async () => {
         <div class="place-dialog__divider">oder manuell eingeben</div>
         <label>Name<input v-model="addPlaceName" type="text"></label>
         <label>Adresse<input v-model="addPlaceAddress" type="text"></label>
-        <label>Kategorie<select v-model="addPlaceCategory"><option v-for="category in [...new Set([...categories, 'other'])]" :key="category" :value="category">{{ label(category) }}</option></select></label>
+        <label>Kategorie<select v-model="addPlaceCategory"><option v-for="category in placeCategories" :key="category" :value="category">{{ label(category) }}</option></select></label>
         <label>Reisetag<select v-model="addPlaceDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
         <label>Notiz<textarea v-model="addPlaceNote"></textarea></label>
         <label class="place-dialog__check"><input v-model="addPlaceLocalTip" type="checkbox"> ⭐ Als Local-Tipp markieren</label>
