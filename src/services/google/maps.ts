@@ -10,6 +10,7 @@ export interface MapInstance {
   getZoom: () => number | undefined
 }
 export interface AdvancedMarkerInstance {
+  title?: string
   map: MapInstance | null
   position?: { lat: number; lng: number }
   content?: Node | null
