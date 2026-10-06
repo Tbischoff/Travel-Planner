@@ -399,9 +399,22 @@ async function toggleVisited() {
 async function savePlaceEdit() {
   const place = activePlace.value
   if (!place) return
-  await updatePlaceDetails(place, { name: place.name, address: place.address || '', category: place.category || 'other', note: place.note || '', isLocalTip: Boolean(place.is_local_tip) })
+  const previousLat = place.latitude
+  const previousLng = place.longitude
+  const position = await geocodeDestination([place.name, place.address].filter(Boolean).join(', '))
+  await updatePlaceDetails(place, {
+    name: place.name, address: place.address || '', category: place.category || 'other',
+    note: place.note || '', isLocalTip: Boolean(place.is_local_tip),
+    latitude: position.lat, longitude: position.lng,
+  })
+  place.latitude = position.lat
+  place.longitude = position.lng
   editingPlace.value = false
+  const marker = markers.get(place.id)
+  if (marker) marker.position = position
   refreshMarkerAppearances()
+  syncMarkerVisibility()
+  if (previousLat !== position.lat || previousLng !== position.lng) map?.panTo(position)
 }
 
 async function removeActivePlace() {
