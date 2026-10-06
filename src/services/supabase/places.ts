@@ -98,3 +98,68 @@ export async function deleteTripPlace(tripId: string, placeId: string): Promise<
   const { error } = await supabase.rpc('delete_place_from_trip', { p_trip_id: tripId, p_place_id: placeId })
   if (error) throw error
 }
+
+
+export interface NewTripPlaceInput {
+  name: string
+  address: string
+  latitude: number
+  longitude: number
+  category: string
+  note?: string | null
+  googlePlaceId?: string | null
+  website?: string | null
+  phone?: string | null
+  openingHours?: string | null
+  isLocalTip?: boolean
+  dayId?: string | null
+  plannedOrder?: number | null
+}
+
+export async function addTripPlace(tripId: string, input: NewTripPlaceInput): Promise<string> {
+  if (input.googlePlaceId) {
+    const { data: status, error: statusError } = await supabase.rpc('get_google_place_status', {
+      p_trip_id: tripId,
+      p_google_place_id: input.googlePlaceId,
+    })
+    if (!statusError && status?.in_trip && status.place_id) return status.place_id
+    if (!statusError && status?.exists && status.place_id) {
+      const { error: linkError } = await supabase.from('trip_places').insert({
+        trip_id: tripId,
+        place_id: status.place_id,
+        trip_day_id: input.dayId || null,
+        planned_order: input.plannedOrder ?? null,
+      })
+      if (linkError) throw linkError
+      return status.place_id
+    }
+  }
+
+  const { data: place, error: placeError } = await supabase.from('places').insert({
+    name: input.name,
+    address: input.address,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    category: input.category,
+    google_place_id: input.googlePlaceId || null,
+    website: input.website || null,
+    phone: input.phone || null,
+    opening_hours: input.openingHours || null,
+    note: input.note || null,
+    is_local_tip: Boolean(input.isLocalTip),
+    source: input.googlePlaceId ? 'googlePlaces' : 'manual',
+  }).select('id').single()
+  if (placeError) throw placeError
+
+  const { error: relationError } = await supabase.from('trip_places').insert({
+    trip_id: tripId,
+    place_id: place.id,
+    trip_day_id: input.dayId || null,
+    planned_order: input.plannedOrder ?? null,
+  })
+  if (relationError) {
+    await supabase.from('places').delete().eq('id', place.id)
+    throw relationError
+  }
+  return place.id
+}
