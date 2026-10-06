@@ -25,6 +25,7 @@ const editingPlace = ref(false)
 const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
+const userLocation = ref<{ lat: number; lng: number } | null>(null)
 let map: MapInstance | null = null
 let infoWindow: InfoWindowInstance | null = null
 const markers = new Map<string, AdvancedMarkerInstance>()
@@ -60,6 +61,30 @@ const visiblePlaces = computed(() => {
   })
 })
 const categories = computed(() => [...new Set(places.value.map(place => place.category || 'other'))].sort())
+
+const activePlaceDistance = computed(() => {
+  const place = activePlace.value
+  const origin = userLocation.value
+  if (!place || !origin || place.latitude == null || place.longitude == null) return null
+  const toRad = (value: number) => value * Math.PI / 180
+  const lat1 = toRad(origin.lat); const lat2 = toRad(Number(place.latitude))
+  const dLat = lat2 - lat1; const dLng = toRad(Number(place.longitude) - origin.lng)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+})
+
+function distanceLabel(distance: number) {
+  return distance < 1 ? Math.round(distance * 1000) + ' m Luftlinie entfernt' : distance.toFixed(distance < 10 ? 1 : 0).replace('.', ',') + ' km Luftlinie entfernt'
+}
+
+function requestUserLocation() {
+  if (!navigator.geolocation) return
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => { userLocation.value = { lat: coords.latitude, lng: coords.longitude } },
+    () => { userLocation.value = null },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+  )
+}
 
 
 function label(category: string) {
@@ -347,6 +372,7 @@ watch(selectedDay, () => refreshMarkerAppearances())
 
 
 onMounted(async () => {
+  requestUserLocation()
   try {
     await restoreTrip()
     if (!trips.currentTrip) { await router.replace('/trips'); return }
@@ -409,6 +435,7 @@ onMounted(async () => {
             <h3>{{ activePlace.name }}</h3>
             <p class="muted place-popup__meta">{{ label(activePlace.category || 'other') }}<template v-if="activePlace.is_local_tip"> · ⭐ Local-Tipp</template><template v-if="activePlace.planned_order"> · #{{ activePlace.planned_order }}</template></p>
             <p v-if="activePlace.address" class="place-popup__address">{{ activePlace.address }}</p>
+            <p v-if="activePlaceDistance != null" class="place-popup__distance">📍 {{ distanceLabel(activePlaceDistance) }}</p>
             <p v-if="activePlace.note">{{ activePlace.note }}</p>
             <div v-if="activePlace.opening_hours || activePlace.phone || activePlace.website" class="place-popup__details">
               <div v-if="activePlace.opening_hours">🕒 {{ activePlace.opening_hours }}</div>
@@ -463,7 +490,7 @@ onMounted(async () => {
 :global(.v3-marker-cluster){min-width:38px;height:38px;padding:0 10px;border:3px solid rgba(255,255,255,.96);border-radius:999px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:#2f625d;color:#fff;font:700 14px/1 Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 3px 10px rgba(15,23,42,.28);transform:translateY(-2px);user-select:none;cursor:pointer}
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
-.place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-popup__times{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
+.place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-popup__times{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__distance{color:#2f625d;font-weight:700}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
 @media(max-width:760px){
 .trip-workspace{position:fixed;inset:0;padding:0;background:#fff;overflow:hidden;overscroll-behavior:none}.trip-header{display:none}.trip-map-layout{position:absolute;inset:0;display:block;height:auto;min-height:0;margin:0}.map-panel{position:absolute;inset:0;height:auto;border:0;border-radius:0;overflow:hidden}.trip-map{position:absolute;inset:0;width:100%;height:auto;min-height:0}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:0 auto 0 0;width:min(90vw,390px);box-sizing:border-box;border:0;border-radius:0 18px 18px 0;padding:12px 16px 20px;background:#fff;box-shadow:12px 0 34px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}.places-panel--open{transform:translateX(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{position:fixed;z-index:15;left:auto;right:12px;top:82px;bottom:auto;width:min(84vw,360px);max-height:calc(100dvh - 98px);padding:14px;overflow:auto;overscroll-behavior:contain;border-radius:16px}.place-popup--editing{width:min(90vw,390px);max-height:calc(100dvh - 98px)}.place-popup h3{font-size:1rem;line-height:1.2;margin-bottom:3px}.place-popup p{font-size:.82rem;line-height:1.3;margin:5px 0}.place-popup label{margin:9px 0 5px}.place-popup input,.place-popup select{min-height:38px;padding:7px 9px}.place-popup__times{gap:8px}.popup-button{min-height:38px;padding:7px 10px;font-size:.8rem}.place-popup__actions{grid-template-columns:1fr;gap:7px}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status,.place-popup__actions .popup-button--edit,.place-popup__actions .popup-button--danger{grid-column:1;width:100%;justify-content:flex-start;text-align:left;white-space:nowrap}.place-popup__actions .popup-button--primary{justify-content:center;text-align:center}.popup-button--status,.popup-button--edit{font-size:.78rem}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
 </style>
