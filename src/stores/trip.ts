@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as tripService from '../services/supabase/trips'
 import type { Trip, TripInput } from '../services/supabase/trips'
-import { supabase } from '../services/supabase/client'
 
 const LAST_TRIP_KEY = 'travelPlannerLastTripId'
 
@@ -17,18 +16,23 @@ export const useTripStore = defineStore('trip', () => {
   async function load(userId: string): Promise<void> {
     loading.value = true
     try {
-      try {
-        trips.value = await tripService.listTrips(userId)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (!/jwt issued at future/i.test(message)) throw error
-        // A freshly restored browser session can very briefly carry a token
-        // Supabase considers to be issued in the future. Refresh it once and
-        // transparently retry instead of requiring a manual page reload.
-        const { error: refreshError } = await supabase.auth.refreshSession()
-        if (refreshError) throw refreshError
-        trips.value = await tripService.listTrips(userId)
+      let lastError: unknown = null
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          trips.value = await tripService.listTrips(userId)
+          lastError = null
+          break
+        } catch (error) {
+          lastError = error
+          const message = error instanceof Error ? error.message : String(error)
+          if (!/jwt issued at future/i.test(message) || attempt === 3) throw error
+          // Supabase can briefly reject a freshly issued token while the auth
+          // and database clocks converge. Refreshing immediately creates
+          // another equally new token, so wait and retry the same session.
+          await new Promise(resolve => window.setTimeout(resolve, 1000 * (attempt + 1)))
+        }
       }
+      if (lastError) throw lastError
     } finally { loading.value = false }
   }
   async function create(input: TripInput, userId: string): Promise<void> { await tripService.createTrip(input); await load(userId) }
