@@ -86,10 +86,11 @@ export async function updateTripPlacePlanning(tripId: string, place: TripPlace, 
   if (error) throw error
 }
 
-export async function updatePlaceDetails(place: TripPlace, input: { name: string; address: string; category: string; note: string; isLocalTip: boolean }): Promise<void> {
+export async function updatePlaceDetails(place: TripPlace, input: { name: string; address: string; category: string; note: string; isLocalTip: boolean; latitude?: number | null; longitude?: number | null }): Promise<void> {
   const { error } = await supabase.from('places').update({
     name: input.name, address: input.address || null, category: input.category,
     note: input.note || null, is_local_tip: input.isLocalTip,
+    ...(input.latitude != null && input.longitude != null ? { latitude: input.latitude, longitude: input.longitude } : {}),
   }).eq('id', place.id)
   if (error) throw error
 }
