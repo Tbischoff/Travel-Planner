@@ -379,6 +379,20 @@ function openPlace(place: TripPlace, focus = false) {
   if (!map) return
   const marker = markers.get(place.id)
   if (!marker) return
+
+  // A list/search result can be the only visible place. Make sure its marker is
+  // attached immediately before opening the details; the clusterer otherwise
+  // may still be between two filter redraws and temporarily hide it.
+  if (focus) {
+    if (placeMarkerClusterer) {
+      placeMarkerClusterer.clearMarkers(true)
+      placeMarkerClusterer.addMarkers([marker], true)
+      placeMarkerClusterer.render()
+    } else {
+      marker.map = map
+    }
+  }
+
   activePlace.value = place
   popupDay.value = place.planned_day || ''
   popupStart.value = place.start_time || ''
@@ -615,7 +629,11 @@ async function renderMap() {
   syncMarkerVisibility()
 }
 
-watch(visiblePlaces, () => syncMarkerVisibility())
+watch(visiblePlaces, () => {
+  // Wait until Vue has committed the search/filter state before rebuilding the
+  // cluster. This prevents a clicked search result from being detached again.
+  nextTick(() => syncMarkerVisibility())
+}, { flush: 'post' })
 watch(selectedDay, () => refreshMarkerAppearances())
 
 
