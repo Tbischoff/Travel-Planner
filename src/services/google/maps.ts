@@ -30,6 +30,25 @@ interface GoogleMapsApi {
   importLibrary: (name: string) => Promise<unknown>
 }
 
+export interface GooglePlaceDetails {
+  id: string
+  displayName?: string
+  formattedAddress?: string
+  location?: { lat: () => number; lng: () => number }
+  websiteURI?: string
+  nationalPhoneNumber?: string
+  regularOpeningHours?: { weekdayDescriptions?: string[] }
+  types?: string[]
+  primaryType?: string
+}
+export interface PlaceAutocompleteInstance extends HTMLElement {
+  placeholder: string
+  addEventListener: (event: 'gmp-select', handler: (event: Event & { placePrediction?: { toPlace: () => GooglePlaceDetails & { fetchFields: (request: { fields: string[] }) => Promise<void> } } }) => void) => void
+}
+interface PlacesLibrary {
+  PlaceAutocompleteElement: new (options?: Record<string, unknown>) => PlaceAutocompleteInstance
+}
+
 interface MarkerLibrary {
   AdvancedMarkerElement: new (options: Record<string, unknown>) => AdvancedMarkerInstance
 }
@@ -48,6 +67,11 @@ export function getGoogleMaps(): GoogleMapsApi {
   return window.google.maps
 }
 
+export async function getPlacesLibrary(): Promise<PlacesLibrary> {
+  const library = await getGoogleMaps().importLibrary('places')
+  return library as PlacesLibrary
+}
+
 export async function getMarkerLibrary(): Promise<MarkerLibrary> {
   const library = await getGoogleMaps().importLibrary('marker')
   return library as MarkerLibrary
@@ -61,7 +85,7 @@ export function loadGoogleMaps(): Promise<void> {
   loadPromise = new Promise((resolve, reject) => {
     window.__travelPlannerGoogleMapsReady = resolve
     const script = document.createElement('script')
-    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=__travelPlannerGoogleMapsReady&v=weekly&language=de&libraries=marker&loading=async'
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(key) + '&callback=__travelPlannerGoogleMapsReady&v=weekly&language=de&libraries=marker,places&loading=async'
     script.async = true
     script.defer = true
     script.onerror = () => reject(new Error('Google Maps konnte nicht geladen werden.'))
