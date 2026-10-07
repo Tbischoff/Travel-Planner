@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.0.2";
+const APP_VERSION = "v2.1.0";
 
 
 function syncVersionLabels() {
@@ -1551,7 +1551,7 @@ async function loadSupabaseTripData() {
 
   const { data: tripDays, error: daysError } = await supabaseClient
     .from("trip_days")
-    .select("id,day_date,title")
+    .select("id,day_date,title,start_place_id,end_place_id")
     .eq("trip_id", trip.id)
     .order("day_date");
   if (daysError) throw daysError;
@@ -2380,22 +2380,46 @@ function accommodationRouteAnchors(dayId) {
   return { start: only, end: only, hotels };
 }
 
-function routeEndsAtAccommodation() {
-  const checkbox = document.getElementById("routeEndAccommodation");
-  return checkbox ? checkbox.checked : localStorage.getItem(routeEndAccommodationStorageKey()) !== "false";
+function getRouteEndMode() {
+  return document.getElementById("routeEndMode")?.value || "planned";
+}
+
+function routePlaceStopBySupabaseId(placeId, role) {
+  if (!placeId) return null;
+  const place = placesData.places.find(item => item.supabaseId === placeId || item.id === placeId);
+  if (!place) return null;
+  const marker = markers.get(place.id);
+  const position = marker ? getMarkerPosition(marker) : normalizeLatLng({ lat: place.lat, lng: place.lng });
+  return position ? { type: "place", id: place.id, name: place.name, position, place, role } : null;
+}
+
+function routeDayRecord(dayId) {
+  return currentTripDays.find(day => day.day_date === dayId || day.id === dayId) || null;
+}
+
+function selectedDayRouteAnchors(dayId) {
+  const day = routeDayRecord(dayId);
+  return {
+    start: routePlaceStopBySupabaseId(day?.start_place_id, "start"),
+    end: routePlaceStopBySupabaseId(day?.end_place_id, "end")
+  };
 }
 
 function getRoutingStopsForDay(dayId) {
-  // Bereits besuchte Orte gehören nicht mehr in die aktive Tagesroute.
-  // Aktivitäten bleiben bestehen, weil sie keinen "besucht"-Status besitzen.
   const planned = getRouteStopsForDay(dayId).filter(stop =>
     stop.type !== "place" || !(state.places[stop.place?.id || stop.id] || {}).visited
   );
-  const anchors = accommodationRouteAnchors(dayId);
-  if (!anchors.start && !anchors.end) return planned;
+  const accommodation = accommodationRouteAnchors(dayId);
+  const selected = selectedDayRouteAnchors(dayId);
   const result = [...planned];
-  if (getRouteStartMode() === "accommodation" && anchors.start && result[0]?.id !== anchors.start.id) result.unshift(anchors.start);
-  if (routeEndsAtAccommodation() && result.length && anchors.end && result[result.length - 1]?.id !== anchors.end.id) result.push(anchors.end);
+
+  const startMode = getRouteStartMode();
+  const endMode = getRouteEndMode();
+  const start = startMode === "place" ? selected.start : startMode === "accommodation" ? accommodation.start : null;
+  const end = endMode === "place" ? selected.end : endMode === "accommodation" ? accommodation.end : null;
+
+  if (start && result[0]?.id !== start.id) result.unshift(start);
+  if (end && result[result.length - 1]?.id !== end.id) result.push(end);
   return result;
 }
 
@@ -3640,16 +3664,46 @@ function getRouteStartMode() {
 }
 
 function setRouteStartMode(value) {
-  routeStartMode = ["current", "accommodation"].includes(value) ? value : "planned";
-
+  routeStartMode = ["current", "accommodation", "place"].includes(value) ? value : "planned";
+  document.getElementById("routeStartPlace")?.toggleAttribute("hidden", routeStartMode !== "place");
   if (activeRouteDay) {
-    clearRenderedRoute();
-    activeRouteDay = null;
-    activeRouteSummary = null;
+    clearRenderedRoute(); activeRouteDay = null; activeRouteSummary = null;
     setStatus("Startpunkt geändert. Route bitte neu berechnen.");
   }
-
   updateRouteControls();
+}
+
+function setRouteEndMode(value) {
+  document.getElementById("routeEndPlace")?.toggleAttribute("hidden", value !== "place");
+  if (activeRouteDay) { clearRenderedRoute(); activeRouteDay = null; activeRouteSummary = null; }
+  updateRouteControls();
+}
+
+function populateRoutePlaceSelectors() {
+  const start = document.getElementById("routeStartPlace");
+  const end = document.getElementById("routeEndPlace");
+  if (!start || !end) return;
+  const options = placesData.places
+    .filter(place => place.supabaseId && Number.isFinite(Number(place.lat)) && Number.isFinite(Number(place.lng)))
+    .sort((a,b) => String(a.name).localeCompare(String(b.name), "de"))
+    .map(place => `<option value="${escapeHtml(place.supabaseId)}">${escapeHtml(place.name)}</option>`).join("");
+  start.innerHTML = options; end.innerHTML = options;
+  const day = routeDayRecord(selectedDayFilter);
+  if (day?.start_place_id) start.value = day.start_place_id;
+  if (day?.end_place_id) end.value = day.end_place_id;
+}
+
+async function saveDayRoutePlace(kind, placeId) {
+  if (!requireTripEditPermission()) return;
+  const day = routeDayRecord(selectedDayFilter);
+  if (!day) { setStatus("Bitte zuerst einen konkreten Reisetag auswählen."); return; }
+  const column = kind === "start" ? "start_place_id" : "end_place_id";
+  const { error } = await supabaseClient.from("trip_days").update({ [column]: placeId || null }).eq("id", day.id).eq("trip_id", currentTripId);
+  if (error) { setStatus(`Start/Ziel konnte nicht gespeichert werden: ${error.message}`); return; }
+  day[column] = placeId || null;
+  if (activeRouteDay) clearDayRoute();
+  updateRouteControls();
+  setStatus(`${kind === "start" ? "Start" : "Ziel"} für ${dayLongLabel(day.day_date)} gespeichert.`);
 }
 
 async function ensureRouteOriginForSingleStop() {
@@ -4894,10 +4948,21 @@ function updateRouteControls() {
   else if (routeStops.length === 1 && startMode !== "current") routeButton.textContent = "📍 Stopp anzeigen";
   else routeButton.textContent = getMobilityMode()==="transit" ? "🚇 ÖPNV-Route anzeigen" : getMobilityMode()==="auto" ? "✨ Automatische Route anzeigen" : "🚶 Fußroute anzeigen";
 
+  const configured = selectedDayRouteAnchors(day.id);
   const startLabel =
     startMode === "current"
       ? (userPosition ? "Start: aktueller Standort" : "Start: aktueller Standort (noch nicht aktiv)")
-      : "Start: erster geplanter Stopp";
+      : startMode === "accommodation"
+        ? "Start: Unterkunft"
+        : startMode === "place"
+          ? `Start: ${configured.start?.name || "Ort auswählen"}`
+          : "Start: erster geplanter Stopp";
+  const endMode = getRouteEndMode();
+  const endLabel = endMode === "accommodation"
+    ? "Ziel: Unterkunft"
+    : endMode === "place"
+      ? `Ziel: ${configured.end?.name || "Ort auswählen"}`
+      : "Ziel: letzter geplanter Stopp";
 
   const stopSummary = [
     placeCount ? `${placeCount} ${placeCount === 1 ? "Ort" : "Orte"}` : "",
@@ -4912,7 +4977,7 @@ function updateRouteControls() {
     info.textContent =
       `${day.short}: ${stopSummary} · ${startLabel} · ${activeRouteSummary.mode==="transit" ? "🚇" : activeRouteSummary.mode==="auto" ? "✨" : "🚶"} ${activeRouteSummary.mode==="walking" ? formatRouteDistance(activeRouteSummary.distanceMeters)+" · " : ""}ca. ${formatRouteDuration(activeRouteSummary.durationMillis)}${activeRouteSummary.mode==="auto" ? ` · 🚶 ${activeRouteSummary.walkCount||0} · 🚇 ${activeRouteSummary.transitCount||0}` : ""}`;
   } else {
-    info.textContent = `${day.short}: ${stopSummary} · ${startLabel}.`;
+    info.textContent = `${day.short}: ${stopSummary} · ${startLabel} · ${endLabel}.`;
   }
 }
 
@@ -6220,6 +6285,14 @@ function renderDayFilters() {
       }
 
       applyFilters();
+      populateRoutePlaceSelectors();
+      const routeDay = routeDayRecord(selectedDayFilter);
+      const startModeSelect = document.getElementById("routeStartMode");
+      const endModeSelect = document.getElementById("routeEndMode");
+      if (startModeSelect && routeDay?.start_place_id) { startModeSelect.value = "place"; routeStartMode = "place"; }
+      if (endModeSelect && routeDay?.end_place_id) endModeSelect.value = "place";
+      setRouteStartMode(startModeSelect?.value || "planned");
+      setRouteEndMode(endModeSelect?.value || "planned");
       updateRouteControls();
 
       if (keepRouteVisible && TRIP_DAYS.some(day => day.id === selectedDayFilter)) {
@@ -8883,6 +8956,9 @@ function wireControls() {
   renderOfflineRouteStatus();
   document.getElementById("routeGoogleBtn").addEventListener("click", () => openDayRouteInGoogleMaps());
   document.getElementById("routeStartMode").addEventListener("change", event => setRouteStartMode(event.target.value));
+  document.getElementById("routeEndMode")?.addEventListener("change", event => setRouteEndMode(event.target.value));
+  document.getElementById("routeStartPlace")?.addEventListener("change", event => saveDayRoutePlace("start", event.target.value));
+  document.getElementById("routeEndPlace")?.addEventListener("change", event => saveDayRoutePlace("end", event.target.value));
   document.getElementById("navigationMode")?.addEventListener("change", () => {
     if (navigationActive) setStatus("Navigationsart geändert. Navigation bitte neu starten.");
   });
@@ -8896,17 +8972,7 @@ function wireControls() {
       updateRouteControls();
     });
   }
-  const routeEndAccommodation = document.getElementById("routeEndAccommodation");
-  if (routeEndAccommodation) {
-    routeEndAccommodation.checked = localStorage.getItem(routeEndAccommodationStorageKey()) !== "false";
-    routeEndAccommodation.addEventListener("change", () => {
-      localStorage.setItem(routeEndAccommodationStorageKey(), String(routeEndAccommodation.checked));
-      if (activeRouteDay) clearDayRoute();
-      updateRouteControls();
-      renderOfflineRouteStatus();
-      setStatus(routeEndAccommodation.checked ? "🏨 Unterkunft als Tagesziel aktiviert." : "Tagesziel Unterkunft deaktiviert.");
-    });
-  }
+  populateRoutePlaceSelectors();
   document.getElementById("navigationStartBtn")?.addEventListener("click", () => {
     if (navigationActive) stopNavigation();
     else startDayNavigation();
