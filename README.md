@@ -1,4 +1,4 @@
-# Travel Planner v2.0.1
+# Travel Planner v2.0.2
 
 Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner verbindet Reiseauswahl und Mitgliederrollen mit Karten, Orten, Aktivitäten, Tagesplanung, Wetter, Navigation, ÖPNV-Unterstützung, Backups und reisespezifischen Offline-Daten.
 
@@ -21,7 +21,7 @@ Mit v2.0.0 ist die frühere reisespezifische Anwendung vollständig zum Multi-Tr
 Historische Backup-Daten bleiben soweit vorgesehen aus Kompatibilitätsgründen lesbar.
 ## Version
 
-### v2.0.1 – Berechtigungsanzeige
+### v2.0.2 – Reisetage im Ort-Dialog\n- Reisetag-Auswahl beim Hinzufügen/Bearbeiten eines Ortes wird dynamisch aus den `trip_days` der aktiven Reise aufgebaut.\n- Entfernt fest hinterlegte Budapest-Tage aus dem Dialog.\n- Verhindert veraltete Tagesoptionen nach einem Reisewechsel.\n\n### v2.0.1 – Berechtigungsanzeige
 - Admin-Benutzerverwaltung wird für Benutzer ohne Admin-Rechte zuverlässig ausgeblendet.
 - Mitgliederverwaltung einer Reise unterstützt die Auswahl vorhandener Benutzer über den Benutzernamen.
 

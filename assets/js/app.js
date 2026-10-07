@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.0.1";
+const APP_VERSION = "v2.0.2";
 
 
 function syncVersionLabels() {
@@ -92,8 +92,29 @@ function buildTripDays(tripDays = []) {
   });
 }
 
+function renderPlaceTripDayOptions(selectedDay = "") {
+  const select = document.getElementById("placeTripDay");
+  if (!select) return;
+
+  select.replaceChildren();
+  const unplannedOption = document.createElement("option");
+  unplannedOption.value = "";
+  unplannedOption.textContent = "Noch keinem Tag zuweisen";
+  select.appendChild(unplannedOption);
+
+  TRIP_DAYS.forEach(day => {
+    const option = document.createElement("option");
+    option.value = day.id;
+    option.textContent = day.short;
+    select.appendChild(option);
+  });
+
+  select.value = TRIP_DAYS.some(day => day.id === selectedDay) ? selectedDay : "";
+}
+
 function applyCurrentTripContext() {
   TRIP_DAYS = buildTripDays(currentTripDays);
+  renderPlaceTripDayOptions();
   const tripName = currentTrip?.name || "Travel Planner";
   const destination = currentTrip?.destination || "Reise";
 
@@ -2904,7 +2925,7 @@ function openAddPlaceDialog() {
   document.getElementById("savePlaceBtn").textContent = "Ort speichern";
   document.getElementById("placeCategory").value = "other";
   updateAccommodationFields();
-  document.getElementById("placeTripDay").value = "";
+  renderPlaceTripDayOptions();
   document.getElementById("placeFormMessage").textContent = "";
   if (typeof dialog.showModal === "function") dialog.showModal();
   else dialog.setAttribute("open", "");
@@ -2926,7 +2947,7 @@ function openEditPlaceDialog(id) {
   updateAccommodationFields();
   document.getElementById("placeNotes").value = place.notes || "";
   document.getElementById("placeLocalTip").checked = Boolean(place.localTip);
-  document.getElementById("placeTripDay").value = (state.places[place.id] || {}).plannedDay || "";
+  renderPlaceTripDayOptions((state.places[place.id] || {}).plannedDay || "");
   document.getElementById("placeFormMessage").textContent = "";
   const dialog = document.getElementById("addPlaceDialog");
   if (typeof dialog.showModal === "function") dialog.showModal();
