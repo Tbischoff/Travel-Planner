@@ -41,6 +41,7 @@ const addPlaceSaving = ref(false)
 const addPlaceMessage = ref('')
 const addPlaceDuplicateId = ref<string | null>(null)
 const sortByDistance = ref(false)
+// Build refresh 2026-10-07: no functional change; triggers a fresh preview deployment.
 let selectedGooglePlace: import('../services/google/maps').GooglePlaceDetails | null = null
 let tripCenter = { lat: 50.1109, lng: 8.6821 }
 let map: MapInstance | null = null
