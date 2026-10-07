@@ -3602,7 +3602,7 @@ function getSelectedTripDay() {
 }
 
 function getRouteStopsForDay(dayDate) {
-  // Frontend days use the ISO date (2026-10-04), while trip_activities stores
+  // Frontend days use an ISO date (YYYY-MM-DD), while trip_activities stores
   // the UUID of trip_days. Resolve that relationship once here so agenda,
   // markers and both route buttons all work from the same day sequence.
   const dbDay = currentTripDays.find(day => day.day_date === dayDate || day.id === dayDate);
