@@ -4948,10 +4948,21 @@ function updateRouteControls() {
   else if (routeStops.length === 1 && startMode !== "current") routeButton.textContent = "📍 Stopp anzeigen";
   else routeButton.textContent = getMobilityMode()==="transit" ? "🚇 ÖPNV-Route anzeigen" : getMobilityMode()==="auto" ? "✨ Automatische Route anzeigen" : "🚶 Fußroute anzeigen";
 
+  const configured = selectedDayRouteAnchors(day.id);
   const startLabel =
     startMode === "current"
       ? (userPosition ? "Start: aktueller Standort" : "Start: aktueller Standort (noch nicht aktiv)")
-      : "Start: erster geplanter Stopp";
+      : startMode === "accommodation"
+        ? "Start: Unterkunft"
+        : startMode === "place"
+          ? `Start: ${configured.start?.name || "Ort auswählen"}`
+          : "Start: erster geplanter Stopp";
+  const endMode = getRouteEndMode();
+  const endLabel = endMode === "accommodation"
+    ? "Ziel: Unterkunft"
+    : endMode === "place"
+      ? `Ziel: ${configured.end?.name || "Ort auswählen"}`
+      : "Ziel: letzter geplanter Stopp";
 
   const stopSummary = [
     placeCount ? `${placeCount} ${placeCount === 1 ? "Ort" : "Orte"}` : "",
@@ -4966,7 +4977,7 @@ function updateRouteControls() {
     info.textContent =
       `${day.short}: ${stopSummary} · ${startLabel} · ${activeRouteSummary.mode==="transit" ? "🚇" : activeRouteSummary.mode==="auto" ? "✨" : "🚶"} ${activeRouteSummary.mode==="walking" ? formatRouteDistance(activeRouteSummary.distanceMeters)+" · " : ""}ca. ${formatRouteDuration(activeRouteSummary.durationMillis)}${activeRouteSummary.mode==="auto" ? ` · 🚶 ${activeRouteSummary.walkCount||0} · 🚇 ${activeRouteSummary.transitCount||0}` : ""}`;
   } else {
-    info.textContent = `${day.short}: ${stopSummary} · ${startLabel}.`;
+    info.textContent = `${day.short}: ${stopSummary} · ${startLabel} · ${endLabel}.`;
   }
 }
 
