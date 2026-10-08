@@ -6802,8 +6802,10 @@ async function dbFindStation(name) {
   if (dbStationCache.has(key)) return dbStationCache.get(key);
   // Only accept exact station names after normalization, never a fuzzy first result.
   const normalize=v=>String(v||"").toLowerCase().replace(/[^a-z0-9äöüß]/g,"");
-  const data=await dbPilotRequest({action:"station",pattern:name});
-  const matches=(data?.stations||[]).filter(x=>normalize(x.name)===normalize(name));
+  const searchName=String(name).replace(/Hauptbahnhof/gi,"Hbf").replace(/\\s*\\(Main\\)\\s*/g,"(Main)");
+  const data=await dbPilotRequest({action:"station",pattern:searchName});
+  const normalizeStation=v=>normalize(v).replace(/hauptbahnhof/g,"hbf").replace(/frankfurtmain/g,"frankfurt");
+  const matches=(data?.stations||[]).filter(x=>normalizeStation(x.name)===normalizeStation(name));
   const station=matches.length===1?matches[0]:null;
   dbStationCache.set(key,station);
   return station;
