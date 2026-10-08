@@ -4694,7 +4694,7 @@ async function showDayRoute(dayId = selectedDayFilter) {
 
   // Alle Routing-Modi verwenden dieselbe GPS-Startposition.
   // Der Standort ist ein temporärer Routenanker, kein gespeicherter Tagesstopp.
-  if (getRouteStartMode() === "current") {
+  if (getRouteStartMode() === "current" && routeStops.length) {
     if (!userPosition) {
       try { await ensureRouteOriginForSingleStop(); }
       catch (error) {
