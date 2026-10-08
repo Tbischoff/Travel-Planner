@@ -6779,10 +6779,10 @@ function transitStepSummary(step) {
 const dbStationCache = new Map();
 const dbBoardCache = new Map();
 const DB_CACHE_MS = 90 * 1000;
-function dbClock(t) { return /^\\d{10}$/.test(t || "") ? t.slice(6,8)+":"+t.slice(8,10) : ""; }
-function dbPlannedMinute(t) { return /^\\d{10}$/.test(t || "") ? Number(t.slice(6,8))*60+Number(t.slice(8,10)) : null; }
+function dbClock(t) { return /^\d{10}$/.test(t || "") ? t.slice(6,8)+":"+t.slice(8,10) : ""; }
+function dbPlannedMinute(t) { return /^\d{10}$/.test(t || "") ? Number(t.slice(6,8))*60+Number(t.slice(8,10)) : null; }
 function dbRailIdentity(step) {
-  const m = String(step.line || "").match(/\\b(ICE|IC|EC|TGV)\\s*([0-9]{1,5})\\b/i);
+  const m = String(step.line || "").match(/\b(ICE|IC|EC|TGV)\s*([0-9]{1,5})\b/i);
   return m ? {category:m[1].toUpperCase(),number:m[2]} : null;
 }
 async function dbPilotRequest(body) {
