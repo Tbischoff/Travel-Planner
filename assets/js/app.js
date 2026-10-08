@@ -6765,12 +6765,101 @@ function transitStepSummary(step) {
     departure:details.departureStop?.name || "",
     arrival:details.arrivalStop?.name || "",
     departureTime:formatTransitClock(details.departureTime),
+    departureDate:details.departureTime instanceof Date ? details.departureTime.toISOString() : String(details.departureTime||""),
     arrivalTime:formatTransitClock(details.arrivalTime),
     stops:Number(details.stopCount)||0,
     agency:line.agencies?.map(a=>a.name).filter(Boolean).join(", ") || "",
     departurePlatform:details.departureStop?.platformInfo || "",
     arrivalPlatform:details.arrivalStop?.platformInfo || ""
   };
+}
+
+// DB Timetables pilot: conservative enrichment of German long-distance rail legs.
+// The Google route remains authoritative unless a unique DB train/time/station match exists.
+const dbStationCache = new Map();
+const dbBoardCache = new Map();
+const DB_CACHE_MS = 90 * 1000;
+function dbClock(t) { return /^\d{10}$/.test(t || "") ? t.slice(6,8)+":"+t.slice(8,10) : ""; }
+function dbPlannedMinute(t) { return /^\d{10}$/.test(t || "") ? Number(t.slice(6,8))*60+Number(t.slice(8,10)) : null; }
+function dbRailIdentity(step) {
+  const m = String(step.line || "").match(/\b(ICE|IC|EC|TGV)\s*([0-9]{1,5})\b/i);
+  return m ? {category:m[1].toUpperCase(),number:m[2]} : null;
+}
+async function dbPilotRequest(body) {
+  if (!supabaseClient) return null;
+  const {data:{session}}=await supabaseClient.auth.getSession();
+  if (!session?.access_token) return null;
+  const response=await fetch(SUPABASE_CONFIG.url+"/functions/v1/db-timetables",{
+    method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_CONFIG.publishableKey,
+      "Authorization":"Bearer "+session.access_token},body:JSON.stringify(body)
+  });
+  if (!response.ok) throw new Error("DB-Abfrage HTTP "+response.status);
+  return response.json();
+}
+async function dbFindStation(name) {
+  const key=String(name||"").trim().toLowerCase();
+  if (!key || key.length<4) return null;
+  if (dbStationCache.has(key)) return dbStationCache.get(key);
+  // Only accept exact station names after normalization, never a fuzzy first result.
+  const normalize=v=>String(v||"").toLowerCase().replace(/[^a-z0-9äöüß]/g,"");
+  const searchName=String(name).replace(/Hauptbahnhof/gi,"Hbf").replace(/\\s*\\(Main\\)\\s*/g,"(Main)");
+  const data=await dbPilotRequest({action:"station",pattern:searchName});
+  const normalizeStation=v=>normalize(v).replace(/hauptbahnhof/g,"hbf").replace(/frankfurtmain/g,"frankfurt");
+  const matches=(data?.stations||[]).filter(x=>normalizeStation(x.name)===normalizeStation(name));
+  const station=matches.length===1?matches[0]:null;
+  dbStationCache.set(key,station);
+  return station;
+}
+async function dbFindBoard(eva,date,hour) {
+  const key=eva+"|"+date+"|"+hour, old=dbBoardCache.get(key);
+  if (old && Date.now()-old.at<DB_CACHE_MS) return old.data;
+  const data=await dbPilotRequest({action:"board",eva,date,hour});
+  dbBoardCache.set(key,{at:Date.now(),data});
+  return data;
+}
+async function dbEnrichTransitStep(step) {
+  const identity=dbRailIdentity(step);
+  if (!identity || !step.departure || !step.departureDate) return step;
+  const when=new Date(step.departureDate);
+  if (Number.isNaN(when.getTime())) return step;
+  // DB timetable API is limited to German stations; avoid other destinations.
+  const station=await dbFindStation(step.departure);
+  if (!station?.eva) return step;
+  const parts=new Intl.DateTimeFormat("en-GB",{timeZone:"Europe/Berlin",year:"2-digit",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(when);
+  const part=k=>parts.find(p=>p.type===k)?.value||"";
+  const date=part("year")+part("month")+part("day"), hour=part("hour");
+  const board=await dbFindBoard(station.eva,date,hour);
+  const googleMinute=Number(hour)*60+Number(part("minute"));
+  const candidates=(board?.departures||[]).filter(x=>{
+    const minute=dbPlannedMinute(x.departure?.plannedTime);
+    return x.category?.toUpperCase()===identity.category &&
+      String(x.line)===identity.number && minute!==null &&
+      Math.abs(minute-googleMinute)<=8;
+  });
+  if (candidates.length!==1) return step;
+  const departure=candidates[0].departure;
+  return {...step,dbRealtime:{
+    delayMinutes:departure.delayMinutes,platform:departure.effectivePlatform,
+    originalPlatform:departure.plannedPlatform,platformChanged:departure.platformChanged,
+    cancelled:departure.cancelled,changedTime:dbClock(departure.effectiveTime),
+    source:"DB Timetables",retrievedAt:board.retrievedAt
+  }};
+}
+async function dbEnrichTransitSteps(steps) {
+  return Promise.all(steps.map(async step=>{
+    try{return await dbEnrichTransitStep(step);}
+    catch(error){console.warn("DB Timetables: Google-Verbindung bleibt unverändert",error);return step;}
+  }));
+}
+function dbTransitStatusHtml(step) {
+  const db=step.dbRealtime;
+  if (!db) return "";
+  const status=db.cancelled?"⛔ Zug fällt aus":db.delayMinutes>0?
+    "⚠️ +"+db.delayMinutes+" Min. · neue Abfahrt "+db.changedTime:
+    db.delayMinutes<0?"Frühere Abfahrt "+db.changedTime:"Keine gemeldete Verspätung";
+  const platform=db.platform?" · Gleis "+db.platform:"";
+  const change=db.platformChanged?" (statt "+db.originalPlatform+")":"";
+  return '<small class="db-realtime" role="status">'+escapeHtml(status+platform+change)+" · DB Timetables</small>";
 }
 
 function mobilityLegHtml(from, to, walkingLeg) {
@@ -6793,7 +6882,8 @@ function mobilityLegHtml(from, to, walkingLeg) {
     const platform=step.departurePlatform ? `<small>🚉 Einstieg: ${escapeHtml(String(step.departurePlatform))}</small>` : "";
     const arrivalPlatform=step.arrivalPlatform ? `<small>🚉 Ausstieg: ${escapeHtml(String(step.arrivalPlatform))}</small>` : "";
     const agency=step.agency ? `<small>Betreiber: ${escapeHtml(step.agency)}</small>` : "";
-    return `<div class="transit-step"><strong>${step.icon} ${escapeHtml(step.line)}${direction}</strong><small>${stops}${times}</small>${stations}${platform}${arrivalPlatform}${agency}</div>`;
+    const dbStatus=dbTransitStatusHtml(step);
+    return `<div class="transit-step"><strong>${step.icon} ${escapeHtml(step.line)}${direction}</strong><small>${stops}${times}</small>${stations}${platform}${arrivalPlatform}${agency}${dbStatus}</div>`;
   }).join("");
   const transitText=transitMinutes ? `🚇 ca. ${transitMinutes} Min.` : "🚇 ÖPNV";
   const primary=recommendedTransit?transitText:walkText;
@@ -6829,7 +6919,7 @@ async function loadTransitLegsForDay(dayId) {
         else request.departureTime=new Date();
         const {routes}=await Route.computeRoutes(request);
         const route=routes?.[0]||null;
-        const transitSteps=(route?.legs||[]).flatMap(leg=>leg.steps||[]).map(transitStepSummary).filter(Boolean);
+        const transitSteps=await dbEnrichTransitSteps((route?.legs||[]).flatMap(leg=>leg.steps||[]).map(transitStepSummary).filter(Boolean));
         const previous=transitPreviousConnections.get(key);
         const previousSignature=transitConnectionSignature(previous?.transitSteps);
         const nextSignature=transitConnectionSignature(transitSteps);
