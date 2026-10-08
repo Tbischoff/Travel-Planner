@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.1.0";
+const APP_VERSION = "v2.1.2";
 
 
 function syncVersionLabels() {
@@ -3725,6 +3725,13 @@ async function ensureRouteOriginForSingleStop() {
 }
 
 function buildRouteRequestPoints(routeStops) {
+  if (routeStops[0]?.type === "current") {
+    return {
+      origin: routeStops[0].position,
+      destination: routeStops[routeStops.length - 1].position,
+      intermediates: routeStops.slice(1, -1).map(item => ({ location: item.position }))
+    };
+  }
   if (getRouteStartMode() === "current") {
     if (!userPosition) {
       throw new Error("CURRENT_LOCATION_REQUIRED");
@@ -4684,6 +4691,24 @@ async function showDayRoute(dayId = selectedDayFilter) {
   }
 
   const routeStops = getRoutingStopsForDay(dayId);
+
+  // Alle Routing-Modi verwenden dieselbe GPS-Startposition.
+  // Der Standort ist ein temporärer Routenanker, kein gespeicherter Tagesstopp.
+  if (getRouteStartMode() === "current") {
+    if (!userPosition) {
+      try { await ensureRouteOriginForSingleStop(); }
+      catch (error) {
+        setStatus("Aktueller Standort nicht verfügbar. Bitte Standort aktualisieren.");
+        return;
+      }
+    }
+    const position = normalizeLatLng(userPosition);
+    if (!position) {
+      setStatus("Aktueller Standort ist noch nicht verfügbar.");
+      return;
+    }
+    routeStops.unshift({ type: "current", id: "__current_location__", name: "Mein aktueller Standort", position, role: "start" });
+  }
 
   if (!routeStops.length) {
     setStatus(`Für ${day.label} ist noch kein Routenstopp geplant.`);
