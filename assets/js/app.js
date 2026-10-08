@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.1.3";
+const APP_VERSION = "v2.2.0";
 
 
 function syncVersionLabels() {
@@ -6725,7 +6725,10 @@ function transitStepSummary(step) {
     arrival:details.arrivalStop?.name || "",
     departureTime:formatTransitClock(details.departureTime),
     arrivalTime:formatTransitClock(details.arrivalTime),
-    stops:Number(details.stopCount)||0
+    stops:Number(details.stopCount)||0,
+    agency:line.agencies?.map(a=>a.name).filter(Boolean).join(", ") || "",
+    departurePlatform:details.departureStop?.platformInfo || "",
+    arrivalPlatform:details.arrivalStop?.platformInfo || ""
   };
 }
 
@@ -6738,18 +6741,22 @@ function mobilityLegHtml(from, to, walkingLeg) {
   const key=`${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
   const cached=transitLegCache.get(key);
   const transitMinutes=cached?.durationMillis ? Math.round(cached.durationMillis/60000) : null;
+  const updatedText=cached?.updatedAt ? `<small>Abgefragt: ${escapeHtml(formatTransitClock(cached.updatedAt))} Uhr · keine automatische Live-Aktualisierung</small>` : "";
   const recommendedTransit=mode==="transit" || (mode==="auto" && transitMinutes && transitMinutes+5<walkingLeg.minutes);
   const steps=(cached?.transitSteps||[]).map(step=>{
     const direction=step.headsign ? ` Richtung ${escapeHtml(step.headsign)}` : "";
     const stops=step.stops ? ` · ${step.stops} ${step.stops===1?"Station":"Stationen"}` : "";
     const times=step.departureTime && step.arrivalTime ? ` · ${escapeHtml(step.departureTime)}–${escapeHtml(step.arrivalTime)}` : "";
     const stations=step.departure && step.arrival ? `<small>📍 ${escapeHtml(step.departure)} → ${escapeHtml(step.arrival)}</small>` : "";
-    return `<div class="transit-step"><strong>${step.icon} ${escapeHtml(step.line)}${direction}</strong><small>${stops}${times}</small>${stations}</div>`;
+    const platform=step.departurePlatform ? `<small>🚉 Einstieg: ${escapeHtml(String(step.departurePlatform))}</small>` : "";
+    const arrivalPlatform=step.arrivalPlatform ? `<small>🚉 Ausstieg: ${escapeHtml(String(step.arrivalPlatform))}</small>` : "";
+    const agency=step.agency ? `<small>Betreiber: ${escapeHtml(step.agency)}</small>` : "";
+    return `<div class="transit-step"><strong>${step.icon} ${escapeHtml(step.line)}${direction}</strong><small>${stops}${times}</small>${stations}${platform}${arrivalPlatform}${agency}</div>`;
   }).join("");
   const transitText=transitMinutes ? `🚇 ca. ${transitMinutes} Min.` : "🚇 ÖPNV";
   const primary=recommendedTransit?transitText:walkText;
   const secondary=recommendedTransit?walkText:transitText;
-  return `<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
+  return `<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}${updatedText}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
 }
 
 async function loadTransitLegsForDay(dayId) {
@@ -6779,7 +6786,7 @@ async function loadTransitLegsForDay(dayId) {
         const {routes}=await Route.computeRoutes(request);
         const route=routes?.[0]||null;
         const transitSteps=(route?.legs||[]).flatMap(leg=>leg.steps||[]).map(transitStepSummary).filter(Boolean);
-        transitLegCache.set(key,route?{distanceMeters:route.distanceMeters,durationMillis:route.durationMillis,transitSteps}:null);
+        transitLegCache.set(key,route?{distanceMeters:route.distanceMeters,durationMillis:route.durationMillis,transitSteps,updatedAt:Date.now()}:null);
         changed=true;
       }catch(error){
         console.warn("ÖPNV-Verbindung:",from.name,"→",to.name,error);
