@@ -30,7 +30,7 @@ function eventInfo(plannedValue: unknown, changedValue: unknown) {
   const plannedStatus = attr(p, "ps"), changedStatus = attr(c, "cs") || attr(p, "cs");
   const effectiveStatus = changedStatus || plannedStatus;
   const parseDbTime = (t: string): number | null => {
-    if (!/^\\d{10}$/.test(t)) return null;
+    if (!/^\d{10}$/.test(t)) return null;
     const year = 2000 + Number(t.slice(0, 2));
     const month = Number(t.slice(2, 4)), day = Number(t.slice(4, 6));
     const hour = Number(t.slice(6, 8)), minute = Number(t.slice(8, 10));
