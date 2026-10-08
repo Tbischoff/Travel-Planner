@@ -20,14 +20,42 @@ const stops = (parsed: Record<string, unknown>) => {
   const root = parsed.timetable as Record<string, unknown> | undefined;
   return array(root?.s);
 };
-function eventInfo(value: unknown) {
-  const e = value as Record<string, unknown> | undefined;
-  if (!e) return null;
+type Xml = Record<string, unknown>;
+const record = (value: unknown): Xml => (value && typeof value === "object" && !Array.isArray(value)) ? value as Xml : {};
+function eventInfo(plannedValue: unknown, changedValue: unknown) {
+  const p = record(plannedValue), c = record(changedValue);
+  if (!p.pt) return null;
+  const plannedTime = attr(p, "pt"), changedTime = attr(c, "ct") || attr(p, "ct");
+  const plannedPlatform = attr(p, "pp"), changedPlatform = attr(c, "cp") || attr(p, "cp");
+  const plannedStatus = attr(p, "ps"), changedStatus = attr(c, "cs") || attr(p, "cs");
+  const effectiveStatus = changedStatus || plannedStatus;
+  const parseDbTime = (t: string): number | null => {
+    if (!/^\\d{10}$/.test(t)) return null;
+    const year = 2000 + Number(t.slice(0, 2));
+    const month = Number(t.slice(2, 4)), day = Number(t.slice(4, 6));
+    const hour = Number(t.slice(6, 8)), minute = Number(t.slice(8, 10));
+    if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null;
+    return Date.UTC(year, month - 1, day, hour, minute);
+  };
+  const start = parseDbTime(plannedTime), end = parseDbTime(changedTime);
   return {
-    plannedTime: attr(e, "pt"), changedTime: attr(e, "ct"),
-    plannedPlatform: attr(e, "pp"), changedPlatform: attr(e, "cp"),
-    plannedStatus: attr(e, "ps"), changedStatus: attr(e, "cs"),
-    plannedPath: attr(e, "ppth"), changedPath: attr(e, "cpth")
+    plannedTime, changedTime, effectiveTime: changedTime || plannedTime,
+    delayMinutes: start !== null && end !== null ? Math.round((end - start) / 60000) : null,
+    plannedPlatform, changedPlatform, effectivePlatform: changedPlatform || plannedPlatform,
+    platformChanged: Boolean(changedPlatform && plannedPlatform && changedPlatform !== plannedPlatform),
+    plannedStatus, changedStatus, cancelled: effectiveStatus === "c",
+    plannedPath: attr(p, "ppth"), changedPath: attr(c, "cpth") || attr(p, "cpth")
+  };
+}
+function timetableEntry(s: Xml, update: Xml | undefined) {
+  const line = record(s.tl ?? update?.tl);
+  const arrival = eventInfo(s.ar, update?.ar);
+  const departure = eventInfo(s.dp, update?.dp);
+  return {
+    id: attr(s, "id"), line: attr(line, "n"), category: attr(line, "c"),
+    operator: attr(line, "o"), tripLabel: attr(s, "l") || attr(update ?? {}, "l"),
+    arrival, departure,
+    cancelled: Boolean(arrival?.cancelled || departure?.cancelled)
   };
 }
 async function dbGet(path: string) {
@@ -59,23 +87,11 @@ Deno.serve(async (request) => {
         dbGet(`/plan/${eva}/${date}/${hour}`), dbGet(`/fchg/${eva}`)
       ]);
       const byId = new Map(stops(changes).map(s => [attr(s, "id"), s]));
-      const departures = stops(plan).map(s => {
-        const update = byId.get(attr(s, "id"));
-        const planned = s.dp as Record<string, unknown> | undefined;
-        const changed = update?.dp as Record<string, unknown> | undefined;
-        const line = (s.tl ?? update?.tl ?? {}) as Record<string, unknown>;
-        return {
-          id: attr(s, "id"), line: attr(line, "n"), category: attr(line, "c"),
-          operator: attr(line, "o"), departure: {
-            ...eventInfo(planned),
-            changedTime: attr(changed ?? {}, "ct"),
-            changedPlatform: attr(changed ?? {}, "cp"),
-            changedStatus: attr(changed ?? {}, "cs")
-          }
-        };
-      }).filter(s => s.departure?.plannedTime);
-      return json({ eva, date, hour, departures, retrievedAt: new Date().toISOString(),
-        note: "Nur Pilotdaten; noch kein Abgleich mit Google-Verbindungen." });
+      const entries = stops(plan).map(s => timetableEntry(s, byId.get(attr(s, "id"))));
+      const departures = entries.filter(s => s.departure !== null);
+      const arrivals = entries.filter(s => s.arrival !== null);
+      return json({ eva, date, hour, departures, arrivals, retrievedAt: new Date().toISOString(),
+        note: "DB-Daten; keine automatische Zuordnung zu Google-Verbindungen." });
     }
     return json({ error: "Unbekannte Aktion." }, 400);
   } catch (e) {
