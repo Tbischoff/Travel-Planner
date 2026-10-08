@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.2.0";
+const APP_VERSION = "v2.2.1";
 
 
 function syncVersionLabels() {
@@ -6666,6 +6666,22 @@ function mobilityModeStorageKey(tripId = currentTripId || getLastTripId()) {
   return tripScopedStorageKey("mobilityModeV2", tripId);
 }
 const transitLegCache = new Map();
+const TRANSIT_REFRESH_MS = 2 * 60 * 1000;
+let transitLoading = false;
+let transitRefreshTimer = null;
+function refreshTransitForDay(dayId = selectedDayFilter) {
+  if (!dayId || dayId === "all" || dayId === "unplanned") return;
+  transitLegCache.clear();
+  renderDayAgenda();
+}
+function ensureTransitRefreshTimer() {
+  if (transitRefreshTimer) return;
+  transitRefreshTimer = setInterval(() => {
+    if (!navigationActive || navigationPaused || navigator.onLine === false || document.hidden) return;
+    if (getMobilityMode() === "walk") return;
+    refreshTransitForDay();
+  }, TRANSIT_REFRESH_MS);
+}
 
 function getMobilityMode() {
   const key = mobilityModeStorageKey();
@@ -6760,10 +6776,12 @@ function mobilityLegHtml(from, to, walkingLeg) {
 }
 
 async function loadTransitLegsForDay(dayId) {
+  if (transitLoading) return;
   if (navigator.onLine===false || getMobilityMode()==="walk") return;
   const stops=getAgendaMobilityStopsForDay(dayId);
   if(stops.length<2) return;
   let changed=false;
+  transitLoading = true;
   try {
     const Route=await ensureRoutesLibrary();
     for(let i=0;i<stops.length-1;i++){
@@ -6794,6 +6812,7 @@ async function loadTransitLegsForDay(dayId) {
       }
     }
   } finally {
+    transitLoading = false;
     if(changed && selectedDayFilter===dayId) renderDayAgenda();
   }
 }
@@ -8223,11 +8242,12 @@ function renderDayAgenda() {
     : "";
   const dayWeather = dailyWeatherFor(selectedDay.id);
   const agendaWeather = dayWeather ? `<div class="agenda-weather-card"><div><strong>${weatherIcon(dayWeather.code)} ${Math.round(Number(dayWeather.max))}° / ${Math.round(Number(dayWeather.min))}°</strong><span>💧 ${Math.round(Number(dayWeather.rain))}% Regen</span></div>${weatherPeriodsHtml(selectedDay.id)}</div>` : '<div class="agenda-weather-card muted">🌦️ Für diesen Tag ist noch keine Prognose verfügbar.</div>';
-  const header = `<div class="agenda-day-header"><div><div class="agenda-day-kicker">Tages-Timeline</div><div class="agenda-day-title">${escapeHtml(selectedDay.label)}</div><div class="agenda-day-stats">${dayPlaces.length} Orte · ${dayActivities.length} Aktivitäten${stops.length > 1 ? ` · 🚶 ca. ${formatRouteDistance(totalDistance)} · ${totalMinutes} Min.` : ""}</div></div><div class="agenda-header-actions"><span class="agenda-progress-badge">${progress}%</span><button id="addActivityAgendaBtn" class="mini-action-button activity-add-button" type="button">＋ Aktivität</button></div></div><div class="agenda-progress-track"><div class="agenda-progress-fill" style="width:${progress}%"></div></div>${agendaWeather}${feasibilityCardHtml(selectedDay.id, stops)}`;
+  const header = `<div class="agenda-day-header"><div><div class="agenda-day-kicker">Tages-Timeline</div><div class="agenda-day-title">${escapeHtml(selectedDay.label)}</div><div class="agenda-day-stats">${dayPlaces.length} Orte · ${dayActivities.length} Aktivitäten${stops.length > 1 ? ` · 🚶 ca. ${formatRouteDistance(totalDistance)} · ${totalMinutes} Min.` : ""}</div></div><div class="agenda-header-actions"><span class="agenda-progress-badge">${progress}%</span><button id="refreshTransitAgendaBtn" class="mini-action-button" type="button" title="ÖPNV-Verbindungen neu abfragen">↻ ÖPNV</button><button id="addActivityAgendaBtn" class="mini-action-button activity-add-button" type="button">＋ Aktivität</button></div></div><div class="agenda-progress-track"><div class="agenda-progress-fill" style="width:${progress}%"></div></div>${agendaWeather}${feasibilityCardHtml(selectedDay.id, stops)}`;
 
   if (!stops.length) {
     container.innerHTML = `${header}${accommodationHtml}<div class="agenda-empty">Für ${escapeHtml(selectedDay.label)} ist noch nichts geplant.</div>`;
     document.getElementById("addActivityAgendaBtn")?.addEventListener("click", () => openActivityDialog());
+    document.getElementById("refreshTransitAgendaBtn")?.addEventListener("click", () => refreshTransitForDay(selectedDay.id));
     return;
   }
 
@@ -8253,6 +8273,8 @@ function renderDayAgenda() {
 
   container.innerHTML = `${header}${accommodationHtml}${firstHotelLegHtml}<div class="agenda-timeline">${rows}</div>${lastHotelLegHtml}<div class="agenda-estimate-note">🚶 Gehzeiten sind kompakte Schätzungen. 🚇 ÖPNV zeigt online Linien, Haltestellen und Fahrzeiten aus Google Routes; Google Maps liefert die aktuelle Live-Verbindung.</div>`;
   document.getElementById("addActivityAgendaBtn")?.addEventListener("click", () => openActivityDialog());
+  document.getElementById("refreshTransitAgendaBtn")?.addEventListener("click", () => refreshTransitForDay(selectedDay.id));
+  ensureTransitRefreshTimer();
   container.querySelector("[data-accommodation-focus]")?.addEventListener("click", () => {
     const place = getAccommodationPlace();
     if (place) focusExistingPlaceOnMap(place);
