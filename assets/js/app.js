@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.1.2";
+const APP_VERSION = "v2.1.3";
 
 
 function syncVersionLabels() {
@@ -150,7 +150,7 @@ let navigationSteps = [];
 let navigationStepIndex = 0;
 let navigationStops = [];
 let navigationFinalTarget = null;
-let navigationTestMode = false;
+let navigationTestMode = false; // Legacy session compatibility; new test sessions are disabled.
 let navigationTestTarget = null;
 let navigationPickListener = null;
 let navigationPolylines = [];
@@ -6242,36 +6242,6 @@ async function startDayNavigation() {
   }
 }
 
-function cancelNavigationTestTarget() {
-  if (navigationPickListener) navigationPickListener.remove();
-  navigationPickListener = null;
-  navigationTestTarget = null;
-  document.getElementById("navigationTestBtn")?.classList.remove("active");
-}
-
-function chooseNavigationTestTarget() {
-  if (!map) return;
-  cancelNavigationTestTarget();
-  const button = document.getElementById("navigationTestBtn");
-  button?.classList.add("active");
-  setStatus("🧪 Testmodus: Tippe auf der Karte auf ein Ziel in deiner Nähe. Es wird nicht gespeichert.");
-  if (isMobileLayout()) setMobileView("map");
-  navigationPickListener = map.addListener("click", async event => {
-    const position = normalizeLatLng(event.latLng);
-    cancelNavigationTestTarget();
-    if (!position) return;
-    navigationTestTarget = position;
-    try {
-      setStatus("Testnavigation wird vorbereitet …");
-      await computeNavigationRoute([{ type: "test", id: "test-target", name: "Testziel", position }], { testMode: true });
-      setStatus("🧪 Testnavigation gestartet. Das Testziel wird nicht gespeichert.");
-    } catch (error) {
-      console.error("Testnavigation:", error);
-      setStatus(`Testnavigation konnte nicht gestartet werden: ${error.message || error}`);
-    }
-  });
-}
-
 function renderDayFilters() {
   const container = document.getElementById("dayFilters");
   if (!container) return;
@@ -9002,7 +8972,6 @@ function wireControls() {
     if (navigationActive) stopNavigation();
     else startDayNavigation();
   });
-  document.getElementById("navigationTestBtn")?.addEventListener("click", chooseNavigationTestTarget);
   document.getElementById("navigationStopBtn")?.addEventListener("click", () => stopNavigation());
   document.getElementById("navigationPauseBtn")?.addEventListener("click", toggleNavigationPause);
   document.getElementById("navigationSkipBtn")?.addEventListener("click", openNavigationSkipDialog);
