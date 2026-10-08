@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.2.2";
+const APP_VERSION = "v2.3.0";
 
 
 function syncVersionLabels() {
@@ -2423,13 +2423,30 @@ function getRoutingStopsForDay(dayId) {
 
 function getAgendaMobilityStopsForDay(dayId) {
   const planned = getRouteStopsForDay(dayId);
-  const anchors = accommodationRouteAnchors(dayId);
-  if ((!anchors.start && !anchors.end) || !planned.length) return planned;
-
+  const accommodation = accommodationRouteAnchors(dayId);
+  const selected = selectedDayRouteAnchors(dayId);
+  const startMode = getRouteStartMode();
+  const endMode = getRouteEndMode();
+  const start = startMode === "place" ? selected.start :
+    startMode === "accommodation" ? accommodation.start :
+    startMode === "current" && userPosition ? {
+      type: "current", id: "__agenda_current__", name: "Mein aktueller Standort",
+      position: normalizeLatLng(userPosition)
+    } : null;
+  const end = endMode === "place" ? selected.end :
+    endMode === "accommodation" ? accommodation.end : null;
   const result = [...planned];
-  if (anchors.start && result[0]?.id !== anchors.start.id) result.unshift({ ...anchors.start, role: "agenda-start" });
-  if (anchors.end && result[result.length - 1]?.id !== anchors.end.id) result.push({ ...anchors.end, role: "agenda-end" });
+  if (start?.position && result[0]?.id !== start.id) result.unshift({ ...start, role: "agenda-start" });
+  if (end?.position && result[result.length - 1]?.id !== end.id) result.push({ ...end, role: "agenda-end" });
   return result;
+}
+
+function agendaAnchorHtml(stop, label, next, leg) {
+  if (!stop) return "";
+  const icon = stop.type === "current" ? "📍" : "🚩";
+  const title = `<div class="agenda-hotel-transfer-label">${icon} ${escapeHtml(label)}: <strong>${escapeHtml(stop.name)}</strong></div>`;
+  const transfer = next && leg ? mobilityLegHtml(stop, next, leg) : "";
+  return `<div class="agenda-hotel-transfer">${title}${transfer}</div>`;
 }
 
 function markerGlyphForPlace(place) {
@@ -3669,12 +3686,14 @@ function setRouteStartMode(value) {
     setStatus("Startpunkt geändert. Route bitte neu berechnen.");
   }
   updateRouteControls();
+  renderDayAgenda();
 }
 
 function setRouteEndMode(value) {
   document.getElementById("routeEndPlace")?.toggleAttribute("hidden", value !== "place");
   if (activeRouteDay) { clearRenderedRoute(); activeRouteDay = null; activeRouteSummary = null; }
   updateRouteControls();
+  renderDayAgenda();
 }
 
 function populateRoutePlaceSelectors() {
@@ -3701,6 +3720,7 @@ async function saveDayRoutePlace(kind, placeId) {
   day[column] = placeId || null;
   if (activeRouteDay) clearDayRoute();
   updateRouteControls();
+  renderDayAgenda();
   setStatus(`${kind === "start" ? "Start" : "Ziel"} für ${dayLongLabel(day.day_date)} gespeichert.`);
 }
 
@@ -8247,7 +8267,13 @@ function renderDayAgenda() {
   const progress = dayPlaces.length ? Math.round((visitedCount / dayPlaces.length) * 100) : 0;
   const { legs, totalDistance, totalMinutes } = getAgendaLegs(stops);
   const { legs: mobilityLegs } = getAgendaLegs(mobilityStops);
-  const hasHotelAnchors = mobilityStops.length > stops.length;
+  const agendaStart = mobilityStops[0]?.role === "agenda-start" ? mobilityStops[0] : null;
+  const agendaEnd = mobilityStops[mobilityStops.length - 1]?.role === "agenda-end" ? mobilityStops[mobilityStops.length - 1] : null;
+  const startTransferHtml = agendaStart ? agendaAnchorHtml(agendaStart, "Start", mobilityStops[1], mobilityLegs[0]) : "";
+  const endTransferHtml = agendaEnd ? agendaAnchorHtml(agendaEnd, "Ziel", null, null) : "";
+  const endTransferLegHtml = agendaEnd && mobilityLegs[mobilityLegs.length - 1]
+    ? mobilityLegHtml(mobilityStops[mobilityStops.length - 2], agendaEnd, mobilityLegs[mobilityLegs.length - 1]) : "";
+  const hasHotelAnchors = false; // Anker werden jetzt einheitlich als Start/Ziel dargestellt.
   const firstHotelLegHtml = hasHotelAnchors && mobilityLegs[0]
     ? `<div class="agenda-hotel-transfer"><div class="agenda-hotel-transfer-label">🏨 Von der Start-Unterkunft zum ersten Programmpunkt</div>${mobilityLegHtml(mobilityStops[0], mobilityStops[1], mobilityLegs[0])}</div>`
     : "";
@@ -8286,7 +8312,7 @@ function renderDayAgenda() {
     return `<div class="agenda-place-wrap" data-agenda-key="place:${escapeHtml(place.id)}"><div class="agenda-timeline-row"><div class="agenda-time-column"><div class="agenda-time ${time ? "" : "agenda-time-open"}">${time ? escapeHtml(time) : "offen"}</div><div class="agenda-timeline-dot ${saved.visited ? "visited" : ""}">${saved.visited ? "✓" : index + 1}</div>${index < stops.length - 1 ? '<div class="agenda-timeline-line"></div>' : ""}</div><div class="agenda-content-column"><div class="agenda-item ${saved.visited ? "agenda-item-visited" : ""}" data-place-id="${place.id}"><button type="button" class="agenda-drag-handle" aria-label="${escapeHtml(place.name)} verschieben">⋮⋮</button><div class="agenda-main"><div class="agenda-title">${CATEGORY_ICONS[place.category] || "•"} ${escapeHtml(place.name)}</div><div class="agenda-meta">${escapeHtml(categoryLabel(place.category))}${distance != null ? ` · 📍 ${escapeHtml(formatDistance(distance))} entfernt` : ""}${saved.visited ? " · ✓ besucht" : ""}</div>${openingHtml}${stopWeatherHtml}</div><button type="button" class="agenda-visited-button ${saved.visited ? "visited" : ""}" data-action="toggle-visited" data-place-id="${place.id}">${saved.visited ? "✓" : "○"}</button></div>${legHtml}</div></div></div>`;
   }).join("");
 
-  container.innerHTML = `${header}${accommodationHtml}${firstHotelLegHtml}<div class="agenda-timeline">${rows}</div>${lastHotelLegHtml}<div class="agenda-estimate-note">🚶 Gehzeiten sind kompakte Schätzungen. 🚇 ÖPNV zeigt online Linien, Haltestellen und Fahrzeiten aus Google Routes; Google Maps liefert die aktuelle Live-Verbindung.</div>`;
+  container.innerHTML = `${header}${accommodationHtml}${startTransferHtml}<div class="agenda-timeline">${rows}</div>${endTransferLegHtml}${endTransferHtml}<div class="agenda-estimate-note">🚶 Gehzeiten sind kompakte Schätzungen. 🚇 ÖPNV zeigt online Linien, Haltestellen und Fahrzeiten aus Google Routes; Google Maps liefert die aktuelle Live-Verbindung.</div>`;
   document.getElementById("addActivityAgendaBtn")?.addEventListener("click", () => openActivityDialog());
   document.getElementById("refreshTransitAgendaBtn")?.addEventListener("click", () => refreshTransitForDay(selectedDay.id));
   ensureTransitRefreshTimer();
