@@ -21,23 +21,67 @@ const dayPlanSaving = ref(false)
 const dayPlanError = ref('')
 const selectedDayRecord = computed(() => tripDays.value.find(day => day.day_date === selectedDay.value))
 const dayStops = computed(() => places.value.filter(place => place.category !== 'hotel' && place.planned_day === selectedDay.value).sort((a,b) => (a.planned_order || 999999) - (b.planned_order || 999999) || a.name.localeCompare(b.name, 'de')))
-const draggedStopId = ref<string | null>(null)
-const dropStopId = ref<string | null>(null)
-async function reorderDayStops(sourceId: string, targetId: string) {
+const dayPlanList = ref<HTMLElement | null>(null)
+const dragOrder = ref<string[] | null>(null)
+const renderedDayStops = computed(() => {
+  if (!dragOrder.value) return dayStops.value
+  const byId = new Map(dayStops.value.map(stop => [stop.id, stop]))
+  return dragOrder.value.map(id => byId.get(id)).filter((stop): stop is TripPlace => !!stop)
+})
+type StopDrag = { pointerId: number; sourceId: string; startY: number; ghost: HTMLElement | null; handle: HTMLElement; original: string[] }
+let stopDrag: StopDrag | null = null
+function onStopPointerDown(event: PointerEvent, id: string) {
+  if (dayPlanSaving.value || (event.button !== undefined && event.button !== 0)) return
+  const handle = event.currentTarget as HTMLElement
+  const row = handle.closest<HTMLElement>('.day-plan-stop')
+  if (!row) return
+  event.preventDefault()
+  const rect = row.getBoundingClientRect()
+  const ghost = row.cloneNode(true) as HTMLElement
+  ghost.classList.add('day-plan-ghost')
+  ghost.style.left = rect.left + 'px'
+  ghost.style.top = rect.top + 'px'
+  ghost.style.width = rect.width + 'px'
+  ghost.style.height = rect.height + 'px'
+  document.body.appendChild(ghost)
+  const original = dayStops.value.map(stop => stop.id)
+  dragOrder.value = [...original]
+  stopDrag = { pointerId: event.pointerId, sourceId: id, startY: event.clientY, ghost, handle, original }
+  handle.setPointerCapture(event.pointerId)
+}
+function onStopPointerMove(event: PointerEvent) {
+  const drag = stopDrag
+  if (!drag || drag.pointerId !== event.pointerId) return
+  event.preventDefault()
+  if (drag.ghost) drag.ghost.style.transform = 'translateY(' + (event.clientY - drag.startY) + 'px)'
+  const rows = [...(dayPlanList.value?.querySelectorAll<HTMLElement>('.day-plan-stop') || [])]
+  const ordered = dragOrder.value
+  if (!ordered) return
+  const candidates = rows.filter(row => row.dataset.dayStopId !== drag.sourceId)
+  let targetIndex = candidates.findIndex(row => event.clientY < row.getBoundingClientRect().top + row.getBoundingClientRect().height / 2)
+  if (targetIndex < 0) targetIndex = candidates.length
+  const next = ordered.filter(id => id !== drag.sourceId)
+  next.splice(targetIndex, 0, drag.sourceId)
+  if (next.some((id, index) => id !== ordered[index])) dragOrder.value = next
+}
+async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
+  const drag = stopDrag
+  if (!drag || drag.pointerId !== event.pointerId) return
+  stopDrag = null
+  try { drag.handle.releasePointerCapture(drag.pointerId) } catch { /* capture may already be released */ }
+  drag.ghost?.remove()
+  const newOrder = dragOrder.value
+  dragOrder.value = null
+  if (cancelled || !newOrder || newOrder.every((id, i) => id === drag.original[i])) return
   const trip = trips.currentTrip
   const day = selectedDayRecord.value
-  if (!trip || !day || dayPlanSaving.value || sourceId === targetId) return
-  const ordered = [...dayStops.value]
-  const from = ordered.findIndex(item => item.id === sourceId)
-  const to = ordered.findIndex(item => item.id === targetId)
-  if (from < 0 || to < 0) return
-  ordered.splice(to, 0, ...ordered.splice(from, 1))
+  if (!trip || !day) return
   dayPlanSaving.value = true
   dayPlanError.value = ''
   try {
-    for (let i = 0; i < ordered.length; i++) {
-      const stop = ordered[i]
-      if (stop.planned_order === i + 1) continue
+    for (let i = 0; i < newOrder.length; i++) {
+      const stop = places.value.find(place => place.id === newOrder[i])
+      if (!stop || stop.planned_order === i + 1) continue
       await updateTripPlacePlanning(trip.id, stop, day.id, i + 1, stop.start_time, stop.end_time)
       stop.planned_order = i + 1
     }
@@ -47,33 +91,6 @@ async function reorderDayStops(sourceId: string, targetId: string) {
     places.value = await listTripPlaces(trip.id)
   } finally { dayPlanSaving.value = false }
 }
-function onStopDragStart(event: DragEvent, id: string) {
-  if (dayPlanSaving.value) { event.preventDefault(); return }
-  draggedStopId.value = id
-  event.dataTransfer?.setData('text/plain', id)
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-}
-function onStopDrop(event: DragEvent, targetId: string) {
-  event.preventDefault()
-  const sourceId = draggedStopId.value || event.dataTransfer?.getData('text/plain')
-  draggedStopId.value = null
-  dropStopId.value = null
-  if (sourceId) void reorderDayStops(sourceId, targetId)
-}
-const touchDragId = ref<string | null>(null)
-function onStopTouchStart(id: string) { if (!dayPlanSaving.value) touchDragId.value = id }
-function onStopTouchEnd(event: TouchEvent) {
-  const sourceId = touchDragId.value
-  touchDragId.value = null
-  dropStopId.value = null
-  if (!sourceId) return
-  const touch = event.changedTouches[0]
-  if (!touch) return
-  const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('[data-day-stop-id]')
-  const targetId = target?.getAttribute('data-day-stop-id')
-  if (targetId) void reorderDayStops(sourceId, targetId)
-}
-
 const searchQuery = ref('')
 const mobilePlacesOpen = ref(false)
 const selectedPlaceId = ref<string | null>(null)
@@ -723,7 +740,7 @@ onMounted(async () => {
           </select>
         </div>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
-        <div v-if="selectedDayRecord && dayPlanOpen" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in dayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--target': dropStopId === stop.id }" :data-day-stop-id="stop.id" @dragover.prevent="dropStopId = stop.id" @dragleave="dropStopId = null" @drop="onStopDrop($event, stop.id)"><span class="day-plan-stop__handle" draggable="true" aria-label="Stopp verschieben" @dragstart="onStopDragStart($event, stop.id)" @dragend="draggedStopId = null; dropStopId = null" @touchstart.passive="onStopTouchStart(stop.id)" @touchend.prevent="onStopTouchEnd($event)" @touchcancel="touchDragId = null">⠿</span><button type="button" class="day-plan-stop__place" @click="openPlace(stop, true); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="openPlace(stop, true); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
@@ -836,7 +853,7 @@ onMounted(async () => {
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 .place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-dialog__duplicate{margin:8px 0;padding:10px 12px;border:1px solid #e2a33a;border-radius:10px;background:#fff8e8;color:#7a4a00;font-weight:700}.place-popup__times,.place-dialog__stay{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup__stay-summary{display:grid;gap:4px;margin:12px 0;padding:10px 12px;border:1px solid #d8dee6;border-radius:10px;background:#f8f9fb;font-size:.82rem}.place-popup__stay-summary span{font-weight:600}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__distance{color:#2f625d;font-weight:700}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
-.day-plan-preview{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid #d8e3e0;border-radius:12px;background:#f6faf9}.day-plan-stop{display:flex;align-items:stretch;gap:6px;border-radius:9px}.day-plan-stop--target{outline:2px solid #23866f}.day-plan-stop__handle{display:grid;place-items:center;min-width:38px;border:1px solid #dce5e2;border-radius:9px;background:#fff;cursor:grab;touch-action:none;user-select:none;font-size:23px;color:#526b66}.day-plan-stop__handle:active{cursor:grabbing}.day-plan-stop__place{flex:1;min-width:0}.day-plan-preview .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px;cursor:pointer}.day-plan-preview .day-plan-stop__place small{display:block;color:#66746f;margin-top:3px}
+.day-plan-preview{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid #d8e3e0;border-radius:12px;background:#f6faf9}.day-plan-stop{display:flex;align-items:stretch;gap:6px;border-radius:9px}.day-plan-stop--dragging{opacity:.3}.day-plan-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:.92;box-shadow:0 12px 30px #0003;border-radius:9px;background:white;display:flex;gap:6px}.day-plan-ghost .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px}.day-plan-stop__handle{display:grid;place-items:center;min-width:38px;border:1px solid #dce5e2;border-radius:9px;background:#fff;cursor:grab;touch-action:none;user-select:none;font-size:23px;color:#526b66}.day-plan-stop__handle:active{cursor:grabbing}.day-plan-stop__place{flex:1;min-width:0}.day-plan-preview .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px;cursor:pointer}.day-plan-preview .day-plan-stop__place small{display:block;color:#66746f;margin-top:3px}
 .place-dialog-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.45)}.place-dialog{position:relative;width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3)}.place-dialog h2{margin:4px 0 16px}.place-dialog>label{display:grid;gap:6px;margin:11px 0;font-size:.84rem;font-weight:700}.place-dialog input,.place-dialog select,.place-dialog textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:9px;background:#fff;font:inherit}.place-dialog textarea{min-height:72px}.place-dialog__close{position:absolute;right:12px;top:12px;border:0;background:transparent;cursor:pointer}.place-dialog__check{display:flex!important;align-items:center;gap:8px!important}.place-dialog__check input{width:auto}.place-dialog__divider{text-align:center;color:#7a8590;font-size:.76rem;margin:12px 0}.google-place-host{margin-top:6px;min-height:44px;max-width:100%;overflow:visible}.google-place-host gmp-place-autocomplete{display:block;width:100%;max-width:100%;box-sizing:border-box}.place-dialog__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.place-dialog__actions button{min-height:40px;padding:8px 12px;border:1px solid #cbd3db;border-radius:10px;background:#fff;cursor:pointer}.place-dialog__actions .popup-button--primary{background:#2f625d;color:#fff;border-color:#2f625d}
 @media(max-width:760px){.place-dialog-backdrop{padding:12px}.place-dialog{width:calc(100vw - 24px);max-width:none;padding:18px;overflow-x:visible}.place-dialog>*{min-width:0;max-width:100%;box-sizing:border-box}.google-place-host{display:block;width:100%;max-width:100%;min-width:0;overflow:visible;contain:inline-size}.google-place-host gmp-place-autocomplete{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:visible!important}.google-place-host gmp-place-autocomplete::part(input){width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trip-workspace{position:fixed;inset:0;padding:0;background:#fff;overflow:hidden;overscroll-behavior:none}.trip-header{display:none}.trip-map-layout{position:absolute;inset:0;display:block;height:auto;min-height:0;margin:0}.map-panel{position:absolute;inset:0;height:auto;border:0;border-radius:0;overflow:hidden}.trip-map{position:absolute;inset:0;width:100%;height:auto;min-height:0}.map-toolbar{top:62px;left:12px;right:12px}.map-toolbar button{font-size:.76rem;padding:7px 8px}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:0 auto 0 0;width:min(90vw,390px);box-sizing:border-box;border:0;border-radius:0 18px 18px 0;padding:12px 16px 20px;background:#fff;box-shadow:12px 0 34px rgba(0,0,0,.18);transform:translateX(-105%);transition:transform .2s ease;overflow-y:auto}.places-panel--open{transform:translateX(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{position:fixed;z-index:15;left:auto;right:12px;top:82px;bottom:auto;width:min(84vw,360px);max-height:calc(100dvh - 98px);padding:14px;overflow:auto;overscroll-behavior:contain;border-radius:16px}.place-popup--editing{width:min(90vw,390px);max-height:calc(100dvh - 98px)}.place-popup h3{font-size:1rem;line-height:1.2;margin-bottom:3px}.place-popup p{font-size:.82rem;line-height:1.3;margin:5px 0}.place-popup label{margin:9px 0 5px}.place-popup input,.place-popup select{min-height:38px;padding:7px 9px}.place-popup__times{gap:8px}.popup-button{min-height:38px;padding:7px 10px;font-size:.8rem}.place-popup__actions{grid-template-columns:1fr;gap:7px}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status,.place-popup__actions .popup-button--edit,.place-popup__actions .popup-button--danger{grid-column:1;width:100%;justify-content:flex-start;text-align:left;white-space:nowrap}.place-popup__actions .popup-button--primary{justify-content:center;text-align:center}.popup-button--status,.popup-button--edit{font-size:.78rem}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
