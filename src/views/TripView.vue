@@ -43,6 +43,29 @@ function onStopPointerDown(event: PointerEvent, id: string) {
   ghost.style.top = rect.top + 'px'
   ghost.style.width = rect.width + 'px'
   ghost.style.height = rect.height + 'px'
+  // The floating clone lives outside the scoped Vue component. Preserve the
+  // computed typography explicitly so it looks identical while dragging.
+  const copyTypography = (source: Element, target: HTMLElement) => {
+    const style = window.getComputedStyle(source)
+    target.style.fontFamily = style.fontFamily
+    target.style.fontSize = style.fontSize
+    target.style.fontWeight = style.fontWeight
+    target.style.fontStyle = style.fontStyle
+    target.style.lineHeight = style.lineHeight
+    target.style.letterSpacing = style.letterSpacing
+    target.style.color = style.color
+  }
+  copyTypography(row, ghost)
+  const originalText = row.querySelector<HTMLElement>('.day-plan-stop__place')
+  const ghostText = ghost.querySelector<HTMLElement>('.day-plan-stop__place')
+  if (originalText && ghostText) {
+    copyTypography(originalText, ghostText)
+    const originalChildren = originalText.querySelectorAll<HTMLElement>('span, small, strong')
+    const ghostChildren = ghostText.querySelectorAll<HTMLElement>('span, small, strong')
+    originalChildren.forEach((child, index) => {
+      if (ghostChildren[index]) copyTypography(child, ghostChildren[index])
+    })
+  }
   document.body.appendChild(ghost)
   row.classList.add('day-plan-stop--dragging')
   const original = dayStops.value.map(stop => stop.id)
