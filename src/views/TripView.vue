@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { supabase } from '../services/supabase/client'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAuthStore } from '../stores/auth'
 import { useTripStore } from '../stores/trip'
 import { addTripPlace, deleteTripPlace, listTripDays, listTripPlaces, updatePlaceDetails, updateTripPlacePlanning, updateTripPlaceStay, type TripDay, type TripPlace } from '../services/supabase/places'
@@ -529,20 +531,70 @@ function openPlace(place: TripPlace, focus = false) {
   }
 }
 
-async function savePlanning() {
+const planningSaving = ref(false)
+const planningError = ref('')
+let planningQueue = Promise.resolve()
+function savePlanning() {
   const place = activePlace.value
   const trip = trips.currentTrip
   if (!place || !trip) return
-  const day = tripDays.value.find(item => item.day_date === popupDay.value)
-  let order = place.planned_order
-  if (day && place.planned_day !== day.day_date) {
-    order = Math.max(0, ...places.value.filter(item => item.planned_day === day.day_date).map(item => item.planned_order || 0)) + 1
+  const placeId = place.id
+  const dayDate = popupDay.value
+  const start = dayDate ? popupStart.value || null : null
+  const end = dayDate ? popupEnd.value || null : null
+  const day = tripDays.value.find(item => item.day_date === dayDate)
+  const previousDay = place.planned_day
+  const order = day ? (previousDay === dayDate ? place.planned_order : Math.max(0, ...places.value.filter(item => item.planned_day === dayDate).map(item => item.planned_order || 0)) + 1) : null
+  planningSaving.value = true
+  planningError.value = ''
+  planningQueue = planningQueue.catch(() => {}).then(async () => {
+    const current = places.value.find(item => item.id === placeId)
+    if (!current) return
+    try {
+      await updateTripPlacePlanning(trip.id, current, day?.id || null, order, start, end)
+      current.planned_day = day?.day_date || null
+      current.planned_order = order
+      current.start_time = start
+      current.end_time = end
+      refreshMarkerAppearances()
+    } catch (cause) {
+      planningError.value = cause instanceof Error ? cause.message : 'Automatisches Speichern fehlgeschlagen.'
+    }
+  }).finally(() => { planningSaving.value = false })
+}
+watch([popupDay, popupStart, popupEnd], () => {
+  if (activePlace.value && !editingPlace.value) savePlanning()
+})
+let realtimeChannel: RealtimeChannel | null = null
+let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
+async function refreshRemotePlaces() {
+  const trip = trips.currentTrip
+  if (!trip || planningSaving.value || dayPlanSaving.value || stopDrag) {
+    scheduleRealtimeRefresh()
+    return
   }
-  if (!day) order = null
-  await updateTripPlacePlanning(trip.id, place, day?.id || null, order, day ? popupStart.value || null : null, day ? popupEnd.value || null : null)
-  place.planned_day = day?.day_date || null; place.planned_order = order
-  place.start_time = day ? popupStart.value || null : null; place.end_time = day ? popupEnd.value || null : null
-  refreshMarkerAppearances()
+  try {
+    const fresh = await listTripPlaces(trip.id)
+    const byId = new Map(fresh.map(place => [place.id, place]))
+    places.value = fresh
+    if (activePlace.value) {
+      const updated = byId.get(activePlace.value.id)
+      if (updated) {
+        activePlace.value = updated
+        popupDay.value = updated.planned_day || ''
+        popupStart.value = updated.start_time || ''
+        popupEnd.value = updated.end_time || ''
+      } else closePlacePopup()
+    }
+    refreshMarkerAppearances()
+    syncMarkerVisibility()
+  } catch (cause) {
+    console.error('Realtime-Aktualisierung fehlgeschlagen', cause)
+  }
+}
+function scheduleRealtimeRefresh() {
+  if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
+  realtimeRefreshTimer = setTimeout(() => { realtimeRefreshTimer = null; void refreshRemotePlaces() }, 450)
 }
 
 async function toggleVisited() {
@@ -738,9 +790,16 @@ onMounted(async () => {
     ;[places.value, tripDays.value] = await Promise.all([listTripPlaces(trips.currentTrip.id), listTripDays(trips.currentTrip.id)])
     await nextTick()
     await renderMap()
+    realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_places', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
+      .subscribe()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Orte konnten nicht geladen werden.'
   } finally { loading.value = false }
+})
+onUnmounted(() => {
+  if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
+  if (realtimeChannel) void supabase.removeChannel(realtimeChannel)
 })
 </script>
 
@@ -825,7 +884,7 @@ onMounted(async () => {
               <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="time"></label><label>Bis<input v-model="popupEnd" type="time"></label></div>
             </template>
             <div class="place-popup__actions">
-              <button v-if="activePlace.category !== 'hotel'" class="popup-button popup-button--primary" type="button" @click="savePlanning">Planung speichern</button>
+              <p v-if="activePlace.category !== 'hotel'" class="muted">{{ planningSaving ? 'Speichert automatisch …' : 'Änderungen werden automatisch gespeichert' }}</p><p v-if="planningError" class="trip-error">{{ planningError }}</p>
               <button v-if="activePlace.category !== 'hotel'" class="popup-button popup-button--status" :class="{ 'popup-button--visited': activePlace.visited }" type="button" @click="toggleVisited"><span class="popup-button__icon">{{ activePlace.visited ? '✓' : '○' }}</span><span>{{ activePlace.visited ? 'Besucht' : 'Als besucht markieren' }}</span></button>
               <button class="popup-button popup-button--edit" type="button" @click="editOriginalAddress = activePlace.address || ''; editingPlace = true"><span class="popup-button__icon">✎</span><span>Bearbeiten</span></button>
               <button class="popup-button popup-button--danger" type="button" @click="removeActivePlace">Aus Reise löschen</button>
