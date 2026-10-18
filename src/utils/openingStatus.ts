@@ -100,6 +100,27 @@ export function openingStatus(
     if (intervals === null) return 'unknown'
     schedule.set(weekdayIndex[match[1].toLowerCase()], intervals)
   }
+  // Compact weekly ranges, e.g. "So–Do 08:30–19:00 · Fr–Sa 08:30–20:00".
+  // Expand inclusive ranges, including those crossing Sunday.
+  const compactDay: Record<string, number> = {
+    so: 0, mo: 1, di: 2, mi: 3, do: 4, fr: 5, sa: 6,
+    sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+  }
+  for (const segment of hours.split(/[·•\n]/)) {
+    const normalized = segment.trim().replace(/[–—−]/g, '-')
+    const match = normalized.match(/^(so|mo|di|mi|do|fr|sa|sun|mon|tue|wed|thu|fri|sat)\s*(?:-\s*(so|mo|di|mi|do|fr|sa|sun|mon|tue|wed|thu|fri|sat))?\s*:?\s+(.+)$/i)
+    if (!match) continue
+    const first = compactDay[match[1].toLowerCase()]
+    const last = match[2] ? compactDay[match[2].toLowerCase()] : first
+    const intervals = parseIntervals(match[3])
+    if (intervals === null) return 'unknown'
+    let day = first
+    for (let count = 0; count < 7; count++) {
+      schedule.set(day, intervals)
+      if (day === last) break
+      day = (day + 1) % 7
+    }
+  }
   // A partial schedule cannot establish the previous day's overnight hours.
   if (schedule.size !== 7) return 'unknown'
   const today = schedule.get(clock.weekday) || []
