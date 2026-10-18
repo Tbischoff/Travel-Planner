@@ -677,12 +677,15 @@ function closePlacePopup() {
 }
 
 let pendingPlaceFocus: ReturnType<typeof setTimeout> | null = null
+let pendingPlaceFallback: ReturnType<typeof setTimeout> | null = null
 let pendingPlaceIdle: { remove: () => void } | null = null
 let placeFocusSequence = 0
 function cancelPendingPlaceFocus() {
   placeFocusSequence++
   if (pendingPlaceFocus !== null) clearTimeout(pendingPlaceFocus)
   pendingPlaceFocus = null
+  if (pendingPlaceFallback !== null) clearTimeout(pendingPlaceFallback)
+  pendingPlaceFallback = null
   pendingPlaceIdle?.remove()
   pendingPlaceIdle = null
 }
@@ -691,22 +694,23 @@ function focusDayPlace(place: TripPlace) {
     openPlace(place, true)
     return
   }
-  cancelPendingPlaceFocus()
-  const sequence = placeFocusSequence
   closePlacePopup()
+  const sequence = placeFocusSequence
   map.panTo({ lat: Number(place.latitude), lng: Number(place.longitude) })
   map.setZoom(Math.max(map.getZoom() || 0, 16))
   const reveal = () => {
     if (sequence !== placeFocusSequence) return
     pendingPlaceIdle?.remove()
     pendingPlaceIdle = null
+    if (pendingPlaceFallback !== null) clearTimeout(pendingPlaceFallback)
+    pendingPlaceFallback = null
     pendingPlaceFocus = setTimeout(() => {
       pendingPlaceFocus = null
       if (sequence === placeFocusSequence) openPlace(place, false)
     }, 200)
   }
   pendingPlaceIdle = map.addListener('idle', reveal)
-  pendingPlaceFocus = setTimeout(reveal, 1800)
+  pendingPlaceFallback = setTimeout(reveal, 1800)
 }
 function openPlace(place: TripPlace, focus = false) {
   cancelPendingPlaceFocus()
