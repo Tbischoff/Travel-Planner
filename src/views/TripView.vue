@@ -13,7 +13,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
-type Activity = { id: string; trip_day_id: string; name: string; start_time: string | null; end_time: string | null; meeting_place_name: string | null; note: string | null; planned_order: number | null }
+type Activity = { id: string; trip_day_id: string; name: string; start_time: string | null; end_time: string | null; meeting_place_name: string | null; note: string | null; planned_order: number | null; address: string | null; google_place_id: string | null; latitude: number | null; longitude: number | null }
 const activities = ref<Activity[]>([])
 const activityName = ref('')
 const activityStart = ref('')
@@ -22,19 +22,37 @@ const activityDayId = ref('')
 const activityError = ref('')
 const activitySaving = ref(false)
 const activityOpen = ref(false)
+const editingActivityId = ref<string | null>(null)
+async function deleteActivity() {
+  const trip = trips.currentTrip
+  if (!trip || !editingActivityId.value || !trips.canEditContent || !confirm('Aktivität wirklich löschen?')) return
+  activitySaving.value = true
+  try {
+    const { error } = await supabase.from('trip_activities').delete().eq('id',editingActivityId.value).eq('trip_id',trip.id)
+    if (error) throw error
+    await loadActivities()
+    activityOpen.value = false
+  } catch (e) { activityError.value = e instanceof Error ? e.message : 'Löschen fehlgeschlagen.' }
+  finally { activitySaving.value = false }
+}
 const activityPlaceHost = ref<HTMLElement | null>(null)
 const activityPlaceError = ref('')
 const activityAddress = ref('')
 const activityGooglePlaceId = ref<string | null>(null)
 const activityLatitude = ref<number | null>(null)
 const activityLongitude = ref<number | null>(null)
-async function openActivityDialog() {
-  activityDayId.value = selectedDayRecord.value?.id || tripDays.value[0]?.id || ''
+async function openActivityDialog(activity?: Activity) {
+  if (!trips.canEditContent) return
+  editingActivityId.value = activity?.id || null
+  activityName.value = activity?.name || ''
+  activityStart.value = activity?.start_time?.slice(0,5) || ''
+  activityMeeting.value = activity?.meeting_place_name || ''
+  activityDayId.value = activity?.trip_day_id || selectedDayRecord.value?.id || tripDays.value[0]?.id || ''
   activityPlaceError.value = ''
-  activityAddress.value = ''
-  activityGooglePlaceId.value = null
-  activityLatitude.value = null
-  activityLongitude.value = null
+  activityAddress.value = activity?.address || ''
+  activityGooglePlaceId.value = activity?.google_place_id || null
+  activityLatitude.value = activity?.latitude ?? null
+  activityLongitude.value = activity?.longitude ?? null
   activityOpen.value = true
   await nextTick()
   const host = activityPlaceHost.value
@@ -44,7 +62,7 @@ async function openActivityDialog() {
     await loadGoogleMaps()
     const { PlaceAutocompleteElement } = await getPlacesLibrary()
     const autocomplete = new PlaceAutocompleteElement({
-      locationBias: { center: { lat: tripCenter.lat, lng: tripCenter.lng }, radius: 50000 },
+      locationRestriction: { west: tripCenter.lng - 0.65, east: tripCenter.lng + 0.65, south: tripCenter.lat - 0.45, north: tripCenter.lat + 0.45 },
     })
     autocomplete.placeholder = 'Treffpunkt auf Google Maps suchen …'
     autocomplete.addEventListener('gmp-select', async event => {
@@ -94,7 +112,9 @@ async function createActivity() {
     const day = tripDays.value.find(d => d.id === activityDayId.value)
     if (!day || !activityName.value.trim() || !activityStart.value || !activityMeeting.value.trim()) throw new Error('Name, Tag, Beginn und Treffpunkt sind erforderlich.')
     const order = Math.max(0, ...places.value.filter(p => p.planned_day === day.day_date).map(p => p.planned_order || 0), ...activities.value.filter(a => a.trip_day_id === day.id).map(a => a.planned_order || 0)) + 1
-    const { error } = await supabase.from('trip_activities').insert({ trip_id: trip.id, trip_day_id: day.id, name: activityName.value.trim(), start_time: activityStart.value, meeting_place_name: activityMeeting.value.trim(), address: activityAddress.value || null, google_place_id: activityGooglePlaceId.value, latitude: activityLatitude.value, longitude: activityLongitude.value, planned_order: order, status: 'planned' })
+    const payload = { trip_id: trip.id, trip_day_id: day.id, name: activityName.value.trim(), start_time: activityStart.value, meeting_place_name: activityMeeting.value.trim(), address: activityAddress.value || null, google_place_id: activityGooglePlaceId.value, latitude: activityLatitude.value, longitude: activityLongitude.value, planned_order: editingActivityId.value ? activities.value.find(a => a.id === editingActivityId.value)?.planned_order || order : order, status: 'planned' }
+    const request = editingActivityId.value ? supabase.from('trip_activities').update(payload).eq('id',editingActivityId.value).eq('trip_id',trip.id) : supabase.from('trip_activities').insert(payload)
+    const { error } = await request
     if (error) throw error
     await loadActivities()
     activityOpen.value = false
@@ -113,13 +133,18 @@ const dayPlanOpen = ref(false)
 const dayPlanSaving = ref(false)
 const dayPlanError = ref('')
 const selectedDayRecord = computed(() => tripDays.value.find(day => day.day_date === selectedDay.value))
-const dayStops = computed(() => places.value.filter(place => place.category !== 'hotel' && place.planned_day === selectedDay.value).sort((a,b) => (a.planned_order || 999999) - (b.planned_order || 999999) || a.name.localeCompare(b.name, 'de')))
+type DayStop = { id: string; name: string; start_time: string | null; end_time: string | null; planned_order: number | null; kind: 'place' | 'activity'; place?: TripPlace; activity?: Activity }
+const dayStops = computed<DayStop[]>(() => {
+  const ps: DayStop[] = places.value.filter(p => p.category !== 'hotel' && p.planned_day === selectedDay.value).map(p => ({ id: 'place:' + p.id, name: p.name, start_time: p.start_time, end_time: p.end_time, planned_order: p.planned_order, kind: 'place', place: p }))
+  const as: DayStop[] = activities.value.filter(a => a.trip_day_id === selectedDayRecord.value?.id).map(a => ({ id: 'activity:' + a.id, name: a.name, start_time: a.start_time, end_time: a.end_time, planned_order: a.planned_order, kind: 'activity', activity: a }))
+  return [...ps,...as].sort((a,b) => (a.planned_order || 999999) - (b.planned_order || 999999) || a.name.localeCompare(b.name,'de'))
+})
 const dayPlanList = ref<HTMLElement | null>(null)
 const dragOrder = ref<string[] | null>(null)
 const renderedDayStops = computed(() => {
   if (!dragOrder.value) return dayStops.value
   const byId = new Map(dayStops.value.map(stop => [stop.id, stop]))
-  return dragOrder.value.map(id => byId.get(id)).filter((stop): stop is TripPlace => !!stop)
+  return dragOrder.value.map(id => byId.get(id)).filter((stop): stop is DayStop => !!stop)
 })
 type StopDrag = { pointerId: number; sourceId: string; startY: number; ghost: HTMLElement | null; handle: HTMLElement; original: string[] }
 let stopDrag: StopDrag | null = null
@@ -209,15 +234,25 @@ async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
   dayPlanError.value = ''
   try {
     for (let i = 0; i < newOrder.length; i++) {
-      const stop = places.value.find(place => place.id === newOrder[i])
-      if (!stop || stop.planned_order === i + 1) continue
-      await updateTripPlacePlanning(trip.id, stop, day.id, i + 1, stop.start_time, stop.end_time)
-      stop.planned_order = i + 1
+      const key = newOrder[i]
+      if (key.startsWith('activity:')) {
+        const activity = activities.value.find(a => a.id === key.slice(9))
+        if (!activity || activity.planned_order === i + 1) continue
+        const { error } = await supabase.from('trip_activities').update({ planned_order: i + 1 }).eq('id',activity.id).eq('trip_id',trip.id)
+        if (error) throw error
+        activity.planned_order = i + 1
+      } else {
+        const stop = places.value.find(p => p.id === key.slice(6))
+        if (!stop || stop.planned_order === i + 1) continue
+        await updateTripPlacePlanning(trip.id, stop, day.id, i + 1, stop.start_time, stop.end_time)
+        stop.planned_order = i + 1
+      }
     }
     refreshMarkerAppearances()
   } catch (cause) {
     dayPlanError.value = cause instanceof Error ? cause.message : 'Reihenfolge konnte nicht gespeichert werden.'
     places.value = await listTripPlaces(trip.id)
+    await loadActivities()
   } finally { dayPlanSaving.value = false }
 }
 const searchQuery = ref('')
@@ -928,10 +963,10 @@ onUnmounted(() => {
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
         </div>
-        <button type="button" class="place-add-button" @click="openActivityDialog">＋ Aktivität hinzufügen</button>
+        <button v-if="trips.canEditContent" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
-        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="openPlace(stop, true); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
-        <div v-if="selectedDayRecord" class="day-plan-preview"><strong>Aktivitäten</strong><p v-for="activity in activities.filter(a => a.trip_day_id === selectedDayRecord?.id)" :key="activity.id">🎟️ {{ activity.start_time?.slice(0,5) }} · {{ activity.name }} · {{ activity.meeting_place_name }}</p></div>
+        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? openActivityDialog(stop.activity) : (stop.place && openPlace(stop.place, true)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
@@ -1002,16 +1037,16 @@ onUnmounted(() => {
     </section>
     <div v-if="activityOpen" class="place-dialog-backdrop" @click.self="activityOpen = false">
       <form class="place-dialog activity-form" role="dialog" aria-modal="true" aria-label="Aktivität hinzufügen" @submit.prevent="createActivity">
-        <h2>Aktivität hinzufügen</h2>
+        <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
         <label>Beginn<input v-model="activityStart" type="time" required></label>
         <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
-        <label>Treffpunkt<input v-model="activityMeeting" required placeholder="Aus Suche übernehmen oder manuell eingeben"></label>
+        <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
         <p v-if="activityAddress" class="muted">{{ activityAddress }}</p>
         <p v-if="activityError" class="trip-error">{{ activityError }}</p>
-        <div class="place-dialog__actions"><button type="button" @click="activityOpen = false">Abbrechen</button><button type="submit" :disabled="activitySaving">{{ activitySaving ? 'Speichern …' : 'Aktivität speichern' }}</button></div>
+        <div class="place-dialog__actions"><button v-if="editingActivityId" type="button" :disabled="activitySaving" @click="deleteActivity">Löschen</button><button type="button" @click="activityOpen = false">Abbrechen</button><button type="submit" :disabled="activitySaving">{{ activitySaving ? 'Speichern …' : 'Aktivität speichern' }}</button></div>
       </form>
     </div>
     <div v-if="addPlaceOpen" class="place-dialog-backdrop" @click.self="addPlaceOpen = false">
