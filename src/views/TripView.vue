@@ -983,8 +983,45 @@ async function renderMap() {
   syncMarkerVisibility()
 }
 
+function fitMapToSelectedDay() {
+  if (!map) return
+  const googleMaps = getGoogleMaps()
+  const bounds = new googleMaps.LatLngBounds()
+  let count = 0
+  const include = (lat: number | null, lng: number | null) => {
+    if (lat == null || lng == null) return
+    const latitude = Number(lat)
+    const longitude = Number(lng)
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
+    bounds.extend({ lat: latitude, lng: longitude })
+    count++
+  }
+  for (const place of visiblePlaces.value) include(place.latitude, place.longitude)
+  if (selectedDayRecord.value) {
+    for (const activity of activities.value) {
+      if (activity.trip_day_id === selectedDayRecord.value.id) include(activity.latitude, activity.longitude)
+    }
+  }
+  if (count > 1) map.fitBounds(bounds, 72)
+  else if (count === 1) {
+    map.setCenter(bounds.getCenter())
+    map.setZoom(15)
+  } else if (tripCenter) {
+    map.setCenter(tripCenter)
+    map.setZoom(12)
+  }
+}
+
 watch(visiblePlaces, () => syncMarkerVisibility(), { flush: 'post' })
-watch(selectedDay, () => { refreshMarkerAppearances(); void refreshActivityMarkers() })
+watch(selectedDay, async () => {
+  cancelPendingPlaceFocus()
+  closePlacePopup()
+  activeActivity.value = null
+  activityPosition.value = null
+  refreshMarkerAppearances()
+  await refreshActivityMarkers()
+  fitMapToSelectedDay()
+})
 
 
 
