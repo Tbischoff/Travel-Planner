@@ -22,6 +22,62 @@ const activityDayId = ref('')
 const activityError = ref('')
 const activitySaving = ref(false)
 const activityOpen = ref(false)
+const activityPlaceHost = ref<HTMLElement | null>(null)
+const activityPlaceError = ref('')
+const activityAddress = ref('')
+const activityGooglePlaceId = ref<string | null>(null)
+const activityLatitude = ref<number | null>(null)
+const activityLongitude = ref<number | null>(null)
+async function openActivityDialog() {
+  activityDayId.value = selectedDayRecord.value?.id || tripDays.value[0]?.id || ''
+  activityPlaceError.value = ''
+  activityAddress.value = ''
+  activityGooglePlaceId.value = null
+  activityLatitude.value = null
+  activityLongitude.value = null
+  activityOpen.value = true
+  await nextTick()
+  const host = activityPlaceHost.value
+  if (!host) return
+  host.replaceChildren()
+  try {
+    await loadGoogleMaps()
+    const { PlaceAutocompleteElement } = await getPlacesLibrary()
+    const autocomplete = new PlaceAutocompleteElement({
+      locationBias: { center: { lat: tripCenter.lat, lng: tripCenter.lng }, radius: 50000 },
+    })
+    autocomplete.placeholder = 'Treffpunkt auf Google Maps suchen …'
+    autocomplete.addEventListener('gmp-select', async event => {
+      try {
+        const prediction = event.placePrediction
+        if (!prediction) return
+        const place = prediction.toPlace()
+        await place.fetchFields({ fields: ['id', 'displayName', 'formattedAddress', 'location'] })
+        activityMeetingFromGoogle = place.displayName || place.formattedAddress || ''
+        activityMeeting.value = activityMeetingFromGoogle
+        activityAddress.value = place.formattedAddress || ''
+        activityGooglePlaceId.value = place.id || null
+        activityLatitude.value = place.location ? place.location.lat() : null
+        activityLongitude.value = place.location ? place.location.lng() : null
+        activityPlaceError.value = ''
+      } catch (cause) {
+        activityPlaceError.value = cause instanceof Error ? cause.message : 'Treffpunkt konnte nicht geladen werden.'
+      }
+    })
+    host.appendChild(autocomplete)
+  } catch (cause) {
+    activityPlaceError.value = cause instanceof Error ? cause.message : 'Google-Suche nicht verfügbar. Treffpunkt manuell eingeben.'
+  }
+}
+watch(activityMeeting, value => {
+  if (activityGooglePlaceId.value && value !== activityMeetingFromGoogle) {
+    activityGooglePlaceId.value = null
+    activityLatitude.value = null
+    activityLongitude.value = null
+    activityAddress.value = ''
+  }
+})
+let activityMeetingFromGoogle = ''
 async function loadActivities() {
   const trip = trips.currentTrip
   if (!trip) return
@@ -38,7 +94,7 @@ async function createActivity() {
     const day = tripDays.value.find(d => d.id === activityDayId.value)
     if (!day || !activityName.value.trim() || !activityStart.value || !activityMeeting.value.trim()) throw new Error('Name, Tag, Beginn und Treffpunkt sind erforderlich.')
     const order = Math.max(0, ...places.value.filter(p => p.planned_day === day.day_date).map(p => p.planned_order || 0), ...activities.value.filter(a => a.trip_day_id === day.id).map(a => a.planned_order || 0)) + 1
-    const { error } = await supabase.from('trip_activities').insert({ trip_id: trip.id, trip_day_id: day.id, name: activityName.value.trim(), start_time: activityStart.value, meeting_place_name: activityMeeting.value.trim(), planned_order: order, status: 'planned' })
+    const { error } = await supabase.from('trip_activities').insert({ trip_id: trip.id, trip_day_id: day.id, name: activityName.value.trim(), start_time: activityStart.value, meeting_place_name: activityMeeting.value.trim(), address: activityAddress.value || null, google_place_id: activityGooglePlaceId.value, latitude: activityLatitude.value, longitude: activityLongitude.value, planned_order: order, status: 'planned' })
     if (error) throw error
     await loadActivities()
     activityOpen.value = false
@@ -872,7 +928,7 @@ onUnmounted(() => {
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
         </div>
-        <button type="button" class="place-add-button" @click="activityDayId = selectedDayRecord?.id || tripDays[0]?.id || ''; activityOpen = true">＋ Aktivität hinzufügen</button>
+        <button type="button" class="place-add-button" @click="openActivityDialog">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
         <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="openPlace(stop, true); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <div v-if="selectedDayRecord" class="day-plan-preview"><strong>Aktivitäten</strong><p v-for="activity in activities.filter(a => a.trip_day_id === selectedDayRecord?.id)" :key="activity.id">🎟️ {{ activity.start_time?.slice(0,5) }} · {{ activity.name }} · {{ activity.meeting_place_name }}</p></div>
@@ -950,7 +1006,10 @@ onUnmounted(() => {
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
         <label>Beginn<input v-model="activityStart" type="time" required></label>
-        <label>Treffpunkt<input v-model="activityMeeting" required></label>
+        <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
+        <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
+        <label>Treffpunkt<input v-model="activityMeeting" required placeholder="Aus Suche übernehmen oder manuell eingeben"></label>
+        <p v-if="activityAddress" class="muted">{{ activityAddress }}</p>
         <p v-if="activityError" class="trip-error">{{ activityError }}</p>
         <div class="place-dialog__actions"><button type="button" @click="activityOpen = false">Abbrechen</button><button type="submit" :disabled="activitySaving">{{ activitySaving ? 'Speichern …' : 'Aktivität speichern' }}</button></div>
       </form>
