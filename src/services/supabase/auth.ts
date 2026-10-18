@@ -35,30 +35,10 @@ export function sessionTiming(session: Session): SessionTiming {
   }
 }
 
-export async function waitUntilSessionIsUsable(session: Session): Promise<Session> {
-  let current = session
-  for (let refreshAttempt = 0; refreshAttempt < 2; refreshAttempt++) {
-    const timing = sessionTiming(current)
-    if (timing.issuedInFutureBySeconds <= 0) return current
-    // A browser/device clock behind the auth server can make a valid token
-    // appear to be issued in the future to PostgREST. Wait only for a small,
-    // recoverable skew; otherwise refresh once before surfacing the problem.
-    if (timing.issuedInFutureBySeconds <= 15) {
-      await new Promise(resolve => window.setTimeout(resolve, (timing.issuedInFutureBySeconds + 1) * 1000))
-      return current
-    }
-    const { data, error } = await supabase.auth.refreshSession()
-    if (error || !data.session) throw error ?? new Error('Supabase-Session konnte nicht erneuert werden.')
-    current = data.session
-  }
-  return current
-}
-
 export async function getSession(): Promise<Session | null> {
   const { data, error } = await supabase.auth.getSession()
   if (error) throw error
-  if (!data.session) return null
-  return waitUntilSessionIsUsable(data.session)
+  return data.session
 }
 
 export async function signIn(email: string, password: string): Promise<User> {
@@ -101,29 +81,52 @@ export function onAuthStateChange(
   return () => data.subscription.unsubscribe()
 }
 
-/** Retry read-only operations once after refreshing a rejected JWT. */
-let pendingRecovery: Promise<void> | null = null
+/**
+ * PostgREST validates JWT iat using server time, not the browser clock.
+ * A freshly refreshed token can therefore fail again during server clock skew.
+ * Retry only read-only operations, with a short bounded delay; do not refresh
+ * a valid token just because PostgREST considers its iat in the future.
+ */
+let pendingFutureJwtRecovery: Promise<void> | null = null
+const pause = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms))
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === 'object' && cause !== null && 'message' in cause) return String(cause.message)
+  return String(cause)
+}
 export async function withSessionRecovery<T>(read: () => Promise<T>): Promise<T> {
-  await getSession()
+  const session = await getSession()
+  if (!session) throw new Error('Keine aktive Anmeldung. Bitte erneut anmelden.')
   try {
     return await read()
   } catch (cause) {
-    const message = cause instanceof Error ? cause.message : String(cause)
-    if (!/jwt issued at future|invalid jwt|jwt expired/i.test(message)) throw cause
-    if (!pendingRecovery) {
-      pendingRecovery = (async () => {
-        const { data, error } = await supabase.auth.refreshSession()
-        if (error || !data.session) throw error ?? new Error('Anmeldung konnte nicht erneuert werden.')
-        const timing = sessionTiming(data.session)
-        if (timing.issuedInFutureBySeconds > 15) {
-          throw new Error('Die Gerätezeit weicht von der Anmeldezeit ab. Bitte Datum und Uhrzeit automatisch synchronisieren.')
+    const message = errorMessage(cause)
+    if (/jwt issued at future/i.test(message)) {
+      // Serialize recovery waits so simultaneous loads do not each refresh the session.
+      // Server-side skew is usually transient; refreshing immediately issues another
+      // JWT with a new iat and can prolong the rejection.
+      let lastError: unknown = cause
+      for (const delay of [1500, 3000, 5000, 7000]) {
+        if (!pendingFutureJwtRecovery) {
+          pendingFutureJwtRecovery = pause(delay).finally(() => { pendingFutureJwtRecovery = null })
         }
-        if (timing.issuedInFutureBySeconds > 0) {
-          await new Promise(resolve => window.setTimeout(resolve, (timing.issuedInFutureBySeconds + 1) * 1000))
+        await pendingFutureJwtRecovery
+        try { return await read() } catch (error) {
+          lastError = error
+          if (!/jwt issued at future/i.test(errorMessage(error))) throw error
         }
-      })().finally(() => { pendingRecovery = null })
+      }
+      const timing = sessionTiming(session)
+      console.warn('Supabase JWT clock diagnostic', {
+        issuedAt: timing.issuedAt == null ? null : new Date(timing.issuedAt * 1000).toISOString(),
+        browserNow: new Date(timing.now * 1000).toISOString(),
+        browserSkewSeconds: timing.issuedAt == null ? null : timing.issuedAt - timing.now,
+      })
+      throw new Error('Supabase lehnt die Anmeldung wegen einer Zeitabweichung ab (JWT issued at future). Bitte in einigen Sekunden erneut versuchen. Falls der Fehler bleibt, müssen die Serverzeiten geprüft werden.', { cause: lastError })
     }
-    await pendingRecovery
+    if (!/jwt expired|invalid jwt/i.test(message)) throw cause
+    const { data, error } = await supabase.auth.refreshSession()
+    if (error || !data.session) throw error ?? new Error('Anmeldung konnte nicht erneuert werden.')
     return read()
   }
 }
