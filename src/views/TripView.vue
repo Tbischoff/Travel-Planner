@@ -203,6 +203,24 @@ function transitIcon(type?: string): string {
 
 let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
+let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
+function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
+function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines() }
+function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = '' }
+function renderRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], connections: TransitConnection[], summary: string) {
+  if (!map || !routeVisible.value) return
+  clearRoutePolylines()
+  transitMetrics.value = metrics
+  transitConnections.value = connections
+  routeSummary.value = summary
+  const bounds = new (getGoogleMaps().LatLngBounds)()
+  for (const [index, segment] of segments.entries()) {
+    const lines = segment.createPolylines({ polylineOptions: { strokeColor: metrics[index]?.mode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
+    for (const line of lines) { line.setMap(map); routePolylines.push(line) }
+    for (const point of segment.path || []) bounds.extend(point)
+  }
+  if (segments.some(segment => segment.path?.length)) map.fitBounds(bounds, 70)
+}
 function clearRoutePolylines() {
   for (const line of routePolylines) line.setMap(null)
   routePolylines = []
@@ -222,9 +240,7 @@ function hideWalkingRoute() {
   routeVisible.value = false
   routeBusy.value = false
   routeError.value = ''
-  routeSummary.value = ''
-  transitConnections.value = []
-  transitMetrics.value = []
+  clearRouteCache()
   clearRoutePolylines()
 }
 async function showWalkingRoute() {
@@ -236,6 +252,12 @@ async function showWalkingRoute() {
   transitConnections.value = []
   transitMetrics.value = []
   clearRoutePolylines()
+  const key = routeCacheKey()
+  if (cachedRoute?.key === key) {
+    renderRoute(cachedRoute.segments, cachedRoute.metrics, cachedRoute.connections, cachedRoute.summary)
+    routeBusy.value = false
+    return
+  }
   const stops = dayStops.value.map(stopCoordinates)
   if (stops.some(p => !p)) {
     routeError.value = 'Mindestens ein Stopp hat keine Kartenkoordinaten.'
@@ -304,9 +326,9 @@ async function showWalkingRoute() {
       metrics.push({ distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: useTransit ? 'transit' : 'walking' })
     }
     if (requestId !== routeRequestId || !routeVisible.value || !map) return
-    transitMetrics.value = metrics
+    let connections: TransitConnection[] = []
     if (mode !== 'walking') {
-      transitConnections.value = segments.flatMap((segment, section) =>
+      connections = segments.flatMap((segment, section) =>
         (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
           const details = step.transitDetails
           if (!details) return []
@@ -327,17 +349,11 @@ async function showWalkingRoute() {
         }))
       )
     }
-    const box = new (getGoogleMaps().LatLngBounds)()
-    for (const segment of segments) {
-      const segmentMode = metrics[segments.indexOf(segment)]?.mode || 'walking'
-      const polylines = segment.createPolylines({ polylineOptions: { strokeColor: segmentMode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
-      for (const line of polylines) { line.setMap(map); routePolylines.push(line) }
-      for (const point of segment.path || []) box.extend(point)
-    }
-    if (segments.some(segment => segment.path?.length)) map.fitBounds(box, 70)
     const distance = segments.reduce((sum, segment) => sum + (segment.distanceMeters || 0), 0)
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
-    routeSummary.value = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
+    const summary = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
+    cachedRoute = { key, segments, metrics, connections, summary }
+    renderRoute(segments, metrics, connections, summary)
   } catch (cause) {
     if (requestId === routeRequestId) {
       clearRoutePolylines()
@@ -536,7 +552,7 @@ function moveTodayDay(direction: -1 | 1) {
 }
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
-  if (activeTab.value === 'today' && tab !== 'today') hideWalkingRoute()
+  if (activeTab.value === 'today' && tab !== 'today') hideRouteDisplay()
   if (activeTab.value === 'plan') lastPlanDay = selectedDay.value
   if (activeTab.value === 'today' && tripDays.value.some(day => day.day_date === selectedDay.value)) lastTodayDay = selectedDay.value
   activeTab.value = tab
@@ -1371,8 +1387,8 @@ onUnmounted(() => {
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
-            <details v-if="index < routeAgendaStops.length - 1 && routeVisible && transitMetrics[index]" class="agenda-leg mobility-leg">
-              <summary><span>{{ transitMetrics[index]?.mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ transitMetrics[index]?.mode === 'transit' ? 'ÖPNV' : 'Fußweg' }} zum nächsten Stopp</strong><small v-if="transitMetrics[index]">{{ legDistance(transitMetrics[index].distanceMeters) }} · {{ legDuration(transitMetrics[index].durationMillis) }}</small></span><span class="mobility-expand">Details</span></summary>
+            <details v-if="index < routeAgendaStops.length - 1 && transitMetrics[index]" class="agenda-leg mobility-leg">
+              <summary><span>{{ transitMetrics[index]?.mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ legDuration(transitMetrics[index].durationMillis) }} · {{ legDistance(transitMetrics[index].distanceMeters) }}</strong><small>{{ transitMetrics[index]?.mode === 'transit' ? 'ÖPNV' : 'Fußweg' }} zum nächsten Stopp</small></span><span class="mobility-expand">Details</span></summary>
               <div class="mobility-details">
                 <p v-if="transitMetrics[index]?.mode === 'walking'" class="muted">Fußweg zum nächsten geplanten Stopp.</p>
                 <div v-for="(connection, connectionIndex) in (transitMetrics[index]?.mode === 'transit' ? transitLegs.get(index + 1) || [] : [])" :key="connectionIndex" class="transit-step">
