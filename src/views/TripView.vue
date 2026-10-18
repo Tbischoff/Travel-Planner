@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { openingStatus } from '../utils/openingStatus'
 import { supabase } from '../services/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAuthStore } from '../stores/auth'
@@ -560,11 +561,20 @@ function label(category: string) {
   return ({ food:'Essen', cafe:'Café', bar:'Bar', sight:'Sehenswürdigkeit', culture:'Kultur', leisure:'Freizeit', thermal:'Thermalbad', viewpoint:'Aussicht', transport:'Verkehr', area:'Gebiet', hotel:'Unterkunft', other:'Sonstiges' } as Record<string,string>)[category] || category
 }
 
+const openingClockTick = ref(0)
+let openingClockTimer: ReturnType<typeof setInterval> | null = null
+function statusForPlace(place: TripPlace) {
+  void openingClockTick.value
+  const planned = activeTab.value === 'plan' || activeTab.value === 'today'
+  return openingStatus(place.opening_hours, trips.currentTrip?.destination,
+    planned && place.planned_day === selectedDay.value ? place.planned_day : null,
+    planned && place.planned_day === selectedDay.value ? place.start_time : null)
+}
 const markerColors: Record<string,string> = { food:'#f97316', cafe:'#a16207', bar:'#7c3aed', sight:'#2563eb', culture:'#db2777', leisure:'#16a34a', thermal:'#0891b2', viewpoint:'#ca8a04', transport:'#475569', area:'#dc2626', hotel:'#0f766e', other:'#64748b' }
 
 function markerState(place: TripPlace) {
   if (place.category === 'hotel') {
-    return { color: markerColors.hotel, scale: 1.2, opacity: 1, order: null as number | null, localTip: false }
+    return { color: markerColors.hotel, scale: 1.2, opacity: 1, order: null as number | null, localTip: false, opening: 'unknown' as const }
   }
   const concreteDaySelected = activeTab.value !== 'places' && tripDays.value.some(day => day.day_date === selectedDay.value)
   const isInSelectedDay = concreteDaySelected && place.planned_day === selectedDay.value
@@ -579,7 +589,9 @@ function markerState(place: TripPlace) {
   }
   // Visited places remain visible when they belong to the selected day.
   // Filtering, not opacity, decides whether a marker belongs on the map.
-  return { color, scale, opacity, order: isInSelectedDay ? dayStopNumber('place:' + place.id) : null, localTip: Boolean(place.is_local_tip) }
+  const opening = statusForPlace(place)
+  if (activeTab.value === 'places' && opening === 'closed') opacity = 0.42
+  return { color, scale, opacity, order: isInSelectedDay ? dayStopNumber('place:' + place.id) : null, localTip: Boolean(place.is_local_tip), opening }
 }
 
 function markerContent(place: TripPlace) {
@@ -591,6 +603,7 @@ function markerContent(place: TripPlace) {
   marker.style.setProperty('--marker-color', state.color)
   marker.style.setProperty('--marker-scale', String(state.scale))
   marker.style.opacity = String(state.opacity)
+  marker.dataset.opening = state.opening
   marker.title = place.name
 
   const pin = document.createElement('span')
@@ -644,6 +657,7 @@ function refreshMarkerAppearances() {
     element.style.setProperty('--marker-color', state.color)
     element.style.setProperty('--marker-scale', String(state.scale))
     element.style.opacity = String(state.opacity)
+    element.dataset.opening = state.opening
     element.title = place.name
 
     const icon = element.querySelector('.v3-place-marker__icon') as HTMLElement | null
@@ -1044,6 +1058,7 @@ watch(selectedDay, async () => {
 
 
 onMounted(async () => {
+  openingClockTimer = setInterval(() => { openingClockTick.value++; refreshMarkerAppearances() }, 60_000)
   requestUserLocation()
   try {
     await restoreTrip()
@@ -1062,6 +1077,7 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onUnmounted(() => {
+  if (openingClockTimer) clearInterval(openingClockTimer)
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
   if (realtimeChannel) void supabase.removeChannel(realtimeChannel)
   for (const marker of activityMarkers.values()) marker.map = null
@@ -1248,6 +1264,9 @@ onUnmounted(() => {
 
 :global(.v3-place-marker--hotel .v3-place-marker__pin){width:40px;height:40px}
 
+ :global(.v3-place-marker[data-opening='open'] .v3-place-marker__pin){outline:4px solid #16a34a;outline-offset:1px}
+:global(.v3-place-marker[data-opening='closed'] .v3-place-marker__pin){outline:4px solid #dc2626;outline-offset:1px}
+:global(.v3-place-marker[data-opening='unknown'] .v3-place-marker__pin){outline:3px solid #94a3b8;outline-offset:1px}
 :global(.v3-place-marker__order),:global(.v3-place-marker__star){font-size:15px;font-weight:800;color:#fff}
 
 
