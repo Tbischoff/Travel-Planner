@@ -43,18 +43,31 @@ function plannedClock(date: string, time: string): { weekday: number; minutes: n
   return { weekday: day.getUTCDay(), minutes: hour * 60 + minute }
 }
 
+function clockMinutes(hourText: string, minuteText: string, period?: string): number | null {
+  let hour = Number(hourText)
+  const minute = Number(minuteText)
+  if (minute > 59 || hour > 24) return null
+  if (period) {
+    if (hour < 1 || hour > 12) return null
+    hour = (hour % 12) + (period.toLowerCase() === 'pm' ? 12 : 0)
+  } else if (hour > 23 && !(hour === 24 && minute === 0)) return null
+  return hour * 60 + minute
+}
+
 function parseIntervals(value: string): Array<[number, number]> | null {
-  const normalized = value.toLowerCase().replace(/[–—−]/g, '-').trim()
+  const normalized = value.toLowerCase().replace(/[–—−]/g, '-').replace(/\u202f|\u00a0/g, ' ').trim()
   if (/^(closed|geschlossen|ruhetag|not open)$/.test(normalized)) return []
-  if (/^(open 24 hours|24 hours|24 stunden|durchgehend geöffnet|24\/7)$/.test(normalized)) return [[0, 1440]]
-  const pieces = normalized.split(/[,;]/)
+  if (/^(open 24 hours|24 hours|24 stunden|durchgehend geöffnet|24\/7|24 stunden geöffnet)$/.test(normalized)) return [[0, 1440]]
   const intervals: Array<[number, number]> = []
-  for (const piece of pieces) {
-    const match = piece.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/)
+  for (const piece of normalized.split(/[,;]/)) {
+    const match = piece.trim().match(/^(\d{1,2}):(\d{2})\s*(am|pm)?\s*-\s*(\d{1,2}):(\d{2})\s*(am|pm)?$/i)
     if (!match) return null
-    const start = Number(match[1]) * 60 + Number(match[2])
-    const end = Number(match[3]) * 60 + Number(match[4])
-    if (Number(match[1]) > 23 || Number(match[3]) > 24 || Number(match[2]) > 59 || Number(match[4]) > 59 || start >= 1440 || end > 1440) return null
+    // In "9:00-6:00 PM", the AM/PM marker on the right is not enough
+    // to determine the left side unambiguously; keep status unknown.
+    if (Boolean(match[3]) !== Boolean(match[6])) return null
+    const start = clockMinutes(match[1], match[2], match[3])
+    const end = clockMinutes(match[4], match[5], match[6])
+    if (start === null || end === null || start >= 1440 || end > 1440) return null
     intervals.push([start, end])
   }
   return intervals.length ? intervals : null
