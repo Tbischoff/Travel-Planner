@@ -148,6 +148,92 @@ function focusTodayStop(stop: DayStop) {
   else if (stop.place) focusDayPlace(stop.place)
   mobilePlacesOpen.value = false
 }
+
+// Walking route is intentionally independent of active navigation and keeps the planned stop order.
+type RoutePoint = { lat: number; lng: number }
+type DirectionsResult = unknown
+type DirectionsServiceInstance = { route: (request: Record<string, unknown>, callback: (result: DirectionsResult | null, status: string) => void) => void }
+type DirectionsRendererInstance = { setMap: (map: MapInstance | null) => void; setDirections: (result: DirectionsResult) => void }
+const routeStart = ref<'location' | 'first' | 'hotel'>('first')
+const routeVisible = ref(false)
+const routeBusy = ref(false)
+const routeError = ref('')
+let routeRenderer: DirectionsRendererInstance | null = null
+let routeRequestId = 0
+function stopCoordinates(stop: DayStop): RoutePoint | null {
+  const lat = stop.place?.latitude ?? stop.activity?.latitude
+  const lng = stop.place?.longitude ?? stop.activity?.longitude
+  return lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng)) ? null : { lat: Number(lat), lng: Number(lng) }
+}
+function dayHotel(): TripPlace | undefined {
+  return places.value.filter(p => p.category === 'hotel' && p.stay_from && p.stay_until && p.stay_from <= selectedDay.value && p.stay_until >= selectedDay.value && p.latitude != null && p.longitude != null)
+    .sort((a, b) => a.name.localeCompare(b.name, 'de'))[0]
+}
+function hideWalkingRoute() {
+  routeRequestId++
+  routeVisible.value = false
+  routeBusy.value = false
+  routeError.value = ''
+  routeRenderer?.setMap(null)
+}
+async function showWalkingRoute() {
+  if (!map) return
+  const requestId = ++routeRequestId
+  routeBusy.value = true
+  routeError.value = ''
+  routeRenderer?.setMap(null)
+  const stops = dayStops.value.map(stopCoordinates)
+  if (stops.some(p => !p)) {
+    routeError.value = 'Mindestens ein Stopp hat keine Kartenkoordinaten.'
+    routeBusy.value = false
+    return
+  }
+  const points = stops as RoutePoint[]
+  if (!points.length) { routeError.value = 'Für diesen Tag sind keine Stopps vorhanden.'; routeBusy.value = false; return }
+  if (points.length > 24) { routeError.value = 'Maximal 24 Stopps können in einer Fußroute berechnet werden.'; routeBusy.value = false; return }
+  let origin: RoutePoint
+  if (routeStart.value === 'location') {
+    if (!userLocation.value) { routeError.value = 'Aktueller Standort nicht verfügbar. Bitte Standortfreigabe prüfen.'; routeBusy.value = false; return }
+    origin = userLocation.value
+  } else if (routeStart.value === 'hotel') {
+    const hotel = dayHotel()
+    if (!hotel) { routeError.value = 'Für diesen Tag ist keine Unterkunft mit Standort hinterlegt.'; routeBusy.value = false; return }
+    origin = { lat: Number(hotel.latitude), lng: Number(hotel.longitude) }
+  } else origin = points[0]!
+  const destinations = routeStart.value === 'first' ? points.slice(1) : points
+  if (!destinations.length) { routeError.value = 'Für eine Route werden mindestens zwei unterschiedliche Punkte benötigt.'; routeBusy.value = false; return }
+  try {
+    await loadGoogleMaps()
+    const google = getGoogleMaps() as unknown as {
+      DirectionsService: new () => DirectionsServiceInstance
+      DirectionsRenderer: new (options: Record<string, unknown>) => DirectionsRendererInstance
+      TravelMode: { WALKING: string }
+    }
+    const result = await new Promise<DirectionsResult>((resolve, reject) => {
+      new google.DirectionsService().route({
+        origin, destination: destinations[destinations.length - 1],
+        waypoints: destinations.slice(0, -1).map(location => ({ location, stopover: true })),
+        optimizeWaypoints: false, travelMode: google.TravelMode.WALKING,
+      }, (response, status) => status === 'OK' && response ? resolve(response) : reject(new Error('Google Maps konnte die Fußroute nicht berechnen (' + status + ').')))
+    })
+    if (requestId !== routeRequestId || !routeVisible.value || !map) return
+    if (!routeRenderer) routeRenderer = new google.DirectionsRenderer({ suppressMarkers: true, preserveViewport: false })
+    routeRenderer.setMap(map)
+    routeRenderer.setDirections(result)
+  } catch (cause) {
+    if (requestId === routeRequestId) routeError.value = cause instanceof Error ? cause.message : 'Routenberechnung fehlgeschlagen.'
+  } finally {
+    if (requestId === routeRequestId) routeBusy.value = false
+  }
+}
+function toggleWalkingRoute() {
+  if (routeVisible.value) hideWalkingRoute()
+  else { routeVisible.value = true; void showWalkingRoute() }
+}
+watch([selectedDay, routeStart, dayStops], () => {
+  if (routeVisible.value) void showWalkingRoute()
+})
+
 const dayPlanList = ref<HTMLElement | null>(null)
 const activityMarkers = new Map<string, AdvancedMarkerInstance>()
 const activeActivity = ref<Activity | null>(null)
@@ -328,6 +414,7 @@ function moveTodayDay(direction: -1 | 1) {
 }
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
+  if (activeTab.value === 'today' && tab !== 'today') hideWalkingRoute()
   if (activeTab.value === 'plan') lastPlanDay = selectedDay.value
   if (activeTab.value === 'today' && tripDays.value.some(day => day.day_date === selectedDay.value)) lastTodayDay = selectedDay.value
   activeTab.value = tab
@@ -1098,6 +1185,7 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onUnmounted(() => {
+  hideWalkingRoute()
   if (openingClockTimer) clearInterval(openingClockTimer)
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
   if (realtimeChannel) void supabase.removeChannel(realtimeChannel)
@@ -1147,6 +1235,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Fußroute</strong><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : 'Fußroute anzeigen' }}</button><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
@@ -1305,6 +1394,7 @@ onUnmounted(() => {
 :global(.v3-map-info){font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:260px;line-height:1.4}
 :global(.v3-map-info strong){display:block;margin-bottom:4px;font-size:15px}
 .place-popup{position:absolute;z-index:8;right:18px;top:18px;width:min(360px,calc(100% - 36px));max-height:calc(100% - 36px);overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #dce2e8;border-radius:14px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.22)}.place-popup h3{margin:0 32px 5px 0}.place-popup__close{position:absolute;right:10px;top:10px;border:0;background:transparent}.place-popup label{display:grid;gap:5px;margin:10px 0;font-size:.82rem;font-weight:700}.place-popup input,.place-popup select,.place-popup textarea{box-sizing:border-box;width:100%;padding:8px;border:1px solid #ccd4dc;border-radius:8px;background:#fff}.place-popup textarea{min-height:72px;resize:vertical}.place-dialog__duplicate{margin:8px 0;padding:10px 12px;border:1px solid #e2a33a;border-radius:10px;background:#fff8e8;color:#7a4a00;font-weight:700}.place-popup__times,.place-dialog__stay{display:grid;grid-template-columns:1fr 1fr;gap:8px}.place-popup__stay-summary{display:grid;gap:4px;margin:12px 0;padding:10px 12px;border:1px solid #d8dee6;border-radius:10px;background:#f8f9fb;font-size:.82rem}.place-popup__stay-summary span{font-weight:600}.place-popup>button:not(.place-popup__close){margin:5px 5px 0 0}.place-popup__check{display:flex!important;grid-template-columns:none!important;align-items:center;gap:8px!important}.place-popup__check input{width:auto}.popup-button{min-height:42px;padding:9px 12px;margin:5px 5px 0 0;border:1px solid #cbd3db;border-radius:10px;background:#f7f8fa;color:#26323d;cursor:pointer}.popup-button--primary{border-color:#2f625d;background:#2f625d;color:#fff}.popup-button--danger{border-color:#efc5c5;background:#fff7f7;color:#a21d1d}.place-popup__close{border-radius:50%;cursor:pointer}.place-popup__actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:8px}.place-popup__actions .popup-button{width:100%;min-width:0;margin:0}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status{grid-column:1/-1}.popup-button--full{width:100%;margin-right:0}.popup-button--status,.popup-button--edit{display:flex;align-items:center;justify-content:flex-start;gap:7px;width:100%;margin-right:0;text-align:left;white-space:nowrap}.popup-button__icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 18px;font-size:1rem}.popup-button--visited{border-color:#b8d4ce;background:#edf7f4;color:#245b53;font-weight:700}.popup-button--edit{background:#fff}.place-popup__distance{color:#2f625d;font-weight:700}.place-popup__details{display:grid;gap:7px;margin:10px 0;padding-top:10px;border-top:1px solid #e4e7eb;font-size:.84rem;line-height:1.35}.place-popup__details a{color:#2f625d;font-weight:700;text-decoration:none}.place-popup__meta{margin-bottom:2px!important}.place-popup__address{margin-top:2px!important}.popup-button--maps{display:inline-flex;width:auto;box-sizing:border-box;align-items:center;justify-content:flex-start;text-align:left;font-weight:700;text-decoration:none;border-color:#cbd3db;background:#fff;color:#2f625d}
+.today-route-controls{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid #d8e3e0;border-radius:12px;background:#f4f8f7}.today-route-controls label{font-size:.82rem;font-weight:700}.today-route-controls select{width:100%;min-height:40px;padding:8px;border:1px solid #b9d3cc;border-radius:8px;background:#fff}.today-route-controls button:disabled{opacity:.65;cursor:wait}
 .today-day-navigation{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:10px;margin:10px 0;padding:10px;border:1px solid #d8e3e0;border-radius:12px;background:#f4f8f7}.today-day-navigation>div{display:grid;gap:3px;min-width:0;text-align:center}.today-day-navigation strong{font-weight:800;color:#245b53}.today-day-navigation span{font-size:.85rem;color:#53636a}.today-day-navigation button{width:44px;height:44px;border:1px solid #b9d3cc;border-radius:10px;background:#fff;color:#245b53;font-size:1.8rem;cursor:pointer}.today-day-navigation button:disabled{opacity:.3;cursor:not-allowed}
 .day-plan-preview{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid #d8e3e0;border-radius:12px;background:#f6faf9}.day-plan-stop{display:flex;align-items:stretch;gap:6px;border-radius:9px}.day-plan-stop--dragging{opacity:.18}.day-plan-ghost--out{opacity:0!important;transition:opacity 120ms ease}.day-plan-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:.97;box-shadow:0 16px 35px #0003;border-radius:9px;background:white;display:flex;gap:6px}.day-plan-ghost .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px}.day-plan-stop__handle{display:grid;place-items:center;min-width:38px;border:1px solid #dce5e2;border-radius:9px;background:#fff;cursor:grab;touch-action:none;user-select:none;font-size:23px;color:#526b66}.day-plan-stop__handle:active{cursor:grabbing}.day-plan-stop__place{flex:1;min-width:0}.day-plan-preview .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px;cursor:pointer}.day-plan-preview .day-plan-stop__place small{display:block;color:#66746f;margin-top:3px}
 .place-dialog-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.45)}.place-dialog{position:relative;width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3)}.place-dialog h2{margin:4px 0 16px}.place-dialog>label{display:grid;gap:6px;margin:11px 0;font-size:.84rem;font-weight:700}.place-dialog input,.place-dialog select,.place-dialog textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:9px;background:#fff;font:inherit}.place-dialog textarea{min-height:72px}.place-dialog__close{position:absolute;right:12px;top:12px;border:0;background:transparent;cursor:pointer}.place-dialog__check{display:flex!important;align-items:center;gap:8px!important}.place-dialog__check input{width:auto}.place-dialog__divider{text-align:center;color:#7a8590;font-size:.76rem;margin:12px 0}.google-place-host{margin-top:6px;min-height:44px;max-width:100%;overflow:visible}.google-place-host gmp-place-autocomplete{display:block;width:100%;max-width:100%;box-sizing:border-box}.place-dialog__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.place-dialog__actions button{min-height:40px;padding:8px 12px;border:1px solid #cbd3db;border-radius:10px;background:#fff;cursor:pointer}.place-dialog__actions .popup-button--primary{background:#2f625d;color:#fff;border-color:#2f625d}
