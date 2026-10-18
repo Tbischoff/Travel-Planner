@@ -13,6 +13,41 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+type Activity = { id: string; trip_day_id: string; name: string; start_time: string | null; end_time: string | null; meeting_place_name: string | null; note: string | null; planned_order: number | null }
+const activities = ref<Activity[]>([])
+const activityName = ref('')
+const activityStart = ref('')
+const activityMeeting = ref('')
+const activityDayId = ref('')
+const activityError = ref('')
+const activitySaving = ref(false)
+const activityOpen = ref(false)
+async function loadActivities() {
+  const trip = trips.currentTrip
+  if (!trip) return
+  const { data, error } = await supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('planned_order')
+  if (error) throw error
+  activities.value = (data || []) as Activity[]
+}
+async function createActivity() {
+  const trip = trips.currentTrip
+  if (!trip || activitySaving.value) return
+  activitySaving.value = true
+  activityError.value = ''
+  try {
+    const day = tripDays.value.find(d => d.id === activityDayId.value)
+    if (!day || !activityName.value.trim() || !activityStart.value || !activityMeeting.value.trim()) throw new Error('Name, Tag, Beginn und Treffpunkt sind erforderlich.')
+    const order = Math.max(0, ...places.value.filter(p => p.planned_day === day.day_date).map(p => p.planned_order || 0), ...activities.value.filter(a => a.trip_day_id === day.id).map(a => a.planned_order || 0)) + 1
+    const { error } = await supabase.from('trip_activities').insert({ trip_id: trip.id, trip_day_id: day.id, name: activityName.value.trim(), start_time: activityStart.value, meeting_place_name: activityMeeting.value.trim(), planned_order: order, status: 'planned' })
+    if (error) throw error
+    await loadActivities()
+    activityOpen.value = false
+    activityName.value = ''
+    activityStart.value = ''
+    activityMeeting.value = ''
+  } catch (e) { activityError.value = e instanceof Error ? e.message : 'Aktivität konnte nicht gespeichert werden.' }
+  finally { activitySaving.value = false }
+}
 const loading = ref(true)
 const error = ref('')
 const mapHost = ref<HTMLElement | null>(null)
@@ -575,6 +610,7 @@ async function refreshRemotePlaces() {
   }
   try {
     const fresh = await listTripPlaces(trip.id)
+    await loadActivities()
     const byId = new Map(fresh.map(place => [place.id, place]))
     places.value = fresh
     if (activePlace.value) {
@@ -788,10 +824,12 @@ onMounted(async () => {
     await restoreTrip()
     if (!trips.currentTrip) { await router.replace('/trips'); return }
     ;[places.value, tripDays.value] = await Promise.all([listTripPlaces(trips.currentTrip.id), listTripDays(trips.currentTrip.id)])
+    await loadActivities()
     await nextTick()
     await renderMap()
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_places', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_activities', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
       .subscribe()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Orte konnten nicht geladen werden.'
@@ -834,8 +872,10 @@ onUnmounted(() => {
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
         </div>
+        <button type="button" class="place-add-button" @click="activityDayId = selectedDayRecord?.id || tripDays[0]?.id || ''; activityOpen = true">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
         <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="openPlace(stop, true); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord" class="day-plan-preview"><strong>Aktivitäten</strong><p v-for="activity in activities.filter(a => a.trip_day_id === selectedDayRecord?.id)" :key="activity.id">🎟️ {{ activity.start_time?.slice(0,5) }} · {{ activity.name }} · {{ activity.meeting_place_name }}</p></div>
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
@@ -904,6 +944,17 @@ onUnmounted(() => {
         </div>
       </section>
     </section>
+    <div v-if="activityOpen" class="place-dialog-backdrop" @click.self="activityOpen = false">
+      <form class="place-dialog activity-form" role="dialog" aria-modal="true" aria-label="Aktivität hinzufügen" @submit.prevent="createActivity">
+        <h2>Aktivität hinzufügen</h2>
+        <label>Name<input v-model="activityName" required></label>
+        <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
+        <label>Beginn<input v-model="activityStart" type="time" required></label>
+        <label>Treffpunkt<input v-model="activityMeeting" required></label>
+        <p v-if="activityError" class="trip-error">{{ activityError }}</p>
+        <div class="place-dialog__actions"><button type="button" @click="activityOpen = false">Abbrechen</button><button type="submit" :disabled="activitySaving">{{ activitySaving ? 'Speichern …' : 'Aktivität speichern' }}</button></div>
+      </form>
+    </div>
     <div v-if="addPlaceOpen" class="place-dialog-backdrop" @click.self="addPlaceOpen = false">
       <section class="place-dialog" role="dialog" aria-modal="true" aria-label="Ort hinzufügen">
         <button class="place-dialog__close" type="button" @click="addPlaceOpen = false">✕</button>
@@ -926,6 +977,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.activity-form label{display:grid;gap:5px;margin:10px 0}.activity-form input,.activity-form select{width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:8px;box-sizing:border-box}
+
 .trip-workspace{min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px;background:#f6f7f9}.trip-header{max-width:1400px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.trip-header h1{margin:4px 0}.trip-header p{margin:0}.trip-map-layout{max-width:1400px;margin:auto;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;height:calc(100vh - 150px);min-height:560px}.places-panel,.map-panel{background:#fff;border:1px solid #dde2e8;border-radius:18px;overflow:hidden}.places-panel{padding:16px;overflow:auto}.places-panel__heading h2{margin:0 0 10px;display:flex;align-items:center;gap:8px}.count-badge{font-size:.72rem;color:#65717d;background:#f2f4f7;border:1px solid #e1e5ea;border-radius:999px;padding:3px 8px}.place-search{box-sizing:border-box;width:100%;padding:11px 12px;margin-bottom:10px;border:1px solid #d8dee6;border-radius:11px;background:#f8f9fb;color:inherit;font:inherit}.places-panel__toolbar{margin-bottom:12px;display:grid;gap:8px}.place-add-button,.place-sort-button{width:100%;padding:9px 10px;border:1px solid #d8dee6;border-radius:10px;background:#fff;color:#26323d;text-align:left;cursor:pointer}.place-add-button{background:#2f625d;color:#fff;border-color:#2f625d}.place-sort-button--active{background:#edf7f4;border-color:#b8d4ce;color:#245b53}.places-panel__toolbar select{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #d8dee6;border-radius:10px;background:#fff}.trip-workspace button,.trip-workspace select{font:inherit}.trip-workspace button{font-weight:700}.place-row{width:100%;display:block;text-align:left;padding:10px 11px;margin:0 0 7px;background:#f8f9fb;border:1px solid #e1e5ea;border-radius:12px;color:inherit;cursor:pointer;transition:transform .12s ease,border-color .12s ease,background .12s ease}.place-row:hover{transform:translateY(-1px);border-color:#c7ced7;background:#fff}.place-row--active{border-color:#2f625d;background:#fff;box-shadow:0 0 0 2px rgba(47,98,93,.08)}.place-row__content{display:block;min-width:0}.place-row__title{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.place-row strong{font-size:.9rem}.place-row small{display:block;overflow-wrap:anywhere}.place-row__meta{margin-top:4px;color:#65717d;font-size:.75rem}.place-row__note{margin-top:6px;color:#56616d;font-size:.75rem;line-height:1.35}.place-row .badge{margin:0;flex:0 0 auto;font-size:.68rem}.map-panel{position:relative}.map-toolbar{position:absolute;z-index:5;left:14px;top:14px;display:flex;gap:7px;flex-wrap:wrap}.map-toolbar button{padding:8px 10px;border:1px solid rgba(0,0,0,.12);border-radius:10px;background:rgba(255,255,255,.96);box-shadow:0 3px 12px rgba(0,0,0,.12);color:#26323d;cursor:pointer}.map-toolbar .map-toolbar__add{background:#2f625d;color:#fff;border-color:#2f625d}.trip-map{width:100%;height:100%;min-height:500px}.trip-error{max-width:1400px;margin:0 auto 16px;color:#a21d1d}.muted{color:#65717d}.mobile-sheet-handle,.mobile-panel-head,.map-mobile-actions{display:none}
 :global(.v3-place-marker){position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;transform:translateY(-4px) scale(var(--marker-scale,1));transform-origin:50% 70%;isolation:isolate}
 :global(.v3-place-marker__pin){position:relative;width:36px;height:36px;display:grid;place-items:center;border:3px solid #fff;border-radius:50%;background:var(--marker-color,#64748b);box-shadow:0 2px 7px rgba(15,23,42,.32);transition:transform .14s ease,box-shadow .14s ease}
