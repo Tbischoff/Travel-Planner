@@ -130,7 +130,6 @@ const error = ref('')
 const mapHost = ref<HTMLElement | null>(null)
 const selectedCategory = ref('all')
 const selectedDay = ref('unplanned')
-const dayPlanOpen = ref(true)
 const dayPlanSaving = ref(false)
 const dayPlanError = ref('')
 const selectedDayRecord = computed(() => tripDays.value.find(day => day.day_date === selectedDay.value))
@@ -309,7 +308,6 @@ const activeTab = ref<WorkspaceTab>('plan')
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
   activeTab.value = tab
-  if (tab === 'plan' || tab === 'today') dayPlanOpen.value = true
   mobilePlacesOpen.value = true
   if (tab === 'today') {
     const today = new Date().toLocaleDateString('en-CA')
@@ -1034,7 +1032,6 @@ watch(activeTab, async () => {
   fitMapToSelectedDay()
 })
 watch(selectedDay, async () => {
-  dayPlanOpen.value = true
   cancelPendingPlaceFocus()
   closePlacePopup()
   activeActivity.value = null
@@ -1113,8 +1110,7 @@ onUnmounted(() => {
           </select>
         </div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
-        <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
-        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
