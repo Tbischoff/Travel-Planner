@@ -151,14 +151,16 @@ function focusTodayStop(stop: DayStop) {
 
 // Walking route is intentionally independent of active navigation and keeps the planned stop order.
 type RoutePoint = { lat: number; lng: number }
-type DirectionsResult = unknown
-type DirectionsServiceInstance = { route: (request: Record<string, unknown>, callback: (result: DirectionsResult | null, status: string) => void) => void }
-type DirectionsRendererInstance = { setMap: (map: MapInstance | null) => void; setDirections: (result: DirectionsResult) => void }
+type RoutesPolyline = { setMap: (map: MapInstance | null) => void }
+type ComputedWalkingRoute = { path?: RoutePoint[]; distanceMeters?: number; durationMillis?: number; createPolylines: (options: { polylineOptions: Record<string, unknown> }) => RoutesPolyline[] }
+type RoutesClass = { computeRoutes: (request: Record<string, unknown>) => Promise<{ routes?: ComputedWalkingRoute[] }> }
 const routeStart = ref<'location' | 'first' | 'hotel'>('first')
 const routeVisible = ref(false)
 const routeBusy = ref(false)
 const routeError = ref('')
-let routeRenderer: DirectionsRendererInstance | null = null
+let routePolylines: RoutesPolyline[] = []
+const routeSummary = ref('')
+function clearRoutePolylines() { for (const line of routePolylines) line.setMap(null); routePolylines = [] }
 let routeRequestId = 0
 function stopCoordinates(stop: DayStop): RoutePoint | null {
   const lat = stop.place?.latitude ?? stop.activity?.latitude
@@ -174,7 +176,8 @@ function hideWalkingRoute() {
   routeVisible.value = false
   routeBusy.value = false
   routeError.value = ''
-  routeRenderer?.setMap(null)
+  clearRoutePolylines()
+  routeSummary.value = ''
 }
 async function showWalkingRoute() {
   if (!map) return
@@ -204,22 +207,29 @@ async function showWalkingRoute() {
   if (!destinations.length) { routeError.value = 'Für eine Route werden mindestens zwei unterschiedliche Punkte benötigt.'; routeBusy.value = false; return }
   try {
     await loadGoogleMaps()
-    const google = getGoogleMaps() as unknown as {
-      DirectionsService: new () => DirectionsServiceInstance
-      DirectionsRenderer: new (options: Record<string, unknown>) => DirectionsRendererInstance
-      TravelMode: { WALKING: string }
-    }
-    const result = await new Promise<DirectionsResult>((resolve, reject) => {
-      new google.DirectionsService().route({
-        origin, destination: destinations[destinations.length - 1],
-        waypoints: destinations.slice(0, -1).map(location => ({ location, stopover: true })),
-        optimizeWaypoints: false, travelMode: google.TravelMode.WALKING,
-      }, (response, status) => status === 'OK' && response ? resolve(response) : reject(new Error('Google Maps konnte die Fußroute nicht berechnen (' + status + ').')))
+    const routesLibrary = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
+    if (!routesLibrary.Route) throw new Error('Google Routes Library konnte nicht geladen werden.')
+    const { routes } = await routesLibrary.Route.computeRoutes({
+      origin,
+      destination: destinations[destinations.length - 1],
+      intermediates: destinations.slice(0, -1).map(location => ({ location })),
+      travelMode: 'WALKING',
+      fields: ['path', 'distanceMeters', 'durationMillis'],
     })
+    const result = routes?.[0]
+    if (!result) throw new Error('Google Maps konnte keine Fußroute finden.')
     if (requestId !== routeRequestId || !routeVisible.value || !map) return
-    if (!routeRenderer) routeRenderer = new google.DirectionsRenderer({ suppressMarkers: true, preserveViewport: false })
-    routeRenderer.setMap(map)
-    routeRenderer.setDirections(result)
+    routePolylines = result.createPolylines({ polylineOptions: { strokeColor: '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
+    for (const line of routePolylines) line.setMap(map)
+    if (result.path?.length) {
+      const bounds = getGoogleMaps().LatLngBounds
+      const box = new bounds()
+      for (const point of result.path) box.extend(point)
+      map.fitBounds(box, 70)
+    }
+    const distance = result.distanceMeters != null ? (result.distanceMeters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' : 'Distanz unbekannt'
+    const duration = result.durationMillis != null ? Math.round(result.durationMillis / 60000) + ' Min.' : 'Dauer unbekannt'
+    routeSummary.value = distance + ' · ca. ' + duration
   } catch (cause) {
     if (requestId === routeRequestId) routeError.value = cause instanceof Error ? cause.message : 'Routenberechnung fehlgeschlagen.'
   } finally {
@@ -1235,7 +1245,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Fußroute</strong><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : 'Fußroute anzeigen' }}</button><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Fußroute</strong><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
