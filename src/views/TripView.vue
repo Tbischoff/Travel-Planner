@@ -1660,6 +1660,19 @@ onUnmounted(() => {
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
         <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
+        <section v-if="navigationState !== 'idle'" class="navigation-map-overlay" aria-label="Aktive Navigation" role="region">
+          <div class="navigation-map-overlay__headline"><span>🧭 {{ navigationState === 'paused' ? 'Navigation pausiert' : navigationArrived ? '📍 Ziel erreicht' : 'Navigation aktiv' }}</span><strong>{{ navigationTarget?.name || 'Nächster Stopp' }}</strong></div>
+          <p v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p>
+          <p v-else-if="navigationRouting">Route wird berechnet …</p>
+          <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
+          <div class="navigation-map-overlay__actions">
+            <button v-if="navigationArrived" type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Abschließen' : 'Nächster Stopp →' }}</button>
+            <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pause</button>
+            <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Weiter</button>
+            <button v-if="!navigationArrived" type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">Stopp überspringen →</button>
+            <button type="button" @click="stopDayNavigationV3">■ Beenden</button>
+          </div>
+        </section>
         <div class="map-toolbar">
           <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
           <button type="button" title="Aktueller Standort" @click="centerOnCurrentLocation">◎ Standort</button>
@@ -1838,4 +1851,15 @@ onUnmounted(() => {
 <style scoped>
 .today-navigation-v3__arrival { padding:10px; border:1px solid #90c3a6; border-radius:10px; background:#e9f7ee; }
 .today-navigation-v3__arrival button { margin-top:8px; padding:9px 12px; border-radius:8px; border:1px solid #82b89d; background:white; cursor:pointer; }
+</style>
+
+<style scoped>
+.navigation-map-overlay { position:absolute; z-index:24; left:12px; right:12px; bottom:88px; max-width:480px; margin:0 auto; padding:12px 14px; background:rgba(255,255,255,.97); border:1px solid #c7d9d3; border-radius:15px; box-shadow:0 4px 18px #0003; color:#233b35; }
+.navigation-map-overlay__headline { display:flex; flex-direction:column; gap:3px; font-size:.82rem; }
+.navigation-map-overlay__headline strong { font-size:1rem; overflow-wrap:anywhere; }
+.navigation-map-overlay p { margin:6px 0; font-size:.82rem; }
+.navigation-map-overlay__actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:9px; }
+.navigation-map-overlay__actions button { font:inherit; font-size:.8rem; border:1px solid #b8cdc6; background:#f6faf8; border-radius:8px; padding:8px 10px; cursor:pointer; }
+.navigation-map-overlay__actions button:disabled { opacity:.5; cursor:not-allowed; }
+@media (min-width: 768px) { .navigation-map-overlay { bottom:22px; } }
 </style>
