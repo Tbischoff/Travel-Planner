@@ -102,6 +102,7 @@ async function loadActivities() {
   const { data, error } = await supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('planned_order')
   if (error) throw error
   activities.value = (data || []) as Activity[]
+  await refreshActivityMarkers()
 }
 async function createActivity() {
   const trip = trips.currentTrip
@@ -140,6 +141,48 @@ const dayStops = computed<DayStop[]>(() => {
   return [...ps,...as].sort((a,b) => (a.planned_order || 999999) - (b.planned_order || 999999) || a.name.localeCompare(b.name,'de'))
 })
 const dayPlanList = ref<HTMLElement | null>(null)
+const activityMarkers = new Map<string, AdvancedMarkerInstance>()
+const activeActivity = ref<Activity | null>(null)
+const activityPosition = ref<{ lat: number; lng: number } | null>(null)
+function dayStopNumber(id: string) {
+  const index = dayStops.value.findIndex(stop => stop.id === id)
+  return index < 0 ? null : index + 1
+}
+async function focusActivity(activity: Activity) {
+  activePlace.value = null
+  activeActivity.value = activity
+  let lat = activity.latitude
+  let lng = activity.longitude
+  if (lat == null || lng == null) {
+    try {
+      const position = await geocodeDestination(activity.address || activity.meeting_place_name || '')
+      lat = position.lat
+      lng = position.lng
+    } catch { /* no geocodable meeting point */ }
+  }
+  activityPosition.value = lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : null
+  if (activityPosition.value && map) {
+    map.panTo(activityPosition.value)
+    map.setZoom(Math.max(map.getZoom() || 0, 16))
+  }
+}
+async function refreshActivityMarkers() {
+  for (const marker of activityMarkers.values()) marker.map = null
+  activityMarkers.clear()
+  if (!map) return
+  const { AdvancedMarkerElement } = await getMarkerLibrary()
+  for (const activity of activities.value) {
+    if (activity.latitude == null || activity.longitude == null) continue
+    const element = document.createElement('div')
+    element.className = 'v3-activity-pin'
+    const day = tripDays.value.find(item => item.id === activity.trip_day_id)
+    const number = day?.day_date === selectedDay.value ? dayStopNumber('activity:' + activity.id) : null
+    element.textContent = number ? String(number) : '🎟'
+    const marker = new AdvancedMarkerElement({ map, position: { lat: Number(activity.latitude), lng: Number(activity.longitude) }, title: activity.name, content: element, gmpClickable: true, zIndex: number ? 500 + number : 80 })
+    marker.addEventListener('gmp-click', () => { void focusActivity(activity) })
+    activityMarkers.set(activity.id, marker)
+  }
+}
 const dragOrder = ref<string[] | null>(null)
 const renderedDayStops = computed(() => {
   if (!dragOrder.value) return dayStops.value
@@ -249,6 +292,7 @@ async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
       }
     }
     refreshMarkerAppearances()
+    await refreshActivityMarkers()
   } catch (cause) {
     dayPlanError.value = cause instanceof Error ? cause.message : 'Reihenfolge konnte nicht gespeichert werden.'
     places.value = await listTripPlaces(trip.id)
@@ -523,7 +567,7 @@ function markerState(place: TripPlace) {
     }
   }
   if (place.visited) opacity = Math.min(opacity, 0.42)
-  return { color, scale, opacity, order: isInSelectedDay ? (place.planned_order || null) : null, localTip: Boolean(place.is_local_tip) }
+  return { color, scale, opacity, order: isInSelectedDay ? dayStopNumber('place:' + place.id) : null, localTip: Boolean(place.is_local_tip) }
 }
 
 function markerContent(place: TripPlace) {
@@ -905,7 +949,7 @@ async function renderMap() {
 }
 
 watch(visiblePlaces, () => syncMarkerVisibility(), { flush: 'post' })
-watch(selectedDay, () => refreshMarkerAppearances())
+watch(selectedDay, () => { refreshMarkerAppearances(); void refreshActivityMarkers() })
 
 
 
@@ -918,6 +962,7 @@ onMounted(async () => {
     await loadActivities()
     await nextTick()
     await renderMap()
+    await refreshActivityMarkers()
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_places', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_activities', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
@@ -929,6 +974,7 @@ onMounted(async () => {
 onUnmounted(() => {
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
   if (realtimeChannel) void supabase.removeChannel(realtimeChannel)
+  for (const marker of activityMarkers.values()) marker.map = null
 })
 </script>
 
@@ -965,7 +1011,7 @@ onUnmounted(() => {
         </div>
         <button v-if="trips.canEditContent" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
-        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? openActivityDialog(stop.activity) : (stop.place && openPlace(stop.place, true)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && openPlace(stop.place, true)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
@@ -988,6 +1034,14 @@ onUnmounted(() => {
           <button type="button" title="Aktueller Standort" @click="centerOnCurrentLocation">◎ Standort</button>
           <button type="button" title="Alle Orte anzeigen" @click="fitAllPlaces">⌗ Alle</button>
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
+        </div>
+        <div v-if="activeActivity" class="place-popup" @click.stop>
+          <button class="place-popup__close" type="button" @click="activeActivity = null">✕</button>
+          <h3>🎟️ {{ activeActivity.name }}</h3>
+          <p class="muted">{{ activeActivity.start_time?.slice(0,5) }} · {{ activeActivity.meeting_place_name }}</p>
+          <p v-if="activeActivity.address">{{ activeActivity.address }}</p>
+          <p v-if="!activityPosition" class="muted">Für diesen Treffpunkt sind keine Kartenkoordinaten hinterlegt.</p>
+          <button v-if="trips.canEditContent" type="button" class="popup-button popup-button--edit" @click="openActivityDialog(activeActivity)">✎ Aktivität bearbeiten</button>
         </div>
         <div v-if="activePlace" ref="placePopup" class="place-popup" :class="{ 'place-popup--editing': editingPlace }" @click.stop>
           <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
@@ -1071,6 +1125,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+:global(.v3-activity-pin){display:grid;place-items:center;min-width:32px;height:32px;padding:0 3px;border:3px solid #fff;border-radius:50%;background:#7c3aed;color:white;font:800 14px Inter,system-ui,sans-serif;box-shadow:0 2px 8px #0005;cursor:pointer}.day-plan-stop__edit{border:1px solid #dce5e2;border-radius:9px;background:white;color:#2f625d;min-width:36px;cursor:pointer}
+
 .activity-form label{display:grid;gap:5px;margin:10px 0}.activity-form input,.activity-form select{width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:8px;box-sizing:border-box}
 
 .trip-workspace{min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px;background:#f6f7f9}.trip-header{max-width:1400px;margin:0 auto 18px;display:flex;align-items:center;justify-content:space-between;gap:16px}.trip-header h1{margin:4px 0}.trip-header p{margin:0}.trip-map-layout{max-width:1400px;margin:auto;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:16px;height:calc(100vh - 150px);min-height:560px}.places-panel,.map-panel{background:#fff;border:1px solid #dde2e8;border-radius:18px;overflow:hidden}.places-panel{padding:16px;overflow:auto}.places-panel__heading h2{margin:0 0 10px;display:flex;align-items:center;gap:8px}.count-badge{font-size:.72rem;color:#65717d;background:#f2f4f7;border:1px solid #e1e5ea;border-radius:999px;padding:3px 8px}.place-search{box-sizing:border-box;width:100%;padding:11px 12px;margin-bottom:10px;border:1px solid #d8dee6;border-radius:11px;background:#f8f9fb;color:inherit;font:inherit}.places-panel__toolbar{margin-bottom:12px;display:grid;gap:8px}.place-add-button,.place-sort-button{width:100%;padding:9px 10px;border:1px solid #d8dee6;border-radius:10px;background:#fff;color:#26323d;text-align:left;cursor:pointer}.place-add-button{background:#2f625d;color:#fff;border-color:#2f625d}.place-sort-button--active{background:#edf7f4;border-color:#b8d4ce;color:#245b53}.places-panel__toolbar select{box-sizing:border-box;width:100%;padding:9px 10px;border:1px solid #d8dee6;border-radius:10px;background:#fff}.trip-workspace button,.trip-workspace select{font:inherit}.trip-workspace button{font-weight:700}.place-row{width:100%;display:block;text-align:left;padding:10px 11px;margin:0 0 7px;background:#f8f9fb;border:1px solid #e1e5ea;border-radius:12px;color:inherit;cursor:pointer;transition:transform .12s ease,border-color .12s ease,background .12s ease}.place-row:hover{transform:translateY(-1px);border-color:#c7ced7;background:#fff}.place-row--active{border-color:#2f625d;background:#fff;box-shadow:0 0 0 2px rgba(47,98,93,.08)}.place-row__content{display:block;min-width:0}.place-row__title{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.place-row strong{font-size:.9rem}.place-row small{display:block;overflow-wrap:anywhere}.place-row__meta{margin-top:4px;color:#65717d;font-size:.75rem}.place-row__note{margin-top:6px;color:#56616d;font-size:.75rem;line-height:1.35}.place-row .badge{margin:0;flex:0 0 auto;font-size:.68rem}.map-panel{position:relative}.map-toolbar{position:absolute;z-index:5;left:14px;top:14px;display:flex;gap:7px;flex-wrap:wrap}.map-toolbar button{padding:8px 10px;border:1px solid rgba(0,0,0,.12);border-radius:10px;background:rgba(255,255,255,.96);box-shadow:0 3px 12px rgba(0,0,0,.12);color:#26323d;cursor:pointer}.map-toolbar .map-toolbar__add{background:#2f625d;color:#fff;border-color:#2f625d}.trip-map{width:100%;height:100%;min-height:500px}.trip-error{max-width:1400px;margin:0 auto 16px;color:#a21d1d}.muted{color:#65717d}.mobile-sheet-handle,.mobile-panel-head,.map-mobile-actions{display:none}
