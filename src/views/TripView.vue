@@ -184,7 +184,8 @@ async function showWalkingRoute() {
   const requestId = ++routeRequestId
   routeBusy.value = true
   routeError.value = ''
-  routeRenderer?.setMap(null)
+  clearRoutePolylines()
+  routeSummary.value = ''
   const stops = dayStops.value.map(stopCoordinates)
   if (stops.some(p => !p)) {
     routeError.value = 'Mindestens ein Stopp hat keine Kartenkoordinaten.'
