@@ -160,13 +160,14 @@ type ComputedRoute = { legs?: TransitLeg[]; path?: RoutePoint[]; distanceMeters?
 type RoutesClass = { computeRoutes: (request: Record<string, unknown>) => Promise<{ routes?: ComputedRoute[] }> }
 const routeStart = ref<'location' | 'first' | 'hotel'>('first')
 const routeEnd = ref<'location' | 'hotel' | 'last'>('last')
-const routeMode = ref<'walking' | 'transit'>('walking')
+const routeMode = ref<'walking' | 'transit' | 'auto'>('walking')
 const routeVisible = ref(false)
 const routeBusy = ref(false)
 const routeError = ref('')
 const routeSummary = ref('')
 const transitConnections = ref<TransitConnection[]>([])
-const transitMetrics = ref<{ distanceMeters: number; durationMillis: number }[]>([])
+type RouteLegMetric = { distanceMeters: number; durationMillis: number; mode: 'walking' | 'transit' }
+const transitMetrics = ref<RouteLegMetric[]>([])
 function legDistance(meters: number): string { return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' }
 function legDuration(millis: number): string { return 'ca. ' + Math.round(millis / 60000) + ' Min.' }
 const transitLegs = computed(() => {
@@ -233,6 +234,7 @@ async function showWalkingRoute() {
   routeError.value = ''
   routeSummary.value = ''
   transitConnections.value = []
+  transitMetrics.value = []
   clearRoutePolylines()
   const stops = dayStops.value.map(stopCoordinates)
   if (stops.some(p => !p)) {
@@ -270,34 +272,40 @@ async function showWalkingRoute() {
     if (!routesLibrary.Route) throw new Error('Google Routes Library konnte nicht geladen werden.')
     const mode = routeMode.value
     const segments: ComputedRoute[] = []
-    if (mode === 'walking') {
-      const { routes } = await routesLibrary.Route.computeRoutes({
-        origin,
-        destination: destinations[destinations.length - 1],
-        intermediates: destinations.slice(0, -1).map(location => ({ location })),
-        travelMode: 'WALKING',
-        fields: ['path', 'distanceMeters', 'durationMillis'],
-      })
-      if (!routes?.[0]) throw new Error('Google Maps konnte keine Fußroute finden.')
-      segments.push(routes[0])
-    } else {
-      const routePoints = [origin, ...destinations]
-      for (let index = 0; index < routePoints.length - 1; index++) {
-        if (requestId !== routeRequestId || !routeVisible.value) return
-        const { routes } = await routesLibrary.Route.computeRoutes({
-          origin: routePoints[index],
-          destination: routePoints[index + 1],
-          travelMode: 'TRANSIT',
-          transitPreference: { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' },
-          fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
-        })
-        if (!routes?.[0]) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ÖPNV-Verbindung gefunden.')
-        segments.push(routes[0])
+    const metrics: RouteLegMetric[] = []
+    const routePoints = [origin, ...destinations]
+    for (let index = 0; index < routePoints.length - 1; index++) {
+      if (requestId !== routeRequestId || !routeVisible.value) return
+      const from = routePoints[index]!
+      const to = routePoints[index + 1]!
+      const compute = async (travelMode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
+        const request: Record<string, unknown> = {
+          origin: from, destination: to, travelMode,
+          fields: travelMode === 'TRANSIT' ? ['path', 'distanceMeters', 'durationMillis', 'legs'] : ['path', 'distanceMeters', 'durationMillis'],
+        }
+        if (travelMode === 'TRANSIT') request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
+        const { routes } = await routesLibrary.Route!.computeRoutes(request)
+        return routes?.[0] || null
       }
+      let walking: ComputedRoute | null = null
+      let transit: ComputedRoute | null = null
+      if (mode !== 'transit') {
+        try { walking = await compute('WALKING') } catch (cause) { if (mode === 'walking') throw cause }
+      }
+      if (mode !== 'walking') {
+        try { transit = await compute('TRANSIT') } catch (cause) { if (mode === 'transit') throw cause }
+      }
+      const walkMinutes = walking?.durationMillis != null ? walking.durationMillis / 60000 : Infinity
+      const transitMinutes = transit?.durationMillis != null ? transit.durationMillis / 60000 : Infinity
+      const useTransit = mode === 'transit' || (mode === 'auto' && !!transit && (!walking || transitMinutes + 5 < walkMinutes))
+      const chosen = useTransit ? transit : walking
+      if (!chosen) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ' + (mode === 'walking' ? 'Fußroute' : mode === 'transit' ? 'ÖPNV-Verbindung' : 'Route') + ' gefunden.')
+      segments.push(chosen)
+      metrics.push({ distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: useTransit ? 'transit' : 'walking' })
     }
     if (requestId !== routeRequestId || !routeVisible.value || !map) return
-    if (mode === 'transit') {
-      transitMetrics.value = segments.map(segment => ({ distanceMeters: segment.distanceMeters || 0, durationMillis: segment.durationMillis || 0 }))
+    transitMetrics.value = metrics
+    if (mode !== 'walking') {
       transitConnections.value = segments.flatMap((segment, section) =>
         (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
           const details = step.transitDetails
@@ -321,14 +329,15 @@ async function showWalkingRoute() {
     }
     const box = new (getGoogleMaps().LatLngBounds)()
     for (const segment of segments) {
-      const polylines = segment.createPolylines({ polylineOptions: { strokeColor: mode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
+      const segmentMode = metrics[segments.indexOf(segment)]?.mode || 'walking'
+      const polylines = segment.createPolylines({ polylineOptions: { strokeColor: segmentMode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
       for (const line of polylines) { line.setMap(map); routePolylines.push(line) }
       for (const point of segment.path || []) box.extend(point)
     }
     if (segments.some(segment => segment.path?.length)) map.fitBounds(box, 70)
     const distance = segments.reduce((sum, segment) => sum + (segment.distanceMeters || 0), 0)
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
-    routeSummary.value = (distance / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km · ca. ' + Math.round(duration / 60000) + ' Min.' + (mode === 'transit' ? ' · ' + segments.length + ' ÖPNV-Abschnitt(e)' : '')
+    routeSummary.value = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
   } catch (cause) {
     if (requestId === routeRequestId) {
       clearRoutePolylines()
@@ -1348,7 +1357,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><label for="today-route-mode">Verkehrsmittel</label><select id="today-route-mode" v-model="routeMode"><option value="walking">Zu Fuß</option><option value="transit">ÖPNV</option></select><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><label for="today-route-mode">Verkehrsmittel</label><select id="today-route-mode" v-model="routeMode"><option value="auto">Automatisch</option><option value="walking">Zu Fuß</option><option value="transit">ÖPNV</option></select><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
@@ -1362,10 +1371,11 @@ onUnmounted(() => {
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
-            <details v-if="index < routeAgendaStops.length - 1 && routeVisible && routeMode === 'transit' && transitLegs.get(index + 1)?.length" class="agenda-leg mobility-leg">
-              <summary><span>🚇</span><span><strong>ÖPNV zum nächsten Stopp</strong><small v-if="transitMetrics[index]">{{ legDistance(transitMetrics[index].distanceMeters) }} · {{ legDuration(transitMetrics[index].durationMillis) }}</small></span><span class="mobility-expand">Details</span></summary>
+            <details v-if="index < routeAgendaStops.length - 1 && routeVisible && transitMetrics[index]" class="agenda-leg mobility-leg">
+              <summary><span>{{ transitMetrics[index]?.mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ transitMetrics[index]?.mode === 'transit' ? 'ÖPNV' : 'Fußweg' }} zum nächsten Stopp</strong><small v-if="transitMetrics[index]">{{ legDistance(transitMetrics[index].distanceMeters) }} · {{ legDuration(transitMetrics[index].durationMillis) }}</small></span><span class="mobility-expand">Details</span></summary>
               <div class="mobility-details">
-                <div v-for="(connection, connectionIndex) in transitLegs.get(index + 1)" :key="connectionIndex" class="transit-step">
+                <p v-if="transitMetrics[index]?.mode === 'walking'" class="muted">Fußweg zum nächsten geplanten Stopp.</p>
+                <div v-for="(connection, connectionIndex) in (transitMetrics[index]?.mode === 'transit' ? transitLegs.get(index + 1) || [] : [])" :key="connectionIndex" class="transit-step">
                   <strong>{{ connection.icon }} {{ connection.line }}<span v-if="connection.headsign"> → {{ connection.headsign }}</span></strong>
                   <small>{{ connection.departure || '–' }}–{{ connection.arrival || '–' }} Uhr<span v-if="connection.stops"> · {{ connection.stops }} Haltestellen</span></small>
                   <small>📍 {{ connection.from || 'Einstieg' }} → {{ connection.to || 'Ausstieg' }}</small>
