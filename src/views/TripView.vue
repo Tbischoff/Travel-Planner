@@ -727,6 +727,7 @@ function startDayNavigationV3() {
   navigationTargetIndex.value = Math.max(0, dayStops.value.findIndex(stop => !stop.place?.visited))
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
+  mobilePlacesOpen.value = false
   navigationLastRouteAt = 0
   if (userLocation.value) void updateNavigationRouteV3(true)
 }
@@ -741,6 +742,7 @@ function resumeDayNavigationV3() {
 function stopDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'idle'
+  mobilePlacesOpen.value = false
   clearNavigationRouteV3()
   navigationAccuracy.value = null
   navigationMessage.value = ''
