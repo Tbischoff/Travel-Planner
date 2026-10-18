@@ -149,7 +149,7 @@ function dayStopNumber(id: string) {
   return index < 0 ? null : index + 1
 }
 async function focusActivity(activity: Activity) {
-  activePlace.value = null
+  closePlacePopup()
   activeActivity.value = activity
   let lat = activity.latitude
   let lng = activity.longitude
@@ -665,6 +665,8 @@ function syncSelectedMarker() {
 }
 
 function closePlacePopup() {
+  activeActivity.value = null
+  activityPosition.value = null
   infoWindow?.close()
   activePlace.value = null
   editingPlace.value = false
@@ -673,6 +675,8 @@ function closePlacePopup() {
 }
 
 function openPlace(place: TripPlace, focus = false) {
+  activeActivity.value = null
+  activityPosition.value = null
   if (!map) return
   const marker = markers.get(place.id)
   if (!marker) return
@@ -1036,7 +1040,7 @@ onUnmounted(() => {
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
         </div>
         <div v-if="activeActivity" class="place-popup" @click.stop>
-          <button class="place-popup__close" type="button" @click="activeActivity = null">✕</button>
+          <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
           <h3>🎟️ {{ activeActivity.name }}</h3>
           <p class="muted">{{ activeActivity.start_time?.slice(0,5) }} · {{ activeActivity.meeting_place_name }}</p>
           <p v-if="activeActivity.address">{{ activeActivity.address }}</p>
