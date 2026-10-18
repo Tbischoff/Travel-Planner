@@ -849,7 +849,7 @@ async function savePlaceEdit() {
     markerElements.delete(place.id)
     const { AdvancedMarkerElement } = await getMarkerLibrary()
     marker = new AdvancedMarkerElement({
-      map, position, title: place.name, content: markerContent(place), gmpClickable: true,
+      map: placeMarkerClusterer ? null : map, position, title: place.name, content: markerContent(place), gmpClickable: true,
       zIndex: place.category === 'hotel' ? 900 : place.is_local_tip ? 100 : 1,
     })
     marker.addEventListener('gmp-click', () => openPlace(place))
@@ -899,16 +899,19 @@ function syncMarkerVisibility() {
   const visibleIds = new Set(visiblePlaces.value.map((place) => place.id))
   const visibleMarkers: AdvancedMarkerInstance[] = []
 
-  // MarkerClusterer owns marker.map while clustering. Do not detach markers
-  // manually before clearMarkers(): doing both races the cluster render and is
-  // why filtered markers only came back after the next search change.
   if (placeMarkerClusterer) {
-    placeMarkerClusterer.clearMarkers(true)
+    // First clear the clusterer's current rendering, including cluster markers.
+    // clearMarkers(true) deliberately skips rendering, so excluded AdvancedMarkers
+    // must also be detached explicitly to avoid stale markers on the map.
+    placeMarkerClusterer.clearMarkers()
     for (const [id, marker] of markers) {
-      if (visibleIds.has(id)) visibleMarkers.push(marker)
+      if (visibleIds.has(id)) {
+        visibleMarkers.push(marker)
+      } else {
+        marker.map = null
+      }
     }
-    placeMarkerClusterer.addMarkers(visibleMarkers, true)
-    placeMarkerClusterer.render()
+    placeMarkerClusterer.addMarkers(visibleMarkers)
   } else {
     for (const [id, marker] of markers) {
       marker.map = visibleIds.has(id) ? map : null
