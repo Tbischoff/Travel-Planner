@@ -988,12 +988,14 @@ function fitMapToSelectedDay() {
   const googleMaps = getGoogleMaps()
   const bounds = new googleMaps.LatLngBounds()
   let count = 0
+  let singlePosition: { lat: number; lng: number } | null = null
   const include = (lat: number | null, lng: number | null) => {
     if (lat == null || lng == null) return
     const latitude = Number(lat)
     const longitude = Number(lng)
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return
-    bounds.extend({ lat: latitude, lng: longitude })
+    singlePosition = { lat: latitude, lng: longitude }
+    bounds.extend(singlePosition)
     count++
   }
   for (const place of visiblePlaces.value) include(place.latitude, place.longitude)
@@ -1004,10 +1006,10 @@ function fitMapToSelectedDay() {
   }
   if (count > 1) map.fitBounds(bounds, 72)
   else if (count === 1) {
-    map.setCenter(bounds.getCenter())
+    if (singlePosition) map.panTo(singlePosition)
     map.setZoom(15)
   } else if (tripCenter) {
-    map.setCenter(tripCenter)
+    map.panTo(tripCenter)
     map.setZoom(12)
   }
 }
