@@ -239,7 +239,7 @@ async function showWalkingRoute() {
 }
 function toggleWalkingRoute() {
   if (routeVisible.value) hideWalkingRoute()
-  else { routeVisible.value = true; void showWalkingRoute() }
+  else { routeVisible.value = true; mobilePlacesOpen.value = false; void showWalkingRoute() }
 }
 watch([selectedDay, routeStart, dayStops], () => {
   if (routeVisible.value) void showWalkingRoute()
