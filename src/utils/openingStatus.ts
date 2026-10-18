@@ -98,6 +98,20 @@ function daysForExpression(first: string, separator?: string, last?: string): nu
   return days
 }
 
+function parseDayGroup(text: string): number[] | null {
+  // A slash joins independent days and ranges: "Mo/Mi-Fr" = Mon, Wed, Thu, Fri.
+  const days = new Set<number>()
+  const token = '(?:' + dayToken.slice(3, -1) + ')'
+  const groupPattern = new RegExp('^' + token + '(?:\\s*[-–—]\\s*' + token + ')?$', 'i')
+  for (const part of text.split('/')) {
+    const normalized = part.trim().replace(/[–—−]/g, '-')
+    if (!groupPattern.test(normalized)) return null
+    const pair = normalized.split(/\s*-\s*/)
+    for (const day of daysForExpression(pair[0], pair.length > 1 ? '-' : undefined, pair[1])) days.add(day)
+  }
+  return [...days]
+}
+
 function scheduleForHours(hours: string): Map<number, Interval[]> | null {
   const schedule = new Map<number, Interval[]>()
   let hasNamedSections = false
@@ -119,11 +133,13 @@ function scheduleForHours(hours: string): Map<number, Interval[]> | null {
       for (let day = 0; day < 7; day++) schedule.set(day, intervals)
       continue
     }
-    const match = segment.replace(/[–—−]/g, '-').match(dayExpression)
-    if (!match) continue
-    const days = daysForExpression(match[1], match[2], match[3])
-    if (!days.length) return null
-    const body = match[4].trim()
+    const normalized = segment.replace(/[–—−]/g, '-')
+    const grouped = normalized.match(/^([A-Za-zÄÖÜäöüß\/\-\s]+?)\s+((?:\d{1,2}:\d{2})|geschlossen|closed|ruhetag)\b(.*)$/i)
+    const match = normalized.match(dayExpression)
+    if (!match && !grouped) continue
+    const days = grouped ? parseDayGroup(grouped[1].trim()) : daysForExpression(match![1], match![2], match![3])
+    if (!days?.length) return null
+    const body = grouped ? (grouped[2] + grouped[3]).trim() : match![4].trim()
     const closed = /^(?:geschlossen|closed|ruhetag)\b/i.test(body)
     const windows = body.match(timeWindow) || []
     if (!closed && !windows.length) return null
