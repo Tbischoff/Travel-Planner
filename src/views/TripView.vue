@@ -1041,7 +1041,7 @@ onUnmounted(() => {
           <p class="muted">{{ activeActivity.start_time?.slice(0,5) }} · {{ activeActivity.meeting_place_name }}</p>
           <p v-if="activeActivity.address">{{ activeActivity.address }}</p>
           <p v-if="!activityPosition" class="muted">Für diesen Treffpunkt sind keine Kartenkoordinaten hinterlegt.</p>
-          <button v-if="trips.canEditContent" type="button" class="popup-button popup-button--edit" @click="openActivityDialog(activeActivity)">✎ Aktivität bearbeiten</button>
+          
         </div>
         <div v-if="activePlace" ref="placePopup" class="place-popup" :class="{ 'place-popup--editing': editingPlace }" @click.stop>
           <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
