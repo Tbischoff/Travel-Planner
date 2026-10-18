@@ -314,14 +314,17 @@ const searchQuery = ref('')
 const mobilePlacesOpen = ref(false)
 type WorkspaceTab = 'plan' | 'places' | 'today' | 'tools'
 const activeTab = ref<WorkspaceTab>('plan')
+let lastPlanDay = 'unplanned'
+function firstTripDay() {
+  return [...tripDays.value].sort((a, b) => a.day_date.localeCompare(b.day_date))[0]?.day_date || 'unplanned'
+}
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
+  if (activeTab.value === 'plan') lastPlanDay = selectedDay.value
   activeTab.value = tab
   mobilePlacesOpen.value = true
-  if (tab === 'today') {
-    const today = new Date().toLocaleDateString('en-CA')
-    if (tripDays.value.some(day => day.day_date === today)) selectedDay.value = today
-  }
+  if (tab === 'today') selectedDay.value = firstTripDay()
+  else if (tab === 'plan') selectedDay.value = lastPlanDay
 }
 
 const selectedPlaceId = ref<string | null>(null)
@@ -1127,7 +1130,7 @@ onUnmounted(() => {
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
         </template>
         <template v-if="activeTab === 'plan' || activeTab === 'today'">
-          <div class="places-panel__toolbar">
+          <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
             <option value="unplanned">Noch offen</option>
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
@@ -1139,8 +1142,9 @@ onUnmounted(() => {
         <div v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop,index) in dayStops" :key="stop.id" class="day-plan-stop"><span>{{ stop.place?.visited ? '✓' : index + 1 + '.' }}</span><button type="button" class="day-plan-stop__place" @click="focusTodayStop(stop)"><span>{{ stop.kind === 'activity' ? '🎟️ ' : '' }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || '–' }} – {{ stop.end_time || '–' }}</small></span></button><span v-if="stop.place?.visited" class="badge">Besucht</span></div></div>
 
         <p v-if="loading">Orte werden geladen …</p>
-        <p v-else-if="!selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
-        <button v-for="place in (selectedDayRecord ? [] : visiblePlaces)" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
+        <p v-else-if="activeTab === 'today' && !selectedDayRecord" class="muted">Für diese Reise sind noch keine Reisetage angelegt.</p>
+        <p v-else-if="activeTab === 'plan' && !selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
+        <button v-for="place in (activeTab === 'today' || selectedDayRecord ? [] : visiblePlaces)" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
           <span class="place-row__content">
             <span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span>
             <small class="place-row__meta">{{ label(place.category || 'other') }}<template v-if="place.address"> · {{ place.address }}</template></small>
