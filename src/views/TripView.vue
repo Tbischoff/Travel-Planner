@@ -149,19 +149,23 @@ function focusTodayStop(stop: DayStop) {
   mobilePlacesOpen.value = false
 }
 
-// Walking route is intentionally independent of active navigation and keeps the planned stop order.
+// Planned routes keep the day-stop order. Transit uses one Google Routes request per leg.
 type RoutePoint = { lat: number; lng: number }
 type RoutesPolyline = { setMap: (map: MapInstance | null) => void }
-type ComputedWalkingRoute = { path?: RoutePoint[]; distanceMeters?: number; durationMillis?: number; createPolylines: (options: { polylineOptions: Record<string, unknown> }) => RoutesPolyline[] }
-type RoutesClass = { computeRoutes: (request: Record<string, unknown>) => Promise<{ routes?: ComputedWalkingRoute[] }> }
+type ComputedRoute = { path?: RoutePoint[]; distanceMeters?: number; durationMillis?: number; createPolylines: (options: { polylineOptions: Record<string, unknown> }) => RoutesPolyline[] }
+type RoutesClass = { computeRoutes: (request: Record<string, unknown>) => Promise<{ routes?: ComputedRoute[] }> }
 const routeStart = ref<'location' | 'first' | 'hotel'>('first')
+const routeMode = ref<'walking' | 'transit'>('walking')
 const routeVisible = ref(false)
 const routeBusy = ref(false)
 const routeError = ref('')
-let routePolylines: RoutesPolyline[] = []
 const routeSummary = ref('')
-function clearRoutePolylines() { for (const line of routePolylines) line.setMap(null); routePolylines = [] }
+let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
+function clearRoutePolylines() {
+  for (const line of routePolylines) line.setMap(null)
+  routePolylines = []
+}
 function stopCoordinates(stop: DayStop): RoutePoint | null {
   const lat = stop.place?.latitude ?? stop.activity?.latitude
   const lng = stop.place?.longitude ?? stop.activity?.longitude
@@ -176,16 +180,16 @@ function hideWalkingRoute() {
   routeVisible.value = false
   routeBusy.value = false
   routeError.value = ''
-  clearRoutePolylines()
   routeSummary.value = ''
+  clearRoutePolylines()
 }
 async function showWalkingRoute() {
   if (!map) return
   const requestId = ++routeRequestId
   routeBusy.value = true
   routeError.value = ''
-  clearRoutePolylines()
   routeSummary.value = ''
+  clearRoutePolylines()
   const stops = dayStops.value.map(stopCoordinates)
   if (stops.some(p => !p)) {
     routeError.value = 'Mindestens ein Stopp hat keine Kartenkoordinaten.'
@@ -194,7 +198,7 @@ async function showWalkingRoute() {
   }
   const points = stops as RoutePoint[]
   if (!points.length) { routeError.value = 'Für diesen Tag sind keine Stopps vorhanden.'; routeBusy.value = false; return }
-  if (points.length > 24) { routeError.value = 'Maximal 24 Stopps können in einer Fußroute berechnet werden.'; routeBusy.value = false; return }
+  if (points.length > 24) { routeError.value = 'Maximal 24 Stopps können in einer Route berechnet werden.'; routeBusy.value = false; return }
   let origin: RoutePoint
   if (routeStart.value === 'location') {
     if (!userLocation.value) { routeError.value = 'Aktueller Standort nicht verfügbar. Bitte Standortfreigabe prüfen.'; routeBusy.value = false; return }
@@ -210,29 +214,49 @@ async function showWalkingRoute() {
     await loadGoogleMaps()
     const routesLibrary = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
     if (!routesLibrary.Route) throw new Error('Google Routes Library konnte nicht geladen werden.')
-    const { routes } = await routesLibrary.Route.computeRoutes({
-      origin,
-      destination: destinations[destinations.length - 1],
-      intermediates: destinations.slice(0, -1).map(location => ({ location })),
-      travelMode: 'WALKING',
-      fields: ['path', 'distanceMeters', 'durationMillis'],
-    })
-    const result = routes?.[0]
-    if (!result) throw new Error('Google Maps konnte keine Fußroute finden.')
-    if (requestId !== routeRequestId || !routeVisible.value || !map) return
-    routePolylines = result.createPolylines({ polylineOptions: { strokeColor: '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
-    for (const line of routePolylines) line.setMap(map)
-    if (result.path?.length) {
-      const bounds = getGoogleMaps().LatLngBounds
-      const box = new bounds()
-      for (const point of result.path) box.extend(point)
-      map.fitBounds(box, 70)
+    const mode = routeMode.value
+    const segments: ComputedRoute[] = []
+    if (mode === 'walking') {
+      const { routes } = await routesLibrary.Route.computeRoutes({
+        origin,
+        destination: destinations[destinations.length - 1],
+        intermediates: destinations.slice(0, -1).map(location => ({ location })),
+        travelMode: 'WALKING',
+        fields: ['path', 'distanceMeters', 'durationMillis'],
+      })
+      if (!routes?.[0]) throw new Error('Google Maps konnte keine Fußroute finden.')
+      segments.push(routes[0])
+    } else {
+      const routePoints = [origin, ...destinations]
+      for (let index = 0; index < routePoints.length - 1; index++) {
+        if (requestId !== routeRequestId || !routeVisible.value) return
+        const { routes } = await routesLibrary.Route.computeRoutes({
+          origin: routePoints[index],
+          destination: routePoints[index + 1],
+          travelMode: 'TRANSIT',
+          transitPreference: { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' },
+          fields: ['path', 'distanceMeters', 'durationMillis', 'legs'],
+        })
+        if (!routes?.[0]) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ÖPNV-Verbindung gefunden.')
+        segments.push(routes[0])
+      }
     }
-    const distance = result.distanceMeters != null ? (result.distanceMeters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' : 'Distanz unbekannt'
-    const duration = result.durationMillis != null ? Math.round(result.durationMillis / 60000) + ' Min.' : 'Dauer unbekannt'
-    routeSummary.value = distance + ' · ca. ' + duration
+    if (requestId !== routeRequestId || !routeVisible.value || !map) return
+    const box = new (getGoogleMaps().LatLngBounds)()
+    for (const segment of segments) {
+      const polylines = segment.createPolylines({ polylineOptions: { strokeColor: mode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
+      for (const line of polylines) { line.setMap(map); routePolylines.push(line) }
+      for (const point of segment.path || []) box.extend(point)
+    }
+    if (segments.some(segment => segment.path?.length)) map.fitBounds(box, 70)
+    const distance = segments.reduce((sum, segment) => sum + (segment.distanceMeters || 0), 0)
+    const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
+    routeSummary.value = (distance / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km · ca. ' + Math.round(duration / 60000) + ' Min.' + (mode === 'transit' ? ' · ' + segments.length + ' ÖPNV-Abschnitt(e)' : '')
   } catch (cause) {
-    if (requestId === routeRequestId) routeError.value = cause instanceof Error ? cause.message : 'Routenberechnung fehlgeschlagen.'
+    if (requestId === routeRequestId) {
+      clearRoutePolylines()
+      routeError.value = cause instanceof Error ? cause.message : 'Routenberechnung fehlgeschlagen.'
+    }
   } finally {
     if (requestId === routeRequestId) routeBusy.value = false
   }
@@ -242,7 +266,7 @@ function toggleWalkingRoute() {
   if (routeVisible.value) hideWalkingRoute()
   else { routeVisible.value = true; void showWalkingRoute() }
 }
-watch([selectedDay, routeStart, dayStops], () => {
+watch([selectedDay, routeStart, routeMode, dayStops], () => {
   if (routeVisible.value) void showWalkingRoute()
 })
 
@@ -1247,7 +1271,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Fußroute</strong><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><label for="today-route-mode">Verkehrsmittel</label><select id="today-route-mode" v-model="routeMode"><option value="walking">Zu Fuß</option><option value="transit">ÖPNV</option></select><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
