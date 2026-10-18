@@ -1073,7 +1073,7 @@ onUnmounted(() => {
   <main class="trip-workspace">
     <header class="trip-header" :class="{ 'trip-header--mobile-hidden': mobilePlacesOpen }">
       <div><p class="auth-card__eyebrow">Travel Planner v3 · Orte & Karte</p><h1>{{ trips.currentTrip?.name }}</h1><p>{{ trips.currentTrip?.destination }} · {{ places.length }} Orte</p></div>
-      <button class="secondary-button" @click="router.push('/trips')">Reisen</button>
+      <button type="button" class="trip-header__trips-button" @click="router.push('/trips')">↔ Reise wechseln</button>
     </header>
     <p v-if="error" class="trip-error">{{ error }}</p>
     <nav class="workspace-tabs" aria-label="Reisebereiche">
@@ -1234,6 +1234,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.trip-header__trips-button{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border:1px solid #cbdad6;border-radius:11px;background:#fff;color:#245b53;font:700 .9rem Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:0 2px 6px rgba(15,23,42,.06);cursor:pointer;transition:background .15s ease,border-color .15s ease}.trip-header__trips-button:hover{background:#edf7f4;border-color:#8fb9ae}.trip-header__trips-button:focus-visible{outline:3px solid #a6d4c8;outline-offset:2px}
 .workspace-tabs{max-width:1400px;margin:0 auto 12px;display:flex;gap:8px}.workspace-tabs button{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px 16px;border:1px solid #dce4e7;border-radius:12px;background:#fff;color:#26323d;cursor:pointer}.workspace-tabs .workspace-tabs__active{background:#2f625d;color:#fff;border-color:#2f625d}
 
 :global(.v3-activity-pin){display:grid;place-items:center;min-width:32px;height:32px;padding:0 3px;border:3px solid #fff;border-radius:50%;background:#7c3aed;color:white;font:800 14px Inter,system-ui,sans-serif;box-shadow:0 2px 8px #0005;cursor:pointer}.day-plan-stop__edit{border:1px solid #dce5e2;border-radius:9px;background:white;color:#2f625d;min-width:36px;cursor:pointer}
