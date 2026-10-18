@@ -174,7 +174,7 @@ async function refreshActivityMarkers() {
   const { AdvancedMarkerElement } = await getMarkerLibrary()
   for (const activity of activities.value) {
     // Activities belong to a specific day; never show markers from other days.
-    if (!selectedDayRecord.value || activity.trip_day_id !== selectedDayRecord.value.id) continue
+    if (activeTab.value === 'places' || !selectedDayRecord.value || activity.trip_day_id !== selectedDayRecord.value.id) continue
     if (activity.latitude == null || activity.longitude == null) continue
     const element = document.createElement('div')
     element.className = 'v3-activity-pin'
@@ -304,6 +304,18 @@ async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
 }
 const searchQuery = ref('')
 const mobilePlacesOpen = ref(false)
+type WorkspaceTab = 'plan' | 'places' | 'today' | 'tools'
+const activeTab = ref<WorkspaceTab>('plan')
+function openWorkspaceTab(tab: WorkspaceTab) {
+  if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
+  activeTab.value = tab
+  mobilePlacesOpen.value = true
+  if (tab === 'today') {
+    const today = new Date().toLocaleDateString('en-CA')
+    if (tripDays.value.some(day => day.day_date === today)) selectedDay.value = today
+  }
+}
+
 const selectedPlaceId = ref<string | null>(null)
 const placePopup = ref<HTMLElement | null>(null)
 const activePlace = ref<TripPlace | null>(null)
@@ -361,7 +373,7 @@ const visiblePlaces = computed(() => {
     const searchMatches = !query || [place.name, place.address, place.note]
       .filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase('de').includes(query))
-    const dayMatches = selectedDay.value === 'unplanned' ? !place.planned_day : place.planned_day === selectedDay.value || (place.category === 'hotel' && !!place.stay_from && !!place.stay_until && place.stay_from <= selectedDay.value && place.stay_until >= selectedDay.value)
+    const dayMatches = activeTab.value === 'places' || (selectedDay.value === 'unplanned' ? !place.planned_day : place.planned_day === selectedDay.value || (place.category === 'hotel' && !!place.stay_from && !!place.stay_until && place.stay_from <= selectedDay.value && place.stay_until >= selectedDay.value))
     return categoryMatches && searchMatches && dayMatches
   }).sort((a, b) => {
     if (!sortByDistance.value || !userLocation.value) return a.name.localeCompare(b.name, 'de')
@@ -555,7 +567,7 @@ function markerState(place: TripPlace) {
   if (place.category === 'hotel') {
     return { color: markerColors.hotel, scale: 1.2, opacity: 1, order: null as number | null, localTip: false }
   }
-  const concreteDaySelected = tripDays.value.some(day => day.day_date === selectedDay.value)
+  const concreteDaySelected = activeTab.value !== 'places' && tripDays.value.some(day => day.day_date === selectedDay.value)
   const isInSelectedDay = concreteDaySelected && place.planned_day === selectedDay.value
   let color = markerColors[place.category || 'other'] || markerColors.other
   let scale = place.is_local_tip ? 1.12 : 1
@@ -955,7 +967,7 @@ async function renderMap() {
     center, zoom: 12, mapId, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
-  map.addListener('click', () => closePlacePopup())
+  map.addListener('click', () => { closePlacePopup(); mobilePlacesOpen.value = false })
   const MarkerClusterer = (window as MarkerClustererWindow).markerClusterer?.MarkerClusterer
   if (MarkerClusterer) {
     placeMarkerClusterer = new MarkerClusterer({
@@ -999,7 +1011,7 @@ function fitMapToSelectedDay() {
     count++
   }
   for (const place of visiblePlaces.value) include(place.latitude, place.longitude)
-  if (selectedDayRecord.value) {
+  if (activeTab.value !== 'places' && selectedDayRecord.value) {
     for (const activity of activities.value) {
       if (activity.trip_day_id === selectedDayRecord.value.id) include(activity.latitude, activity.longitude)
     }
@@ -1015,6 +1027,11 @@ function fitMapToSelectedDay() {
 }
 
 watch(visiblePlaces, () => syncMarkerVisibility(), { flush: 'post' })
+watch(activeTab, async () => {
+  refreshMarkerAppearances()
+  await refreshActivityMarkers()
+  fitMapToSelectedDay()
+})
 watch(selectedDay, async () => {
   cancelPendingPlaceFocus()
   closePlacePopup()
@@ -1059,13 +1076,17 @@ onUnmounted(() => {
       <button class="secondary-button" @click="router.push('/trips')">Reisen</button>
     </header>
     <p v-if="error" class="trip-error">{{ error }}</p>
+    <nav class="workspace-tabs" aria-label="Reisebereiche">
+      <button v-for="tab in ([{ id: 'plan', name: 'Plan', icon: '▦' }, { id: 'places', name: 'Orte', icon: '⌖' }, { id: 'today', name: 'Heute', icon: '➤' }, { id: 'tools', name: 'Werkzeuge', icon: '⚙' }] as const)" :key="tab.id" type="button" :class="{ 'workspace-tabs__active': activeTab === tab.id }" @click="openWorkspaceTab(tab.id)"><span aria-hidden="true">{{ tab.icon }}</span>{{ tab.name }}</button>
+    </nav>
     <section class="trip-map-layout" :class="{ 'trip-map-layout--places-open': mobilePlacesOpen }">
       <aside class="places-panel" :class="{ 'places-panel--open': mobilePlacesOpen }">
         <div class="mobile-sheet-handle" aria-hidden="true"></div>
         <div class="mobile-panel-head">
-          <strong>Orte entdecken</strong>
+          <strong>{{ activeTab === 'plan' ? 'Tagesplanung' : activeTab === 'places' ? 'Alle Orte' : activeTab === 'today' ? 'Heute' : 'Werkzeuge' }}</strong>
           <button type="button" class="mobile-close" @click="mobilePlacesOpen = false">✕</button>
         </div>
+        <template v-if="activeTab === 'places'">
         <div class="places-panel__heading">
           <h2>Orte <span class="count-badge">{{ visiblePlaces.length }} / {{ places.length }}</span></h2>
         </div>
@@ -1077,12 +1098,19 @@ onUnmounted(() => {
             <option value="all">Alle Kategorien</option>
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
           </select>
+        </div>
+        <p v-if="loading">Orte werden geladen …</p>
+        <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte gefunden.</p>
+        <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
+        </template>
+        <template v-if="activeTab === 'plan' || activeTab === 'today'">
+          <div class="places-panel__toolbar">
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
             <option value="unplanned">Noch offen</option>
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
         </div>
-        <button v-if="trips.canEditContent" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
+        <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
         <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
@@ -1095,10 +1123,18 @@ onUnmounted(() => {
             <small v-if="place.note" class="place-row__note">{{ place.note }}</small>
           </span>
         </button>
+        </template>
+        <template v-if="activeTab === 'tools'">
+          <p class="muted">Verfügbare Reisefunktionen</p>
+          <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
+          <button type="button" class="place-sort-button" @click="centerOnCurrentLocation(); mobilePlacesOpen = false">◎ Aktuellen Standort anzeigen</button>
+          <button type="button" class="place-sort-button" @click="fitAllPlaces(); mobilePlacesOpen = false">⌗ Alle Orte auf der Karte</button>
+          <button type="button" class="place-sort-button" @click="router.push('/trips')">Reise wechseln</button>
+        </template>
       </aside>
       <section class="map-panel">
         <div class="map-mobile-actions">
-          <button type="button" @click="mobilePlacesOpen = true">☰ Orte <span>{{ visiblePlaces.length }}</span></button>
+          <button type="button" @click="openWorkspaceTab(activeTab)">☰ {{ activeTab === 'plan' ? 'Plan' : activeTab === 'places' ? 'Orte' : activeTab === 'today' ? 'Heute' : 'Werkzeuge' }}</button>
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
         <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
@@ -1198,6 +1234,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.workspace-tabs{max-width:1400px;margin:0 auto 12px;display:flex;gap:8px}.workspace-tabs button{display:flex;align-items:center;justify-content:center;gap:7px;padding:10px 16px;border:1px solid #dce4e7;border-radius:12px;background:#fff;color:#26323d;cursor:pointer}.workspace-tabs .workspace-tabs__active{background:#2f625d;color:#fff;border-color:#2f625d}
+
 :global(.v3-activity-pin){display:grid;place-items:center;min-width:32px;height:32px;padding:0 3px;border:3px solid #fff;border-radius:50%;background:#7c3aed;color:white;font:800 14px Inter,system-ui,sans-serif;box-shadow:0 2px 8px #0005;cursor:pointer}.day-plan-stop__edit{border:1px solid #dce5e2;border-radius:9px;background:white;color:#2f625d;min-width:36px;cursor:pointer}
 
 .activity-form label{display:grid;gap:5px;margin:10px 0}.activity-form input,.activity-form select{width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:8px;box-sizing:border-box}
@@ -1227,5 +1265,5 @@ onUnmounted(() => {
 .day-plan-preview{display:grid;gap:8px;margin:10px 0;padding:12px;border:1px solid #d8e3e0;border-radius:12px;background:#f6faf9}.day-plan-stop{display:flex;align-items:stretch;gap:6px;border-radius:9px}.day-plan-stop--dragging{opacity:.18}.day-plan-ghost--out{opacity:0!important;transition:opacity 120ms ease}.day-plan-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:.97;box-shadow:0 16px 35px #0003;border-radius:9px;background:white;display:flex;gap:6px}.day-plan-ghost .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px}.day-plan-stop__handle{display:grid;place-items:center;min-width:38px;border:1px solid #dce5e2;border-radius:9px;background:#fff;cursor:grab;touch-action:none;user-select:none;font-size:23px;color:#526b66}.day-plan-stop__handle:active{cursor:grabbing}.day-plan-stop__place{flex:1;min-width:0}.day-plan-preview .day-plan-stop__place{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #dce5e2;border-radius:9px;background:white;padding:9px;cursor:pointer}.day-plan-preview .day-plan-stop__place small{display:block;color:#66746f;margin-top:3px}
 .place-dialog-backdrop{position:fixed;z-index:50;inset:0;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.45)}.place-dialog{position:relative;width:min(520px,100%);max-height:calc(100dvh - 40px);overflow:auto;box-sizing:border-box;padding:22px;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.3)}.place-dialog h2{margin:4px 0 16px}.place-dialog>label{display:grid;gap:6px;margin:11px 0;font-size:.84rem;font-weight:700}.place-dialog input,.place-dialog select,.place-dialog textarea{box-sizing:border-box;width:100%;padding:9px;border:1px solid #ccd4dc;border-radius:9px;background:#fff;font:inherit}.place-dialog textarea{min-height:72px}.place-dialog__close{position:absolute;right:12px;top:12px;border:0;background:transparent;cursor:pointer}.place-dialog__check{display:flex!important;align-items:center;gap:8px!important}.place-dialog__check input{width:auto}.place-dialog__divider{text-align:center;color:#7a8590;font-size:.76rem;margin:12px 0}.google-place-host{margin-top:6px;min-height:44px;max-width:100%;overflow:visible}.google-place-host gmp-place-autocomplete{display:block;width:100%;max-width:100%;box-sizing:border-box}.place-dialog__actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.place-dialog__actions button{min-height:40px;padding:8px 12px;border:1px solid #cbd3db;border-radius:10px;background:#fff;cursor:pointer}.place-dialog__actions .popup-button--primary{background:#2f625d;color:#fff;border-color:#2f625d}
 @media(max-width:760px){.place-dialog-backdrop{padding:12px}.place-dialog{width:calc(100vw - 24px);max-width:none;padding:18px;overflow-x:visible}.place-dialog>*{min-width:0;max-width:100%;box-sizing:border-box}.google-place-host{display:block;width:100%;max-width:100%;min-width:0;overflow:visible;contain:inline-size}.google-place-host gmp-place-autocomplete{display:block!important;width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:visible!important}.google-place-host gmp-place-autocomplete::part(input){width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.trip-workspace{position:fixed;inset:0;padding:0;background:#fff;overflow:hidden;overscroll-behavior:none}.trip-header{display:none}.trip-map-layout{position:absolute;inset:0;display:block;height:auto;min-height:0;margin:0}.map-panel{position:absolute;inset:0;height:auto;border:0;border-radius:0;overflow:hidden}.trip-map{position:absolute;inset:0;width:100%;height:auto;min-height:0}.map-toolbar{top:62px;left:12px;right:12px}.map-toolbar button{font-size:.76rem;padding:7px 8px}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:auto 0 0 0;width:100%;height:auto;max-height:55dvh;box-sizing:border-box;border:0;border-radius:20px 20px 0 0;padding:12px 16px max(20px,env(safe-area-inset-bottom));background:#fff;box-shadow:0 -10px 34px rgba(0,0,0,.18);transform:translateY(105%);transition:transform .2s ease;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.places-panel--open{transform:translateY(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{position:fixed;z-index:15;left:auto;right:12px;top:82px;bottom:auto;width:min(84vw,360px);max-height:calc(100dvh - 98px);padding:14px;overflow:auto;overscroll-behavior:contain;border-radius:16px}.place-popup--editing{width:min(90vw,390px);max-height:calc(100dvh - 98px)}.place-popup h3{font-size:1rem;line-height:1.2;margin-bottom:3px}.place-popup p{font-size:.82rem;line-height:1.3;margin:5px 0}.place-popup label{margin:9px 0 5px}.place-popup input,.place-popup select{min-height:38px;padding:7px 9px}.place-popup__times{gap:8px}.popup-button{min-height:38px;padding:7px 10px;font-size:.8rem}.place-popup__actions{grid-template-columns:1fr;gap:7px}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status,.place-popup__actions .popup-button--edit,.place-popup__actions .popup-button--danger{grid-column:1;width:100%;justify-content:flex-start;text-align:left;white-space:nowrap}.place-popup__actions .popup-button--primary{justify-content:center;text-align:center}.popup-button--status,.popup-button--edit{font-size:.78rem}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
+.trip-workspace{position:fixed;inset:0;padding:0;background:#fff;overflow:hidden;overscroll-behavior:none}.workspace-tabs{position:fixed;z-index:25;bottom:0;left:0;right:0;max-width:none;margin:0;gap:0;padding:7px 5px max(7px,env(safe-area-inset-bottom));background:#fff;box-shadow:0 -3px 14px #0002;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.workspace-tabs button{border:0;border-radius:9px;padding:6px 2px;flex-direction:column;gap:2px;font-size:.73rem!important}.workspace-tabs button span{font-size:1.25rem}.workspace-tabs .workspace-tabs__active{background:#e8f2ef;color:#245b53}.places-panel{bottom:62px!important;max-height:48dvh!important}.trip-header{display:none}.trip-map-layout{position:absolute;inset:0;display:block;height:auto;min-height:0;margin:0}.map-panel{position:absolute;inset:0;height:auto;border:0;border-radius:0;overflow:hidden}.trip-map{position:absolute;inset:0;width:100%;height:auto;min-height:0}.map-toolbar{top:62px;left:12px;right:12px}.map-toolbar button{font-size:.76rem;padding:7px 8px}.map-mobile-actions{display:flex;position:absolute;left:12px;right:12px;top:12px;z-index:4;gap:8px}.map-mobile-trips{margin-left:auto}.map-mobile-actions button{border:1px solid rgba(0,0,0,.1);border-radius:12px;background:rgba(255,255,255,.96);padding:10px 13px;box-shadow:0 5px 18px rgba(0,0,0,.15);color:#172033}.map-mobile-actions span{margin-left:5px;color:#65717d}.places-panel{display:block;position:fixed;z-index:20;inset:auto 0 62px 0;width:100%;height:auto;max-height:48dvh;box-sizing:border-box;border:0;border-radius:20px 20px 0 0;padding:12px 16px max(20px,env(safe-area-inset-bottom));background:#fff;box-shadow:0 -10px 34px rgba(0,0,0,.18);transform:translateY(105%);transition:transform .2s ease;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.places-panel--open{transform:translateY(0)}.mobile-sheet-handle{display:block;width:42px;height:4px;margin:0 auto 12px;border-radius:999px;background:#d2d7dd}.mobile-panel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;font-size:1.08rem}.mobile-close{border:0;background:transparent;font-size:1.15rem;padding:6px;color:#34404c}.places-panel__heading h2{font-size:1rem;margin-bottom:10px}.place-row{padding:10px}.place-popup{position:fixed;z-index:15;left:auto;right:12px;top:82px;bottom:auto;width:min(84vw,360px);max-height:calc(100dvh - 98px);padding:14px;overflow:auto;overscroll-behavior:contain;border-radius:16px}.place-popup--editing{width:min(90vw,390px);max-height:calc(100dvh - 98px)}.place-popup h3{font-size:1rem;line-height:1.2;margin-bottom:3px}.place-popup p{font-size:.82rem;line-height:1.3;margin:5px 0}.place-popup label{margin:9px 0 5px}.place-popup input,.place-popup select{min-height:38px;padding:7px 9px}.place-popup__times{gap:8px}.popup-button{min-height:38px;padding:7px 10px;font-size:.8rem}.place-popup__actions{grid-template-columns:1fr;gap:7px}.place-popup__actions .popup-button--primary,.place-popup__actions .popup-button--status,.place-popup__actions .popup-button--edit,.place-popup__actions .popup-button--danger{grid-column:1;width:100%;justify-content:flex-start;text-align:left;white-space:nowrap}.place-popup__actions .popup-button--primary{justify-content:center;text-align:center}.popup-button--status,.popup-button--edit{font-size:.78rem}.trip-error{position:fixed;z-index:30;left:12px;right:12px;top:12px;background:#fff;padding:10px;border-radius:10px}}
 </style>
