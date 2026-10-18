@@ -689,19 +689,7 @@ function openPlace(place: TripPlace, focus = false) {
   if (place.latitude != null && place.longitude != null) {
     map.panTo({ lat: Number(place.latitude), lng: Number(place.longitude) })
     if (focus) map.setZoom(Math.max(map.getZoom() || 0, 16))
-    nextTick(() => {
-      if (!map || !mapHost.value || !placePopup.value) return
-      const mapRect = mapHost.value.getBoundingClientRect()
-      const popupRect = placePopup.value.getBoundingClientRect()
-      const mobile = window.matchMedia('(max-width: 760px)').matches
-      if (mobile) {
-        const freeLeft = Math.max(0, popupRect.left - mapRect.left)
-        map.panBy(Math.round((mapRect.width - freeLeft) / 2), 0)
-      } else {
-        const freeWidth = Math.max(0, popupRect.left - mapRect.left)
-        map.panBy(Math.round((mapRect.width - freeWidth) / 2), 0)
-      }
-    })
+
   }
 }
 
@@ -1018,8 +1006,8 @@ onUnmounted(() => {
         <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && openPlace(stop.place, true)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
         <p v-if="loading">Orte werden geladen …</p>
-        <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
-        <button v-for="place in visiblePlaces" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
+        <p v-else-if="!selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
+        <button v-for="place in (selectedDayRecord ? [] : visiblePlaces)" :key="place.id" class="place-row" :class="{ 'place-row--active': selectedPlaceId === place.id }" type="button" @click="openPlace(place, true); mobilePlacesOpen = false">
           <span class="place-row__content">
             <span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span>
             <small class="place-row__meta">{{ label(place.category || 'other') }}<template v-if="place.address"> · {{ place.address }}</template></small>
