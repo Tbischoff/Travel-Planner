@@ -166,6 +166,9 @@ const routeBusy = ref(false)
 const routeError = ref('')
 const routeSummary = ref('')
 const transitConnections = ref<TransitConnection[]>([])
+const transitMetrics = ref<{ distanceMeters: number; durationMillis: number }[]>([])
+function legDistance(meters: number): string { return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' }
+function legDuration(millis: number): string { return 'ca. ' + Math.round(millis / 60000) + ' Min.' }
 const transitLegs = computed(() => {
   const groups = new Map<number, TransitConnection[]>()
   for (const connection of transitConnections.value) {
@@ -220,6 +223,7 @@ function hideWalkingRoute() {
   routeError.value = ''
   routeSummary.value = ''
   transitConnections.value = []
+  transitMetrics.value = []
   clearRoutePolylines()
 }
 async function showWalkingRoute() {
@@ -293,6 +297,7 @@ async function showWalkingRoute() {
     }
     if (requestId !== routeRequestId || !routeVisible.value || !map) return
     if (mode === 'transit') {
+      transitMetrics.value = segments.map(segment => ({ distanceMeters: segment.distanceMeters || 0, durationMillis: segment.durationMillis || 0 }))
       transitConnections.value = segments.flatMap((segment, section) =>
         (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
           const details = step.transitDetails
@@ -1358,7 +1363,7 @@ onUnmounted(() => {
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
             <details v-if="index < routeAgendaStops.length - 1 && routeVisible && routeMode === 'transit' && transitLegs.get(index + 1)?.length" class="agenda-leg mobility-leg">
-              <summary><span>🚇</span><span><strong>ÖPNV zum nächsten Stopp</strong><small>{{ transitLegs.get(index + 1)?.length }} Verbindung(en)</small></span><span class="mobility-expand">Details</span></summary>
+              <summary><span>🚇</span><span><strong>ÖPNV zum nächsten Stopp</strong><small v-if="transitMetrics[index]">{{ legDistance(transitMetrics[index].distanceMeters) }} · {{ legDuration(transitMetrics[index].durationMillis) }}</small></span><span class="mobility-expand">Details</span></summary>
               <div class="mobility-details">
                 <div v-for="(connection, connectionIndex) in transitLegs.get(index + 1)" :key="connectionIndex" class="transit-step">
                   <strong>{{ connection.icon }} {{ connection.line }}<span v-if="connection.headsign"> → {{ connection.headsign }}</span></strong>
