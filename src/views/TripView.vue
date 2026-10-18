@@ -652,6 +652,14 @@ let navigationLines: RoutesPolyline[] = []
 const navigationDistance = ref<number | null>(null)
 const navigationDuration = ref<number | null>(null)
 const navigationRouting = ref(false)
+const navigationMapMode = ref<'follow' | 'overview'>('follow')
+let navigationRouteBounds: { fit: () => void } | null = null
+function showNavigationMapMode(mode: 'follow' | 'overview') {
+  navigationMapMode.value = mode
+  if (!map) return
+  if (mode === 'overview') navigationRouteBounds?.fit()
+  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(16) }
+}
 const navigationArrived = ref(false)
 let navigationArrivalSamples = 0
 function checkNavigationArrivalV3(position: RoutePoint, accuracy: number) {
@@ -681,6 +689,7 @@ function clearNavigationRouteV3() {
   navigationRouteRequest++
   navigationLines.forEach(line => line.setMap(null))
   navigationLines = []
+  navigationRouteBounds = null
   navigationDistance.value = null
   navigationDuration.value = null
   navigationRouting.value = false
@@ -711,7 +720,12 @@ async function updateNavigationRouteV3(force = false) {
     navigationLines.forEach(line => line.setMap(map))
     navigationDistance.value = route.distanceMeters ?? 0
     navigationDuration.value = route.durationMillis ?? 0
-    ;(map as ClusterMap).setCenter(origin)
+    const bounds = new (getGoogleMaps().LatLngBounds)()
+    bounds.extend(origin)
+    bounds.extend(destination)
+    for (const point of route.path || []) bounds.extend(point)
+    navigationRouteBounds = { fit: () => map?.fitBounds(bounds, 65) }
+    showNavigationMapMode(navigationMapMode.value)
     navigationMessage.value = ''
   } catch (cause) {
     if (requestId === navigationRouteRequest) navigationMessage.value = cause instanceof Error ? cause.message : 'Navigationsroute konnte nicht berechnet werden.'
@@ -734,7 +748,7 @@ function startNavigationTracking() {
       navigationAccuracy.value = Math.round(coords.accuracy)
       if (!navigationArrived.value) navigationMessage.value = ''
       if (navigationState.value === 'active') {
-        if (map) (map as ClusterMap).setCenter(userLocation.value)
+        if (map && navigationMapMode.value === 'follow') (map as ClusterMap).setCenter(userLocation.value)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
       }
@@ -751,6 +765,7 @@ function startDayNavigationV3() {
   navigationArrivalSamples = 0
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
+  navigationMapMode.value = 'follow'
   mobilePlacesOpen.value = false
   navigationLastRouteAt = 0
   if (userLocation.value) void updateNavigationRouteV3(true)
@@ -1655,7 +1670,7 @@ onUnmounted(() => {
         </template>
       </aside>
       <section class="map-panel">
-        <div class="map-mobile-actions">
+        <div v-if="navigationState === 'idle'" class="map-mobile-actions">
           <button type="button" @click="openWorkspaceTab(activeTab)">☰ {{ activeTab === 'plan' ? 'Plan' : activeTab === 'places' ? 'Orte' : activeTab === 'today' ? 'Heute' : 'Werkzeuge' }}</button>
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
@@ -1665,7 +1680,7 @@ onUnmounted(() => {
           <p v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p>
           <p v-else-if="navigationRouting">Route wird berechnet …</p>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
-          <div class="navigation-map-overlay__actions">
+          <div class="navigation-map-overlay__actions"><button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Gesamtroute' : '◎ Mir folgen' }}</button>
             <button v-if="navigationArrived" type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Abschließen' : 'Nächster Stopp →' }}</button>
             <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pause</button>
             <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Weiter</button>
@@ -1673,7 +1688,7 @@ onUnmounted(() => {
             <button type="button" @click="stopDayNavigationV3">■ Beenden</button>
           </div>
         </section>
-        <div class="map-toolbar">
+        <div v-if="navigationState === 'idle'" class="map-toolbar">
           <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
           <button type="button" title="Aktueller Standort" @click="centerOnCurrentLocation">◎ Standort</button>
           <button type="button" title="Alle Orte anzeigen" @click="fitAllPlaces">⌗ Alle</button>
@@ -1862,4 +1877,14 @@ onUnmounted(() => {
 .navigation-map-overlay__actions button { font:inherit; font-size:.8rem; border:1px solid #b8cdc6; background:#f6faf8; border-radius:8px; padding:8px 10px; cursor:pointer; }
 .navigation-map-overlay__actions button:disabled { opacity:.5; cursor:not-allowed; }
 @media (min-width: 768px) { .navigation-map-overlay { bottom:22px; } }
+</style>
+
+<style scoped>
+.navigation-map-overlay { top: max(12px, env(safe-area-inset-top)); bottom:auto; left:50%; right:auto; transform:translateX(-50%); width:calc(100% - 24px); max-width:520px; box-sizing:border-box; padding:12px; z-index:24; }
+.navigation-map-overlay__headline { text-align:center; gap:2px; }
+.navigation-map-overlay__headline strong { font-size:1.08rem; }
+.navigation-map-overlay > p { text-align:center; font-size:.85rem; }
+.navigation-map-overlay__actions { justify-content:center; }
+.navigation-map-overlay__actions button { padding:8px 9px; }
+@media (min-width:768px) { .navigation-map-overlay { top:16px; bottom:auto; } }
 </style>
