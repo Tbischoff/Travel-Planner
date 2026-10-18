@@ -173,6 +173,8 @@ async function refreshActivityMarkers() {
   if (!map) return
   const { AdvancedMarkerElement } = await getMarkerLibrary()
   for (const activity of activities.value) {
+    // Activities belong to a specific day; never show markers from other days.
+    if (!selectedDayRecord.value || activity.trip_day_id !== selectedDayRecord.value.id) continue
     if (activity.latitude == null || activity.longitude == null) continue
     const element = document.createElement('div')
     element.className = 'v3-activity-pin'
@@ -562,12 +564,10 @@ function markerState(place: TripPlace) {
     if (isInSelectedDay) {
       color = '#2f625d'
       scale = 1.16
-    } else {
-      opacity = 0.35
-      scale = 0.92
     }
   }
-  if (place.visited) opacity = Math.min(opacity, 0.42)
+  // Visited places remain visible when they belong to the selected day.
+  // Filtering, not opacity, decides whether a marker belongs on the map.
   return { color, scale, opacity, order: isInSelectedDay ? dayStopNumber('place:' + place.id) : null, localTip: Boolean(place.is_local_tip) }
 }
 
