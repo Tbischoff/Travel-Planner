@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as tripService from '../services/supabase/trips'
 import type { Trip, TripInput } from '../services/supabase/trips'
-import { getSession, sessionTiming } from '../services/supabase/auth'
+import { withSessionRecovery } from '../services/supabase/auth'
 
 const LAST_TRIP_KEY = 'travelPlannerLastTripId'
 
@@ -17,26 +17,7 @@ export const useTripStore = defineStore('trip', () => {
   async function load(userId: string): Promise<void> {
     loading.value = true
     try {
-      let lastError: unknown = null
-      for (let attempt = 0; attempt < 8; attempt++) {
-        try {
-          trips.value = await tripService.listTrips(userId)
-          return
-        } catch (error) {
-          lastError = error
-          const message = error instanceof Error ? error.message : String(error)
-          if (!/jwt issued at future/i.test(message)) throw error
-
-          const session = await getSession()
-          const timing = session ? sessionTiming(session) : null
-          const browserSkew = timing?.issuedInFutureBySeconds ?? 0
-          const waitMs = browserSkew > 0
-            ? Math.min((browserSkew + 1) * 1000, 10000)
-            : 2000
-          await new Promise(resolve => window.setTimeout(resolve, waitMs))
-        }
-      }
-      throw lastError
+      trips.value = await withSessionRecovery(() => tripService.listTrips(userId))
     } finally {
       loading.value = false
     }
