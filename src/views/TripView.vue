@@ -653,12 +653,51 @@ const navigationDistance = ref<number | null>(null)
 const navigationDuration = ref<number | null>(null)
 const navigationRouting = ref(false)
 const navigationMapMode = ref<'follow' | 'overview'>('follow')
+const navigationOrientationMode = ref<'gps' | 'compass'>('gps')
+const navigationGpsHeading = ref<number | null>(null)
+const navigationCompassHeading = ref<number | null>(null)
+const navigationOrientationHint = ref('')
+function applyNavigationBearing() {
+  if (!map || navigationState.value !== 'active' || navigationMapMode.value !== 'follow') return
+  const bearing = navigationOrientationMode.value === 'compass' ? navigationCompassHeading.value : navigationGpsHeading.value
+  if (bearing !== null) (map as unknown as { setHeading: (value: number) => void }).setHeading(bearing)
+}
+function onNavigationOrientation(event: DeviceOrientationEvent) {
+  const apple = (event as DeviceOrientationEvent & { webkitCompassHeading?: number }).webkitCompassHeading
+  const heading = typeof apple === 'number' ? apple : event.absolute && event.alpha !== null ? (360 - event.alpha) % 360 : null
+  if (heading !== null && Number.isFinite(heading)) { navigationCompassHeading.value = heading; applyNavigationBearing() }
+}
+async function setNavigationOrientation(mode: 'gps' | 'compass') {
+  navigationOrientationMode.value = mode
+  navigationOrientationHint.value = ''
+  window.removeEventListener('deviceorientation', onNavigationOrientation)
+  window.removeEventListener('deviceorientationabsolute', onNavigationOrientation as EventListener)
+  if (mode === 'compass') {
+    const sensor = DeviceOrientationEvent as typeof DeviceOrientationEvent & { requestPermission?: () => Promise<string> }
+    if (typeof sensor.requestPermission === 'function') {
+      try { if (await sensor.requestPermission() !== 'granted') { navigationOrientationMode.value = 'gps'; navigationOrientationHint.value = 'Kompasszugriff nicht erlaubt.'; return } }
+      catch { navigationOrientationMode.value = 'gps'; navigationOrientationHint.value = 'Kompasszugriff nicht verfügbar.'; return }
+    }
+    window.addEventListener('deviceorientation', onNavigationOrientation)
+    window.addEventListener('deviceorientationabsolute', onNavigationOrientation as EventListener)
+    if (navigationCompassHeading.value === null) navigationOrientationHint.value = 'Kompassrichtung wird ermittelt (Sensor erforderlich).'
+  } else if (navigationGpsHeading.value === null) navigationOrientationHint.value = 'GPS-Richtung wird bei Bewegung ermittelt.'
+  applyNavigationBearing()
+}
+function resetNavigationOrientation() {
+  window.removeEventListener('deviceorientation', onNavigationOrientation)
+  window.removeEventListener('deviceorientationabsolute', onNavigationOrientation as EventListener)
+  navigationGpsHeading.value = null
+  navigationCompassHeading.value = null
+  navigationOrientationHint.value = ''
+  if (map) (map as unknown as { setHeading: (value: number) => void }).setHeading(0)
+}
 let navigationRouteBounds: { fit: () => void } | null = null
 function showNavigationMapMode(mode: 'follow' | 'overview') {
   navigationMapMode.value = mode
   if (!map) return
-  if (mode === 'overview') navigationRouteBounds?.fit()
-  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(16) }
+  if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit() }
+  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(16); applyNavigationBearing() }
 }
 const navigationArrived = ref(false)
 let navigationArrivalSamples = 0
@@ -746,6 +785,7 @@ function startNavigationTracking() {
     ({ coords }) => {
       userLocation.value = { lat: coords.latitude, lng: coords.longitude }
       navigationAccuracy.value = Math.round(coords.accuracy)
+      if (coords.heading !== null && Number.isFinite(coords.heading) && (coords.speed === null || coords.speed > 0.5)) { navigationGpsHeading.value = coords.heading; applyNavigationBearing() }
       if (!navigationArrived.value) navigationMessage.value = ''
       if (navigationState.value === 'active') {
         if (map && navigationMapMode.value === 'follow') (map as ClusterMap).setCenter(userLocation.value)
@@ -766,21 +806,26 @@ function startDayNavigationV3() {
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
   navigationMapMode.value = 'follow'
+  navigationOrientationMode.value = 'gps'
+  navigationOrientationHint.value = 'GPS-Richtung wird bei Bewegung ermittelt.'
   mobilePlacesOpen.value = false
   navigationLastRouteAt = 0
   if (userLocation.value) void updateNavigationRouteV3(true)
 }
 function pauseDayNavigationV3() {
   stopNavigationTracking()
+  window.removeEventListener('deviceorientation', onNavigationOrientation)
+  window.removeEventListener('deviceorientationabsolute', onNavigationOrientation as EventListener)
   navigationState.value = 'paused'
   clearNavigationRouteV3()
 }
 function resumeDayNavigationV3() {
-  if (startNavigationTracking()) { navigationState.value = 'active'; navigationLastRouteAt = 0; if (userLocation.value) void updateNavigationRouteV3(true) }
+  if (startNavigationTracking()) { navigationState.value = 'active'; navigationLastRouteAt = 0; if (navigationOrientationMode.value === 'compass') void setNavigationOrientation('compass'); if (userLocation.value) void updateNavigationRouteV3(true) }
 }
 function stopDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'idle'
+  resetNavigationOrientation()
   mobilePlacesOpen.value = false
   clearNavigationRouteV3()
   navigationAccuracy.value = null
@@ -1680,7 +1725,7 @@ onUnmounted(() => {
           <p v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p>
           <p v-else-if="navigationRouting">Route wird berechnet …</p>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
-          <div class="navigation-map-overlay__actions"><button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Gesamtroute' : '◎ Mir folgen' }}</button>
+          <div class="navigation-map-overlay__orientation" role="group" aria-label="Kartenausrichtung"><button type="button" :class="{ selected: navigationOrientationMode === 'gps' }" :aria-pressed="navigationOrientationMode === 'gps'" @click="setNavigationOrientation('gps')">↗ GPS</button><button type="button" :class="{ selected: navigationOrientationMode === 'compass' }" :aria-pressed="navigationOrientationMode === 'compass'" @click="setNavigationOrientation('compass')">🧭 Kompass</button></div><p v-if="navigationOrientationHint" class="navigation-map-overlay__hint">{{ navigationOrientationHint }}</p><div class="navigation-map-overlay__actions"><button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Gesamtroute' : '◎ Mir folgen' }}</button>
             <button v-if="navigationArrived" type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Abschließen' : 'Nächster Stopp →' }}</button>
             <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pause</button>
             <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Weiter</button>
@@ -1887,4 +1932,11 @@ onUnmounted(() => {
 .navigation-map-overlay__actions { justify-content:center; }
 .navigation-map-overlay__actions button { padding:8px 9px; }
 @media (min-width:768px) { .navigation-map-overlay { top:16px; bottom:auto; } }
+</style>
+
+<style scoped>
+.navigation-map-overlay__orientation { display:flex; justify-content:center; gap:6px; margin-top:8px; }
+.navigation-map-overlay__orientation button { border:1px solid #b8cdc6; background:#fff; border-radius:8px; padding:7px 12px; font:inherit; font-size:.8rem; }
+.navigation-map-overlay__orientation button.selected { background:#dcefe8; border-color:#568a7c; font-weight:700; }
+.navigation-map-overlay .navigation-map-overlay__hint { font-size:.72rem; color:#63736d; }
 </style>
