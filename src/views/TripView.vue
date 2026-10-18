@@ -1077,7 +1077,7 @@ onUnmounted(() => {
     </header>
     <p v-if="error" class="trip-error">{{ error }}</p>
     <nav class="workspace-tabs" aria-label="Reisebereiche">
-      <button v-for="tab in ([{ id: 'plan', name: 'Plan', icon: '▦' }, { id: 'places', name: 'Orte', icon: '⌖' }, { id: 'today', name: 'Heute', icon: '➤' }, { id: 'tools', name: 'Werkzeuge', icon: '⚙' }] as const)" :key="tab.id" type="button" :class="{ 'workspace-tabs__active': activeTab === tab.id }" @click="openWorkspaceTab(tab.id)"><span aria-hidden="true">{{ tab.icon }}</span>{{ tab.name }}</button>
+      <button v-for="tab in ([{ id: 'today', name: 'Heute', icon: '➤' }, { id: 'plan', name: 'Plan', icon: '▦' }, { id: 'places', name: 'Orte', icon: '⌖' }, { id: 'tools', name: 'Werkzeuge', icon: '⚙' }] as const)" :key="tab.id" type="button" :class="{ 'workspace-tabs__active': activeTab === tab.id }" @click="openWorkspaceTab(tab.id)"><span aria-hidden="true">{{ tab.icon }}</span>{{ tab.name }}</button>
     </nav>
     <section class="trip-map-layout" :class="{ 'trip-map-layout--places-open': mobilePlacesOpen }">
       <aside class="places-panel" :class="{ 'places-panel--open': mobilePlacesOpen }">
