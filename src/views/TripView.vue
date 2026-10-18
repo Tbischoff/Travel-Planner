@@ -652,6 +652,24 @@ let navigationLines: RoutesPolyline[] = []
 const navigationDistance = ref<number | null>(null)
 const navigationDuration = ref<number | null>(null)
 const navigationRouting = ref(false)
+const navigationArrived = ref(false)
+let navigationArrivalSamples = 0
+function checkNavigationArrivalV3(position: RoutePoint, accuracy: number) {
+  const destination = navigationTarget.value ? stopCoordinates(navigationTarget.value) : null
+  if (!destination || navigationArrived.value || accuracy > 60) { navigationArrivalSamples = 0; return }
+  if (distanceBetween(position, destination) <= Math.max(30, Math.min(60, accuracy))) {
+    navigationArrivalSamples++
+    if (navigationArrivalSamples >= 2) {
+      navigationArrived.value = true
+      navigationArrivalSamples = 0
+      navigationMessage.value = 'Ziel erreicht: ' + navigationTarget.value?.name
+    }
+  } else navigationArrivalSamples = 0
+}
+function confirmNavigationArrivalV3() {
+  if (navigationTargetIndex.value >= dayStops.value.length - 1) stopDayNavigationV3()
+  else nextNavigationStopV3()
+}
 function distanceBetween(a: RoutePoint, b: RoutePoint): number {
   const rad = Math.PI / 180
   const dLat = (b.lat - a.lat) * rad
@@ -714,8 +732,12 @@ function startNavigationTracking() {
     ({ coords }) => {
       userLocation.value = { lat: coords.latitude, lng: coords.longitude }
       navigationAccuracy.value = Math.round(coords.accuracy)
-      navigationMessage.value = ''
-      if (navigationState.value === 'active') void updateNavigationRouteV3()
+      if (!navigationArrived.value) navigationMessage.value = ''
+      if (navigationState.value === 'active') {
+        if (map) (map as ClusterMap).setCenter(userLocation.value)
+        checkNavigationArrivalV3(userLocation.value, coords.accuracy)
+        if (!navigationArrived.value) void updateNavigationRouteV3()
+      }
     },
     error => { navigationMessage.value = 'Standort konnte nicht aktualisiert werden: ' + error.message },
     { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
@@ -725,6 +747,8 @@ function startNavigationTracking() {
 function startDayNavigationV3() {
   if (!dayStops.value.length) { navigationMessage.value = 'Für diesen Tag sind keine Stopps geplant.'; return }
   navigationTargetIndex.value = Math.max(0, dayStops.value.findIndex(stop => !stop.place?.visited))
+  navigationArrived.value = false
+  navigationArrivalSamples = 0
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
   mobilePlacesOpen.value = false
@@ -745,10 +769,12 @@ function stopDayNavigationV3() {
   mobilePlacesOpen.value = false
   clearNavigationRouteV3()
   navigationAccuracy.value = null
+  navigationArrived.value = false
+  navigationArrivalSamples = 0
   navigationMessage.value = ''
 }
 function nextNavigationStopV3() {
-  if (navigationTargetIndex.value < dayStops.value.length - 1) { navigationTargetIndex.value++; navigationLastRouteAt = 0; clearNavigationRouteV3(); if (navigationState.value === 'active') void updateNavigationRouteV3(true) }
+  if (navigationTargetIndex.value < dayStops.value.length - 1) { navigationTargetIndex.value++; navigationArrived.value = false; navigationArrivalSamples = 0; navigationMessage.value = ''; navigationLastRouteAt = 0; clearNavigationRouteV3(); if (navigationState.value === 'active') void updateNavigationRouteV3(true) }
 }
 watch(selectedDay, () => { if (navigationState.value !== 'idle') stopDayNavigationV3() })
 
@@ -1561,7 +1587,7 @@ onUnmounted(() => {
           <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
           <template v-else>
             <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
-            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p>
+            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p><div v-if="navigationArrived" class="today-navigation-v3__arrival" role="status"><strong>📍 Ziel erreicht!</strong><p>{{ navigationTarget?.name }} ist erreicht.</p><button type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Navigation abschließen' : 'Weiter zum nächsten Stopp →' }}</button></div>
           </template>
           <div class="today-navigation-v3__actions">
             <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
@@ -1807,4 +1833,9 @@ onUnmounted(() => {
 .today-navigation-v3__actions { display:flex; gap:7px; flex-wrap:wrap; }
 .today-navigation-v3__actions button { padding:9px 11px; border:1px solid #b9d3cc; border-radius:8px; background:white; font:inherit; cursor:pointer; }
 .today-navigation-v3__actions button:disabled { opacity:.5; cursor:not-allowed; }
+</style>
+
+<style scoped>
+.today-navigation-v3__arrival { padding:10px; border:1px solid #90c3a6; border-radius:10px; background:#e9f7ee; }
+.today-navigation-v3__arrival button { margin-top:8px; padding:9px 12px; border-radius:8px; border:1px solid #82b89d; background:white; cursor:pointer; }
 </style>
