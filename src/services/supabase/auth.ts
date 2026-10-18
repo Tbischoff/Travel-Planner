@@ -100,3 +100,30 @@ export function onAuthStateChange(
   const { data } = supabase.auth.onAuthStateChange((event, session) => callback(event, session))
   return () => data.subscription.unsubscribe()
 }
+
+/** Retry read-only operations once after refreshing a rejected JWT. */
+let pendingRecovery: Promise<void> | null = null
+export async function withSessionRecovery<T>(read: () => Promise<T>): Promise<T> {
+  await getSession()
+  try {
+    return await read()
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause)
+    if (!/jwt issued at future|invalid jwt|jwt expired/i.test(message)) throw cause
+    if (!pendingRecovery) {
+      pendingRecovery = (async () => {
+        const { data, error } = await supabase.auth.refreshSession()
+        if (error || !data.session) throw error ?? new Error('Anmeldung konnte nicht erneuert werden.')
+        const timing = sessionTiming(data.session)
+        if (timing.issuedInFutureBySeconds > 15) {
+          throw new Error('Die Gerätezeit weicht von der Anmeldezeit ab. Bitte Datum und Uhrzeit automatisch synchronisieren.')
+        }
+        if (timing.issuedInFutureBySeconds > 0) {
+          await new Promise(resolve => window.setTimeout(resolve, (timing.issuedInFutureBySeconds + 1) * 1000))
+        }
+      })().finally(() => { pendingRecovery = null })
+    }
+    await pendingRecovery
+    return read()
+  }
+}
