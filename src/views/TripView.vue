@@ -149,6 +149,7 @@ function dayStopNumber(id: string) {
   return index < 0 ? null : index + 1
 }
 async function focusActivity(activity: Activity) {
+  cancelPendingPlaceFocus()
   closePlacePopup()
   activeActivity.value = activity
   let lat = activity.latitude
@@ -665,6 +666,7 @@ function syncSelectedMarker() {
 }
 
 function closePlacePopup() {
+  cancelPendingPlaceFocus()
   activeActivity.value = null
   activityPosition.value = null
   infoWindow?.close()
@@ -674,7 +676,40 @@ function closePlacePopup() {
   syncSelectedMarker()
 }
 
+let pendingPlaceFocus: ReturnType<typeof setTimeout> | null = null
+let pendingPlaceIdle: { remove: () => void } | null = null
+let placeFocusSequence = 0
+function cancelPendingPlaceFocus() {
+  placeFocusSequence++
+  if (pendingPlaceFocus !== null) clearTimeout(pendingPlaceFocus)
+  pendingPlaceFocus = null
+  pendingPlaceIdle?.remove()
+  pendingPlaceIdle = null
+}
+function focusDayPlace(place: TripPlace) {
+  if (!map || place.latitude == null || place.longitude == null) {
+    openPlace(place, true)
+    return
+  }
+  cancelPendingPlaceFocus()
+  const sequence = placeFocusSequence
+  closePlacePopup()
+  map.panTo({ lat: Number(place.latitude), lng: Number(place.longitude) })
+  map.setZoom(Math.max(map.getZoom() || 0, 16))
+  const reveal = () => {
+    if (sequence !== placeFocusSequence) return
+    pendingPlaceIdle?.remove()
+    pendingPlaceIdle = null
+    pendingPlaceFocus = setTimeout(() => {
+      pendingPlaceFocus = null
+      if (sequence === placeFocusSequence) openPlace(place, false)
+    }, 200)
+  }
+  pendingPlaceIdle = map.addListener('idle', reveal)
+  pendingPlaceFocus = setTimeout(reveal, 1800)
+}
 function openPlace(place: TripPlace, focus = false) {
+  cancelPendingPlaceFocus()
   activeActivity.value = null
   activityPosition.value = null
   if (!map) return
@@ -756,6 +791,7 @@ async function refreshRemotePlaces() {
   }
 }
 function scheduleRealtimeRefresh() {
+  cancelPendingPlaceFocus()
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
   realtimeRefreshTimer = setTimeout(() => { realtimeRefreshTimer = null; void refreshRemotePlaces() }, 450)
 }
@@ -1003,7 +1039,7 @@ onUnmounted(() => {
         </div>
         <button v-if="trips.canEditContent" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <button v-if="selectedDayRecord" type="button" class="place-sort-button" @click="dayPlanOpen = !dayPlanOpen">{{ dayPlanOpen ? "▾ Tagesübersicht schließen" : "▸ Tagesübersicht öffnen" }} · {{ dayStops.length }} Stopps</button>
-        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && openPlace(stop.place, true)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && dayPlanOpen" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
