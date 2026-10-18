@@ -84,8 +84,17 @@ export function openingStatus(
   const clock = plannedDate && plannedStart ? plannedClock(plannedDate, plannedStart) : zone ? localClock(zone) : null
   if (!clock || clock.weekday < 0) return 'unknown'
   const schedule = new Map<number, Array<[number, number]>>()
+  const dailyPattern = /^(?:täglich|taeglich|jeden tag|daily|every day|all days)\s*[:：]?\s*(.*)$/i
   for (const line of hours.split(/\n/)) {
-    const match = line.trim().match(weekdayPattern)
+    const trimmed = line.trim()
+    const daily = trimmed.match(dailyPattern)
+    if (daily) {
+      const intervals = parseIntervals(daily[1])
+      if (intervals === null) return 'unknown'
+      for (let day = 0; day < 7; day++) schedule.set(day, intervals)
+      continue
+    }
+    const match = trimmed.match(weekdayPattern)
     if (!match) continue
     const intervals = parseIntervals(match[2])
     if (intervals === null) return 'unknown'
