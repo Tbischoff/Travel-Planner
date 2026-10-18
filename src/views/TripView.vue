@@ -163,6 +163,10 @@ const routeEnd = ref<'location' | 'hotel' | 'last'>('last')
 const routeMode = ref<'walking' | 'transit' | 'auto'>('walking')
 const routeVisible = ref(false)
 const routeBusy = ref(false)
+const transitRefreshBusy = ref(false)
+const transitLastUpdated = ref<Date | null>(null)
+const transitRefreshNotice = ref('')
+const transitChangeWarnings = ref<Record<number, string>>({})
 const routeError = ref('')
 const routeSummary = ref('')
 const transitConnections = ref<TransitConnection[]>([])
@@ -215,7 +219,49 @@ let routeRequestId = 0
 let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
 function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
 function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines() }
-function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = '' }
+function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = ''; transitLastUpdated.value = null; transitChangeWarnings.value = {}; transitRefreshNotice.value = '' }
+function transitSignature(connections: TransitConnection[], section: number): string { return JSON.stringify(connections.filter(connection => connection.section === section).map(connection => [connection.line, connection.headsign, connection.from, connection.to, connection.departure, connection.arrival])) }
+function transitMapsUrl(index: number): string {
+  const from = routeAgendaStops.value[index]?.stop
+  const to = routeAgendaStops.value[index + 1]?.stop
+  const point = (entry: typeof from, fallback: string) => { const coords = entry ? stopCoordinates(entry) : null; return coords ? coords.lat + ',' + coords.lng : fallback }
+  const origin = point(from, routeAgendaStops.value[index]?.name || '')
+  const destination = point(to, routeAgendaStops.value[index + 1]?.name || '')
+  return 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(origin) + '&destination=' + encodeURIComponent(destination) + '&travelmode=transit'
+}
+async function refreshTransitConnections() {
+  if (transitRefreshBusy.value || routeBusy.value || !cachedRoute || routeMode.value === 'walking') return
+  const snapshot = cachedRoute
+  transitRefreshBusy.value = true
+  transitRefreshNotice.value = ''
+  // Preserve the last valid connections if the fresh request fails.
+  cachedRoute = null
+  routeVisible.value = true
+  try {
+    await showWalkingRoute()
+    if (routeError.value || !cachedRoute) {
+      cachedRoute = snapshot
+      transitConnections.value = snapshot.connections
+      transitMetrics.value = snapshot.metrics
+      routeSummary.value = snapshot.summary
+      transitRefreshNotice.value = 'Aktualisierung fehlgeschlagen. Die bisherigen Verbindungen werden weiterhin angezeigt.'
+      routeError.value = ''
+      renderRoute(snapshot.segments, snapshot.metrics, snapshot.connections, snapshot.summary)
+      return
+    }
+    const warnings: Record<number, string> = {}
+    for (const metric of cachedRoute.metrics.entries()) {
+      const [index, leg] = metric
+      if (leg.mode !== 'transit') continue
+      const previous = transitSignature(snapshot.connections, index + 1)
+      const current = transitSignature(cachedRoute.connections, index + 1)
+      if (previous && current && previous !== current) warnings[index + 1] = '⚠️ Die Verbindung hat sich seit der letzten Abfrage geändert. Bitte Linie und Abfahrtszeit prüfen.'
+    }
+    transitChangeWarnings.value = warnings
+    transitLastUpdated.value = new Date()
+    transitRefreshNotice.value = Object.keys(warnings).length ? 'Verbindungen aktualisiert – Änderungen erkannt.' : 'Verbindungen aktualisiert – keine Änderungen erkannt.'
+  } finally { transitRefreshBusy.value = false }
+}
 function renderRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], connections: TransitConnection[], summary: string) {
   if (!map || !routeVisible.value) return
   clearRoutePolylines()
@@ -257,6 +303,7 @@ async function showWalkingRoute() {
   const requestId = ++routeRequestId
   routeBusy.value = true
   routeError.value = ''
+  transitRefreshNotice.value = ''
   routeSummary.value = ''
   transitConnections.value = []
   transitMetrics.value = []
@@ -371,6 +418,7 @@ async function showWalkingRoute() {
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
     const summary = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
     cachedRoute = { key, segments, metrics, connections, summary }
+    transitLastUpdated.value = new Date()
     renderRoute(segments, metrics, connections, summary)
   } catch (cause) {
     if (requestId === routeRequestId) {
@@ -1391,7 +1439,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && cachedRoute && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
@@ -1416,13 +1464,13 @@ onUnmounted(() => {
                   <span class="today-leg__body"><strong>{{ legDuration(transitMetrics[index].durationMillis) }}</strong><small>{{ legDistance(transitMetrics[index].distanceMeters) }} · ÖPNV zum nächsten Stopp</small></span>
                   <span class="today-leg__expand">Details <span aria-hidden="true">⌄</span></span>
                 </summary>
-                <div class="today-leg__connections">
+                <div class="today-leg__connections"><p v-if="transitChangeWarnings[index + 1]" class="today-transit-warning" role="status">{{ transitChangeWarnings[index + 1] }}</p>
                   <div v-for="(connection, connectionIndex) in transitLegs.get(index + 1) || []" :key="connectionIndex" class="today-leg__connection">
                     <strong>{{ connection.icon }} {{ connection.line }}<span v-if="connection.headsign"> · {{ connection.headsign }}</span></strong>
                     <small v-if="connection.departure || connection.arrival">{{ connection.departure || '–' }}–{{ connection.arrival || '–' }} Uhr<span v-if="connection.stops"> · {{ connection.stops }} Haltestellen</span></small>
                     <small>📍 {{ connection.from || 'Einstieg' }} → {{ connection.to || 'Ausstieg' }}</small>
                   </div>
-                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine Linien- oder Haltestellendetails verfügbar.</p>
+                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine Linien- oder Haltestellendetails verfügbar.</p><a :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
                 </div>
               </details>
             </div>
@@ -1610,4 +1658,13 @@ onUnmounted(() => {
 .today-leg__connection:last-child { border-bottom: 0; }
 .today-leg__connection strong { font-size: 0.87rem; }
 .today-leg__connection small { font-size: 0.79rem; color: #556a63; }
+</style>
+
+<style scoped>
+.today-transit-refresh { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.today-transit-refresh button { padding:8px 12px; border:1px solid #a6c8bf; background:white; border-radius:8px; font:inherit; cursor:pointer; }
+.today-transit-refresh button:disabled { opacity:.6; cursor:wait; }
+.today-transit-refresh small { color:#596c65; }
+.today-transit-warning { margin:4px 0 8px; padding:8px; border-radius:8px; background:#fff3db; color:#78551b; font-size:.8rem; }
+.today-transit-maplink { display:inline-block; margin:9px 0; font-size:.84rem; color:#2563eb; overflow-wrap:anywhere; }
 </style>
