@@ -55,7 +55,7 @@ function clockMinutes(hourText: string, minuteText: string, period?: string): nu
 }
 
 function parseIntervals(value: string): Array<[number, number]> | null {
-  const normalized = value.toLowerCase().replace(/[–—−]/g, '-').replace(/\u202f|\u00a0/g, ' ').trim()
+  const normalized = value.toLowerCase().replace(/[–—−]/g, '-').replace(/\u202f|\u00a0/g, ' ').replace(/\s*uhr\s*$/i, '').trim()
   if (/^(closed|geschlossen|ruhetag|not open)$/.test(normalized)) return []
   if (/^(open 24 hours|24 hours|24 stunden|durchgehend geöffnet|24\/7|24 stunden geöffnet)$/.test(normalized)) return [[0, 1440]]
   const intervals: Array<[number, number]> = []
@@ -68,7 +68,8 @@ function parseIntervals(value: string): Array<[number, number]> | null {
     const start = clockMinutes(match[1], match[2], match[3])
     const end = clockMinutes(match[4], match[5], match[6])
     if (start === null || end === null || start >= 1440 || end > 1440) return null
-    intervals.push([start, end])
+    // 00:00 at the end denotes midnight at the end of the day.
+    intervals.push([start, end === 0 && start > 0 ? 1440 : end])
   }
   return intervals.length ? intervals : null
 }
@@ -85,7 +86,7 @@ export function openingStatus(
   if (!clock || clock.weekday < 0) return 'unknown'
   const schedule = new Map<number, Array<[number, number]>>()
   const dailyPattern = /^(?:täglich|taeglich|jeden tag|daily|every day|all days)\s*[:：]?\s*(.*)$/i
-  for (const line of hours.split(/\n/)) {
+  for (const line of hours.split(/[\n·•]/)) {
     const trimmed = line.trim()
     const daily = trimmed.match(dailyPattern)
     if (daily) {
