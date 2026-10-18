@@ -188,6 +188,15 @@ const routeAgendaStops = computed(() => {
   return stops
 })
 
+function plannedTransitTime(clock: string | null | undefined): Date | null {
+  if (!clock || !/^\d{1,2}:\d{2}/.test(clock) || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDay.value)) return null
+  const [year, month, day] = selectedDay.value.split('-').map(Number)
+  const [hour, minute] = clock.split(':').map(Number)
+  if (!year || !month || !day || hour == null || minute == null || hour > 23 || minute > 59) return null
+  const value = new Date(year, month - 1, day, hour, minute)
+  const delta = value.getTime() - Date.now()
+  return delta >= -7 * 86400000 && delta <= 100 * 86400000 ? value : null
+}
 function transitClock(value?: Date | string): string {
   if (!value) return ''
   const date = value instanceof Date ? value : new Date(value)
@@ -204,7 +213,7 @@ function transitIcon(type?: string): string {
 let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
 let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
-function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
+function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
 function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines() }
 function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = '' }
 function renderRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], connections: TransitConnection[], summary: string) {
@@ -305,7 +314,16 @@ async function showWalkingRoute() {
           origin: from, destination: to, travelMode,
           fields: travelMode === 'TRANSIT' ? ['path', 'distanceMeters', 'durationMillis', 'legs'] : ['path', 'distanceMeters', 'durationMillis'],
         }
-        if (travelMode === 'TRANSIT') request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
+        if (travelMode === 'TRANSIT') {
+          request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
+          // As in v2: prefer arrival at the next planned stop, otherwise departure after the previous stop.
+          const targetStop = dayStops.value[index + (routeStart.value === 'first' ? 1 : 0)]
+          const sourceStop = dayStops.value[index - (routeStart.value === 'first' ? 0 : 1)]
+          const arrival = plannedTransitTime(targetStop?.start_time || targetStop?.end_time)
+          const departure = plannedTransitTime(sourceStop?.end_time || sourceStop?.start_time)
+          if (arrival) request.arrivalTime = arrival
+          else request.departureTime = departure || new Date()
+        }
         const { routes } = await routesLibrary.Route!.computeRoutes(request)
         return routes?.[0] || null
       }
