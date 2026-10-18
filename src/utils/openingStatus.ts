@@ -134,7 +134,7 @@ function scheduleForHours(hours: string): Map<number, Interval[]> | null {
       continue
     }
     const normalized = segment.replace(/[–—−]/g, '-')
-    const grouped = normalized.match(/^([A-Za-zÄÖÜäöüß\/\-\s]+?)\s+((?:\d{1,2}:\d{2})|geschlossen|closed|ruhetag)\b(.*)$/i)
+    const grouped = normalized.match(/^([A-Za-zÄÖÜäöüß/\-\s]+?)\s+((?:\d{1,2}:\d{2})|geschlossen|closed|ruhetag)\b(.*)$/i)
     const match = normalized.match(dayExpression)
     if (!match && !grouped) continue
     const days = grouped ? parseDayGroup(grouped[1].trim()) : daysForExpression(match![1], match![2], match![3])
