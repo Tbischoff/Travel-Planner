@@ -640,6 +640,54 @@ const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
 const userLocation = ref<{ lat: number; lng: number } | null>(null)
+const navigationState = ref<'idle' | 'active' | 'paused'>('idle')
+const navigationTargetIndex = ref(0)
+const navigationAccuracy = ref<number | null>(null)
+const navigationMessage = ref('')
+let navigationWatchId: number | null = null
+const navigationTarget = computed(() => dayStops.value[navigationTargetIndex.value] || null)
+function stopNavigationTracking() {
+  if (navigationWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(navigationWatchId)
+  navigationWatchId = null
+}
+function startNavigationTracking() {
+  if (!navigator.geolocation) { navigationMessage.value = 'GPS ist auf diesem Gerät nicht verfügbar.'; return false }
+  stopNavigationTracking()
+  navigationWatchId = navigator.geolocation.watchPosition(
+    ({ coords }) => {
+      userLocation.value = { lat: coords.latitude, lng: coords.longitude }
+      navigationAccuracy.value = Math.round(coords.accuracy)
+      navigationMessage.value = ''
+    },
+    error => { navigationMessage.value = 'Standort konnte nicht aktualisiert werden: ' + error.message },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
+  )
+  return true
+}
+function startDayNavigationV3() {
+  if (!dayStops.value.length) { navigationMessage.value = 'Für diesen Tag sind keine Stopps geplant.'; return }
+  navigationTargetIndex.value = Math.max(0, dayStops.value.findIndex(stop => !stop.place?.visited))
+  if (!startNavigationTracking()) return
+  navigationState.value = 'active'
+}
+function pauseDayNavigationV3() {
+  stopNavigationTracking()
+  navigationState.value = 'paused'
+}
+function resumeDayNavigationV3() {
+  if (startNavigationTracking()) navigationState.value = 'active'
+}
+function stopDayNavigationV3() {
+  stopNavigationTracking()
+  navigationState.value = 'idle'
+  navigationAccuracy.value = null
+  navigationMessage.value = ''
+}
+function nextNavigationStopV3() {
+  if (navigationTargetIndex.value < dayStops.value.length - 1) navigationTargetIndex.value++
+}
+watch(selectedDay, () => { if (navigationState.value !== 'idle') stopDayNavigationV3() })
+
 const addPlaceOpen = ref(false)
 const addPlaceHost = ref<HTMLElement | null>(null)
 const addPlaceName = ref('')
@@ -1392,6 +1440,7 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onUnmounted(() => {
+  stopNavigationTracking()
   hideWalkingRoute()
   if (openingClockTimer) clearInterval(openingClockTimer)
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
@@ -1443,6 +1492,22 @@ onUnmounted(() => {
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-navigation-v3" aria-label="Tagesnavigation">
+          <strong>🧭 Tagesnavigation</strong>
+          <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
+          <template v-else>
+            <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
+            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p>
+          </template>
+          <div class="today-navigation-v3__actions">
+            <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
+            <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pausieren</button>
+            <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Fortsetzen</button>
+            <button v-if="navigationState !== 'idle'" type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">Nächster Stopp →</button>
+            <button v-if="navigationState !== 'idle'" type="button" @click="stopDayNavigationV3">■ Beenden</button>
+          </div>
+          <p v-if="navigationMessage" class="trip-error" role="status">{{ navigationMessage }}</p>
+        </section>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
@@ -1670,4 +1735,12 @@ onUnmounted(() => {
 .today-transit-refresh small { color:#596c65; }
 .today-transit-warning { margin:4px 0 8px; padding:8px; border-radius:8px; background:#fff3db; color:#78551b; font-size:.8rem; }
 .today-transit-maplink { display:inline-block; margin:9px 0; font-size:.84rem; color:#2563eb; overflow-wrap:anywhere; }
+</style>
+
+<style scoped>
+.today-navigation-v3 { display:grid; gap:8px; margin:10px 0; padding:12px; border:1px solid #b9d3cc; border-radius:12px; background:#f5faf8; }
+.today-navigation-v3 p { margin:0; font-size:.87rem; }
+.today-navigation-v3__actions { display:flex; gap:7px; flex-wrap:wrap; }
+.today-navigation-v3__actions button { padding:9px 11px; border:1px solid #b9d3cc; border-radius:8px; background:white; font:inherit; cursor:pointer; }
+.today-navigation-v3__actions button:disabled { opacity:.5; cursor:not-allowed; }
 </style>
