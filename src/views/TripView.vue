@@ -315,6 +315,7 @@ const mobilePlacesOpen = ref(false)
 type WorkspaceTab = 'plan' | 'places' | 'today' | 'tools'
 const activeTab = ref<WorkspaceTab>('plan')
 let lastPlanDay = 'unplanned'
+let lastTodayDay: string | null = null
 function firstTripDay() {
   return [...tripDays.value].sort((a, b) => a.day_date.localeCompare(b.day_date))[0]?.day_date || 'unplanned'
 }
@@ -328,10 +329,12 @@ function moveTodayDay(direction: -1 | 1) {
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
   if (activeTab.value === 'plan') lastPlanDay = selectedDay.value
+  if (activeTab.value === 'today' && tripDays.value.some(day => day.day_date === selectedDay.value)) lastTodayDay = selectedDay.value
   activeTab.value = tab
   mobilePlacesOpen.value = true
-  if (tab === 'today') selectedDay.value = firstTripDay()
-  else if (tab === 'plan') selectedDay.value = lastPlanDay
+  if (tab === 'today') {
+    selectedDay.value = lastTodayDay && tripDays.value.some(day => day.day_date === lastTodayDay) ? lastTodayDay : firstTripDay()
+  } else if (tab === 'plan') selectedDay.value = lastPlanDay
 }
 
 const selectedPlaceId = ref<string | null>(null)
