@@ -645,6 +645,63 @@ const navigationTargetIndex = ref(0)
 const navigationAccuracy = ref<number | null>(null)
 const navigationMessage = ref('')
 let navigationWatchId: number | null = null
+let navigationRouteRequest = 0
+let navigationLastRouteAt = 0
+let navigationLastRouteOrigin: RoutePoint | null = null
+let navigationLines: RoutesPolyline[] = []
+const navigationDistance = ref<number | null>(null)
+const navigationDuration = ref<number | null>(null)
+const navigationRouting = ref(false)
+function distanceBetween(a: RoutePoint, b: RoutePoint): number {
+  const rad = Math.PI / 180
+  const dLat = (b.lat - a.lat) * rad
+  const dLng = (b.lng - a.lng) * rad
+  const v = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
+  return 6371000 * 2 * Math.atan2(Math.sqrt(v), Math.sqrt(1 - v))
+}
+function clearNavigationRouteV3() {
+  navigationRouteRequest++
+  navigationLines.forEach(line => line.setMap(null))
+  navigationLines = []
+  navigationDistance.value = null
+  navigationDuration.value = null
+  navigationRouting.value = false
+}
+async function updateNavigationRouteV3(force = false) {
+  if (navigationState.value !== 'active' || !userLocation.value || !navigationTarget.value || !map) return
+  const origin = { ...userLocation.value }
+  const destination = stopCoordinates(navigationTarget.value)
+  if (!destination) { navigationMessage.value = 'Für diesen Stopp fehlen die Kartenkoordinaten.'; return }
+  if (!force && navigationLastRouteOrigin && Date.now() - navigationLastRouteAt < 45000 && distanceBetween(origin, navigationLastRouteOrigin) < 80) return
+  const requestId = ++navigationRouteRequest
+  navigationLastRouteAt = Date.now()
+  navigationLastRouteOrigin = origin
+  navigationRouting.value = true
+  try {
+    await loadGoogleMaps()
+    const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
+    if (!library.Route) throw new Error('Google Routes Library nicht verfügbar.')
+    const mode = routeMode.value === 'transit' ? 'TRANSIT' : 'WALKING'
+    const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis'] }
+    if (mode === 'TRANSIT') request.departureTime = new Date()
+    const result = await library.Route.computeRoutes(request)
+    if (requestId !== navigationRouteRequest || navigationState.value !== 'active' || !map) return
+    const route = result.routes?.[0]
+    if (!route) throw new Error('Keine Verbindung zum nächsten Stopp gefunden.')
+    navigationLines.forEach(line => line.setMap(null))
+    navigationLines = route.createPolylines({ polylineOptions: { strokeColor: '#e07b26', strokeWeight: 7, strokeOpacity: 0.95, zIndex: 30 } })
+    navigationLines.forEach(line => line.setMap(map))
+    navigationDistance.value = route.distanceMeters ?? 0
+    navigationDuration.value = route.durationMillis ?? 0
+    ;(map as ClusterMap).setCenter(origin)
+    navigationMessage.value = ''
+  } catch (cause) {
+    if (requestId === navigationRouteRequest) navigationMessage.value = cause instanceof Error ? cause.message : 'Navigationsroute konnte nicht berechnet werden.'
+  } finally {
+    if (requestId === navigationRouteRequest) navigationRouting.value = false
+  }
+}
+
 const navigationTarget = computed(() => dayStops.value[navigationTargetIndex.value] || null)
 function stopNavigationTracking() {
   if (navigationWatchId !== null && navigator.geolocation) navigator.geolocation.clearWatch(navigationWatchId)
@@ -658,6 +715,7 @@ function startNavigationTracking() {
       userLocation.value = { lat: coords.latitude, lng: coords.longitude }
       navigationAccuracy.value = Math.round(coords.accuracy)
       navigationMessage.value = ''
+      if (navigationState.value === 'active') void updateNavigationRouteV3()
     },
     error => { navigationMessage.value = 'Standort konnte nicht aktualisiert werden: ' + error.message },
     { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
@@ -669,22 +727,26 @@ function startDayNavigationV3() {
   navigationTargetIndex.value = Math.max(0, dayStops.value.findIndex(stop => !stop.place?.visited))
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
+  navigationLastRouteAt = 0
+  if (userLocation.value) void updateNavigationRouteV3(true)
 }
 function pauseDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'paused'
+  clearNavigationRouteV3()
 }
 function resumeDayNavigationV3() {
-  if (startNavigationTracking()) navigationState.value = 'active'
+  if (startNavigationTracking()) { navigationState.value = 'active'; navigationLastRouteAt = 0; if (userLocation.value) void updateNavigationRouteV3(true) }
 }
 function stopDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'idle'
+  clearNavigationRouteV3()
   navigationAccuracy.value = null
   navigationMessage.value = ''
 }
 function nextNavigationStopV3() {
-  if (navigationTargetIndex.value < dayStops.value.length - 1) navigationTargetIndex.value++
+  if (navigationTargetIndex.value < dayStops.value.length - 1) { navigationTargetIndex.value++; navigationLastRouteAt = 0; clearNavigationRouteV3(); if (navigationState.value === 'active') void updateNavigationRouteV3(true) }
 }
 watch(selectedDay, () => { if (navigationState.value !== 'idle') stopDayNavigationV3() })
 
@@ -1497,7 +1559,7 @@ onUnmounted(() => {
           <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
           <template v-else>
             <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
-            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p>
+            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p>
           </template>
           <div class="today-navigation-v3__actions">
             <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
