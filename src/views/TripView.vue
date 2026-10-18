@@ -359,7 +359,7 @@ const visiblePlaces = computed(() => {
     const searchMatches = !query || [place.name, place.address, place.note]
       .filter(Boolean)
       .some((value) => String(value).toLocaleLowerCase('de').includes(query))
-    const dayMatches = selectedDay.value === 'all' || (selectedDay.value === 'unplanned' ? !place.planned_day : place.planned_day === selectedDay.value || (place.category === 'hotel' && !!place.stay_from && !!place.stay_until && place.stay_from <= selectedDay.value && place.stay_until >= selectedDay.value))
+    const dayMatches = selectedDay.value === 'unplanned' ? !place.planned_day : place.planned_day === selectedDay.value || (place.category === 'hotel' && !!place.stay_from && !!place.stay_until && place.stay_from <= selectedDay.value && place.stay_until >= selectedDay.value)
     return categoryMatches && searchMatches && dayMatches
   }).sort((a, b) => {
     if (!sortByDistance.value || !userLocation.value) return a.name.localeCompare(b.name, 'de')
@@ -1036,7 +1036,6 @@ onUnmounted(() => {
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
           </select>
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
-            <option value="all">Alle Tage</option>
             <option value="unplanned">Noch offen</option>
             <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
           </select>
