@@ -8,8 +8,6 @@ const weekdayIndex: Record<string, number> = {
   thursday: 4, donnerstag: 4, do: 4, friday: 5, freitag: 5, fr: 5,
   saturday: 6, samstag: 6, sa: 6,
 }
-const weekdays = Object.keys(weekdayIndex).sort((a, b) => b.length - a.length)
-const weekdayPattern = new RegExp('^\\s*(' + weekdays.join('|') + ')\\s*[:：]\\s*(.*)$', 'i')
 function destinationTimeZone(destination: string | null | undefined): string | null {
   const city = (destination || '').toLocaleLowerCase()
   if (/budapest|ungarn|hungary/.test(city)) return 'Europe/Budapest'
@@ -74,6 +72,76 @@ function parseIntervals(value: string): Array<[number, number]> | null {
   return intervals.length ? intervals : null
 }
 
+type Interval = [number, number]
+const compactDay: Record<string, number> = {
+  so: 0, mo: 1, di: 2, mi: 3, do: 4, fr: 5, sa: 6,
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+}
+const dayToken = '(?:sonntag|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sun|mon|tue|wed|thu|fri|sat|so|mo|di|mi|do|fr|sa)'
+const dayExpression = new RegExp('^(' + dayToken + ')(?:\\s*([-\\/])\\s*(' + dayToken + '))?\\s*:?[ \\t]+(.+)$', 'i')
+const timeWindow = /\b\d{1,2}:\d{2}\s*(?:am|pm)?\s*[-–—]\s*\d{1,2}:\d{2}\s*(?:am|pm)?\b/gi
+
+function daysForExpression(first: string, separator?: string, last?: string): number[] {
+  const from = weekdayIndex[first.toLowerCase()] ?? compactDay[first.toLowerCase()]
+  if (from === undefined) return []
+  if (!last) return [from]
+  const to = weekdayIndex[last.toLowerCase()] ?? compactDay[last.toLowerCase()]
+  if (to === undefined) return []
+  if (separator === '/') return from === to ? [from] : [from, to]
+  const days: number[] = []
+  let day = from
+  for (let count = 0; count < 7; count++) {
+    days.push(day)
+    if (day === to) break
+    day = (day + 1) % 7
+  }
+  return days
+}
+
+function scheduleForHours(hours: string): Map<number, Interval[]> | null {
+  const schedule = new Map<number, Interval[]>()
+  let hasNamedSections = false
+  for (const raw of hours.split(/[\n·•]/)) {
+    const segment = raw.trim()
+    if (!segment) continue
+    // Named offers (Garden, Wellness, Night bathing, Lunch/Dinner) can have
+    // different admission rules. Do not merge them into an invented status.
+    if (/^(?:garden|wellness|nachtbaden|night bathing|lunch|dinner)\s*:/i.test(segment)) {
+      hasNamedSections = true
+      continue
+    }
+    const daily = segment.match(/^(?:(?:bistro\/caf[eé]|restaurant|café|cafe)\s+)?(?:täglich|taeglich|jeden tag|daily|every day)\s*[:：]?\s*(.*)$/i)
+    if (daily) {
+      const window = daily[1].match(timeWindow)?.[0]
+      if (!window) return null
+      const intervals = parseIntervals(window)
+      if (intervals === null) return null
+      for (let day = 0; day < 7; day++) schedule.set(day, intervals)
+      continue
+    }
+    const match = segment.replace(/[–—−]/g, '-').match(dayExpression)
+    if (!match) continue
+    const days = daysForExpression(match[1], match[2], match[3])
+    if (!days.length) return null
+    const body = match[4].trim()
+    const closed = /^(?:geschlossen|closed|ruhetag)\b/i.test(body)
+    const windows = body.match(timeWindow) || []
+    if (!closed && !windows.length) return null
+    const intervals: Interval[] = []
+    for (const window of windows) {
+      const parsed = parseIntervals(window)
+      if (parsed === null) return null
+      intervals.push(...parsed)
+    }
+    for (const day of days) {
+      const existing = schedule.get(day) || []
+      schedule.set(day, closed ? [] : [...existing, ...intervals])
+    }
+  }
+  if (hasNamedSections || schedule.size !== 7) return null
+  return schedule
+}
+
 export function openingStatus(
   hours: string | null,
   destination: string | null | undefined,
@@ -84,46 +152,8 @@ export function openingStatus(
   const zone = destinationTimeZone(destination)
   const clock = plannedDate && plannedStart ? plannedClock(plannedDate, plannedStart) : zone ? localClock(zone) : null
   if (!clock || clock.weekday < 0) return 'unknown'
-  const schedule = new Map<number, Array<[number, number]>>()
-  const dailyPattern = /^(?:täglich|taeglich|jeden tag|daily|every day|all days)\s*[:：]?\s*(.*)$/i
-  for (const line of hours.split(/[\n·•]/)) {
-    const trimmed = line.trim()
-    const daily = trimmed.match(dailyPattern)
-    if (daily) {
-      const intervals = parseIntervals(daily[1])
-      if (intervals === null) return 'unknown'
-      for (let day = 0; day < 7; day++) schedule.set(day, intervals)
-      continue
-    }
-    const match = trimmed.match(weekdayPattern)
-    if (!match) continue
-    const intervals = parseIntervals(match[2])
-    if (intervals === null) return 'unknown'
-    schedule.set(weekdayIndex[match[1].toLowerCase()], intervals)
-  }
-  // Compact weekly ranges, e.g. "So–Do 08:30–19:00 · Fr–Sa 08:30–20:00".
-  // Expand inclusive ranges, including those crossing Sunday.
-  const compactDay: Record<string, number> = {
-    so: 0, mo: 1, di: 2, mi: 3, do: 4, fr: 5, sa: 6,
-    sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
-  }
-  for (const segment of hours.split(/[·•\n]/)) {
-    const normalized = segment.trim().replace(/[–—−]/g, '-')
-    const match = normalized.match(/^(so|mo|di|mi|do|fr|sa|sun|mon|tue|wed|thu|fri|sat)\s*(?:-\s*(so|mo|di|mi|do|fr|sa|sun|mon|tue|wed|thu|fri|sat))?\s*:?\s+(.+)$/i)
-    if (!match) continue
-    const first = compactDay[match[1].toLowerCase()]
-    const last = match[2] ? compactDay[match[2].toLowerCase()] : first
-    const intervals = parseIntervals(match[3])
-    if (intervals === null) return 'unknown'
-    let day = first
-    for (let count = 0; count < 7; count++) {
-      schedule.set(day, intervals)
-      if (day === last) break
-      day = (day + 1) % 7
-    }
-  }
-  // A partial schedule cannot establish the previous day's overnight hours.
-  if (schedule.size !== 7) return 'unknown'
+  const schedule = scheduleForHours(hours)
+  if (!schedule) return 'unknown'
   const today = schedule.get(clock.weekday) || []
   const previous = schedule.get((clock.weekday + 6) % 7) || []
   if (today.some(([start, end]) => end > start && clock.minutes >= start && clock.minutes < end ||
