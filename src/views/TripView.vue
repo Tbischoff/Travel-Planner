@@ -36,14 +36,15 @@ const selectedDayWeather = computed(() => {
   if (index < 0) return null
   return { icon: weatherIcon(daily?.weather_code?.[index]), max: daily?.temperature_2m_max?.[index], min: daily?.temperature_2m_min?.[index], rain: daily?.precipitation_probability_max?.[index] }
 })
-const selectedHourlyWeather = computed(() => {
-  const hourly = weatherForecast.value?.hourly
-  if (!hourly?.time) return []
-  return hourly.time.flatMap((time, index) => {
-    if (!time.startsWith(selectedDay.value + 'T')) return []
-    return [{ time: time.slice(11, 16), icon: weatherIcon(hourly.weather_code?.[index]), temp: hourly.temperature_2m?.[index], feels: hourly.apparent_temperature?.[index], rain: hourly.precipitation_probability?.[index], wind: hourly.wind_speed_10m?.[index] }]
-  })
-})
+function stopWeather(stop: { start_time: string | null; end_time: string | null }) {
+  const time = stop.start_time || stop.end_time
+  const hours = weatherForecast.value?.hourly
+  if (!time || !hours?.time?.length || !/^([01]\\d|2[0-3]):[0-5]\\d/.test(time)) return null
+  const target = selectedDay.value + 'T' + time.slice(0, 2) + ':00'
+  const index = hours.time.indexOf(target)
+  if (index < 0) return null
+  return { time: time.slice(0, 5), icon: weatherIcon(hours.weather_code?.[index]), temp: hours.temperature_2m?.[index], rain: hours.precipitation_probability?.[index], feels: hours.apparent_temperature?.[index], wind: hours.wind_speed_10m?.[index] }
+}
 async function loadTripWeather() {
   const requestId = ++weatherRequestId
   weatherLoading.value = true
@@ -2226,13 +2227,6 @@ onUnmounted(() => {
             <strong>Wetter am Reisetag</strong>
             <p v-if="weatherLoading" class="muted">Wetter wird geladen …</p>
             <p v-else-if="selectedDayWeather" class="day-weather__details"><span aria-hidden="true">{{ selectedDayWeather.icon }}</span> {{ selectedDayWeather.min ?? '–' }}–{{ selectedDayWeather.max ?? '–' }} °C · Regenwahrscheinlichkeit bis {{ selectedDayWeather.rain ?? '–' }} %</p>
-            <div v-if="selectedHourlyWeather.length" class="day-weather__hours" aria-label="Stündliche Wettervorhersage">
-              <div v-for="hour in selectedHourlyWeather" :key="hour.time" class="day-weather__hour">
-                <strong>{{ hour.time }}</strong><span aria-hidden="true">{{ hour.icon }}</span>
-                <span>{{ hour.temp ?? '–' }} °C</span><small>Gefühlt {{ hour.feels ?? '–' }} °C</small>
-                <small>Regen {{ hour.rain ?? '–' }} %</small><small>Wind {{ hour.wind ?? '–' }} km/h</small>
-              </div>
-            </div>
             <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
           </section>
 
@@ -2262,7 +2256,7 @@ onUnmounted(() => {
         </section>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
-        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <div v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview">
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
@@ -2276,7 +2270,7 @@ onUnmounted(() => {
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
             <div class="day-plan-stop">
               <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
-              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Späteste Abfahrt am vorherigen Stopp: {{ new Date((dayScheduleTimestamp(entry.stop.start_time) || 0) - transitMetrics[index - 1].durationMillis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr · tatsächliche Ankunft noch offen</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
+              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="stopWeather(entry.stop)" class="stop-weather">{{ stopWeather(entry.stop)?.icon }} {{ stopWeather(entry.stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(entry.stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(entry.stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(entry.stop)?.wind ?? '–' }} km/h</span></small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Späteste Abfahrt am vorherigen Stopp: {{ new Date((dayScheduleTimestamp(entry.stop.start_time) || 0) - transitMetrics[index - 1].durationMillis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr · tatsächliche Ankunft noch offen</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
@@ -2718,4 +2712,8 @@ onUnmounted(() => {
 
 <style scoped>
 .day-weather__hours{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;scroll-snap-type:x proximity}.day-weather__hour{display:flex;flex:0 0 112px;flex-direction:column;gap:4px;padding:9px;border:1px solid #dce7e2;border-radius:10px;background:#fff;scroll-snap-align:start;font-size:.85rem}.day-weather__hour small{font-size:.72rem;color:#52645f}.place-popup__times input[inputmode="numeric"]{min-width:0;width:100%;box-sizing:border-box}
+</style>
+
+<style scoped>
+.stop-weather{display:block;margin-top:4px;color:#356a60;font-weight:500;line-height:1.45}.stop-weather__detail{font-weight:400}@media(max-width:480px){.stop-weather__detail{display:block}}
 </style>
