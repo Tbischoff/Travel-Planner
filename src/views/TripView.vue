@@ -2116,7 +2116,7 @@ onUnmounted(() => {
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
             <div class="day-plan-stop">
               <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
-              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
+              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Zeitprognose offen · Endzeit des vorherigen Stopps fehlt</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
@@ -2520,4 +2520,8 @@ onUnmounted(() => {
 <style scoped>
 .today-stop-forecast { display: block; margin-top: 5px; font-size: .78rem; font-weight: 600; color: #236548; }
 .today-stop-forecast--late { color: #a44b18; }
+</style>
+
+<style scoped>
+.today-stop-forecast--unknown { color: #70634b; font-weight: 400; }
 </style>
