@@ -199,13 +199,43 @@ const routeAgendaStops = computed(() => {
 })
 
 function dayScheduleTimestamp(clock: string | null | undefined): number | null {
-  if (!clock || !/^\\d{1,2}:\\d{2}/.test(clock) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(selectedDay.value)) return null
+  if (!clock || !/^\d{1,2}:\d{2}/.test(clock) || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDay.value)) return null
   const [year, month, day] = selectedDay.value.split('-').map(Number)
   const [hour, minute] = clock.split(':').map(Number)
   if (hour > 23 || minute > 59) return null
   const date = new Date(year, month - 1, day, hour, minute)
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
+const todayFeasibility = computed(() => {
+  let checked = 0
+  let unknown = 0
+  let conflicts = 0
+  let minimumBuffer: number | null = null
+  let totalBuffer = 0
+  for (let index = 0; index < routeAgendaStops.value.length - 1; index++) {
+    const from = routeAgendaStops.value[index].stop
+    const to = routeAgendaStops.value[index + 1].stop
+    if (!from || !to) continue
+    const departure = dayScheduleTimestamp(from.end_time)
+    const deadline = dayScheduleTimestamp(to.start_time)
+    const leg = transitMetrics.value[index]
+    if (departure === null || deadline === null || !leg) { unknown++; continue }
+    const buffer = Math.floor((deadline - departure - leg.durationMillis) / 60000)
+    checked++
+    totalBuffer += buffer
+    minimumBuffer = minimumBuffer === null ? buffer : Math.min(minimumBuffer, buffer)
+    if (buffer < 0) conflicts++
+  }
+  const count = Math.max(0, dayStops.value.length - 1)
+  const status = conflicts ? 'conflict' : unknown || !checked ? 'unknown' : minimumBuffer !== null && minimumBuffer < 10 ? 'tight' : 'ok'
+  return {
+    status,
+    headline: conflicts ? conflicts + ' zeitliche Konflikte erkannt' : !count ? 'Mindestens zwei Stopps erforderlich' : status === 'ok' ? 'Alle geprüften Stopps zeitlich erreichbar' : status === 'tight' ? 'Tagesplan knapp, aber rechnerisch machbar' : 'Tagesplan nicht vollständig prüfbar',
+    detail: checked + ' von ' + count + ' Übergängen geprüft' + (unknown ? ' · ' + unknown + ' ohne ausreichende Zeitangaben' : ''),
+    minimumBuffer,
+    averageBuffer: checked ? Math.round(totalBuffer / checked) : null,
+  }
+})
 const todayScheduleForecast = computed(() => {
   const forecast: Record<string, { arrival: string; deltaMinutes: number }> = {}
   let previousDeparture: number | null = null
@@ -2120,6 +2150,12 @@ onUnmounted(() => {
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <div v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview">
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
+          <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
+            <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
+            <span>{{ todayFeasibility.detail }}</span>
+            <span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min. · Durchschnitt: {{ todayFeasibility.averageBuffer }} Min.</span>
+            <small>Geplante End- und Startzeiten sowie berechnete Reisezeiten. Fehlende Zeiten werden nicht geschätzt.</small>
+          </section>
           <p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p>
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
             <div class="day-plan-stop">
@@ -2532,4 +2568,11 @@ onUnmounted(() => {
 
 <style scoped>
 .today-stop-forecast--unknown { color: #70634b; font-weight: 400; }
+</style>
+
+<style scoped>
+.today-feasibility { display: grid; gap: 5px; margin: 10px 0 15px; padding: 12px; border: 1px solid #c7d8d1; border-radius: 12px; background: #edf6f1; color: #254c3e; font-size: .85rem; }
+.today-feasibility--tight, .today-feasibility--unknown { background: #fff7e8; border-color: #e8d8b7; color: #6c4c18; }
+.today-feasibility--conflict { background: #fff0ec; border-color: #ecc4b7; color: #963f2a; }
+.today-feasibility small { font-size: .74rem; opacity: .85; }
 </style>
