@@ -207,7 +207,7 @@ function dayScheduleTimestamp(clock: string | null | undefined): number | null {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
 const todaySafetyMinutes = ref(10)
-type DayLegBuffer = { kind: 'conflict' | 'tight' | 'ok' | 'unknown'; buffer: number | null; text: string }
+type DayLegBuffer = { kind: 'conflict' | 'tight' | 'ok' | 'unknown'; buffer: number | null; text: string; recommendation?: string }
 const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
   const result: Record<number, DayLegBuffer> = {}
   for (let index = 0; index < routeAgendaStops.value.length - 1; index++) {
@@ -222,10 +222,19 @@ const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
       continue
     }
     const buffer = Math.floor((deadline - departure - leg.durationMillis) / 60000)
+    const missingMinutes = Math.max(0, todaySafetyMinutes.value - buffer)
+    const latestDeparture = new Date(deadline - leg.durationMillis - todaySafetyMinutes.value * 60000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    const fixedActivity = from.kind === 'activity'
+    const recommendation = missingMinutes > 0
+      ? 'Empfehlung: Spätestens ' + latestDeparture + ' Uhr am vorherigen Stopp aufbrechen. ' +
+        (fixedActivity
+          ? 'Bei einer gebuchten Aktivität die Endzeit prüfen; andernfalls Reiseweg oder folgenden Termin anpassen.'
+          : 'Falls möglich, Aufenthalt um ' + missingMinutes + ' Min. verkürzen oder eine schnellere Verbindung wählen.')
+      : undefined
     result[index] = buffer < 0
-      ? { kind: 'conflict', buffer, text: 'Zeitkonflikt · ' + Math.abs(buffer) + ' Min. zu wenig Zeit' }
+      ? { kind: 'conflict', buffer, text: 'Zeitkonflikt · ' + Math.abs(buffer) + ' Min. zu wenig Zeit', recommendation }
       : buffer < todaySafetyMinutes.value
-        ? { kind: 'tight', buffer, text: 'Knapp · ' + buffer + ' Min. Puffer (Ziel: ' + todaySafetyMinutes.value + ' Min.)' }
+        ? { kind: 'tight', buffer, text: 'Knapp · ' + buffer + ' Min. Puffer (Ziel: ' + todaySafetyMinutes.value + ' Min.)', recommendation }
         : { kind: 'ok', buffer, text: buffer + ' Min. Zeitpuffer' }
   }
   return result
@@ -2194,6 +2203,7 @@ onUnmounted(() => {
             </div>
             <div v-if="todayLegBuffers[index]" class="today-leg-buffer" :class="'today-leg-buffer--' + todayLegBuffers[index].kind" role="status">
               <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
+              <small v-if="todayLegBuffers[index].recommendation" class="today-leg-buffer__recommendation">{{ todayLegBuffers[index].recommendation }}</small>
             </div>
             <div v-if="index < routeAgendaStops.length - 1 && transitMetrics[index]" class="today-leg">
               <div v-if="transitMetrics[index]?.mode === 'walking'" class="today-leg__summary">
@@ -2618,4 +2628,8 @@ onUnmounted(() => {
 .today-leg-buffer--tight { border-color: #d5a24c; color: #81530e; background: #fff8e8; }
 .today-leg-buffer--conflict { border-color: #d36b54; color: #993d2d; background: #fff0ec; }
 .today-leg-buffer--unknown { border-color: #a0a8ae; color: #5f666b; background: #f3f4f5; font-weight: 400; }
+</style>
+
+<style scoped>
+.today-leg-buffer__recommendation { display: block; margin-top: 5px; line-height: 1.45; font-weight: 400; }
 </style>
