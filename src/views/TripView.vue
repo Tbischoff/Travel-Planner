@@ -683,6 +683,11 @@ const navigationProgressMeters = ref(0)
 let navigationTotalPathDistance = 0
 let navigationOriginalDistance = 0
 let navigationOriginalDuration = 0
+let navigationTransitEstimatedArrivalMs: number | null = null
+function updateNavigationTransitRemainingTime() {
+  if (!navigationRouteUsesTransit || !navigationTransitEstimatedArrivalMs) return
+  navigationRemainingDuration.value = Math.max(0, navigationTransitEstimatedArrivalMs - Date.now())
+}
 let navigationRouteUsesTransit = false
 let navigationOffRouteSamples = 0
 let navigationLastOffRouteDistance: number | null = null
@@ -743,6 +748,7 @@ function updateNavigationProgress(position: RoutePoint, accuracy: number) {
   const fraction = Math.min(1, navigationMaxProgress / Math.max(1, navigationTotalPathDistance))
   navigationRemainingDistance.value = Math.max(0, navigationOriginalDistance * (1 - fraction))
   navigationRemainingDuration.value = Math.max(0, navigationOriginalDuration * (1 - fraction))
+  updateNavigationTransitRemainingTime()
   const steps = navigationInstructions.value
   while (navigationInstructionIndex.value < steps.length - 1 && navigationMaxProgress >= steps[navigationInstructionIndex.value].endMeters - 12) navigationInstructionIndex.value++
   navigationManeuverDistance.value = steps.length ? Math.max(0, steps[navigationInstructionIndex.value].endMeters - navigationMaxProgress) : null
@@ -904,6 +910,7 @@ function clearNavigationRouteV3() {
   navigationManeuverDistance.value = null
   navigationRemainingDistance.value = null
   navigationRemainingDuration.value = null
+  navigationTransitEstimatedArrivalMs = null
   navigationPath = []
   navigationPathDistances = []
   navigationMaxProgress = 0
@@ -1003,6 +1010,11 @@ async function updateNavigationRouteV3(force = false) {
       if (nextRide) itinerary[index].nextTransitStop = nextRide.description.split(' → ')[0]
     }
     navigationTransitItinerary.value = chosenTransit ? itinerary : []
+    const finalScheduledArrival = [...itinerary].reverse().find(step => step.arrivalTimeMs)?.arrivalTimeMs
+    const scheduledDuration = finalScheduledArrival ? finalScheduledArrival - Date.now() : null
+    navigationTransitEstimatedArrivalMs = chosenTransit
+      ? (scheduledDuration !== null && scheduledDuration > 0 ? finalScheduledArrival! : Date.now() + (route.durationMillis ?? 0))
+      : null
     navigationRouteUsesTransit = chosenTransit
     navigationOffRouteSamples = 0
     navigationLastOffRouteDistance = null
@@ -1017,6 +1029,7 @@ async function updateNavigationRouteV3(force = false) {
     navigationInstructions.value = instructionList
     navigationRemainingDistance.value = navigationOriginalDistance
     navigationRemainingDuration.value = navigationOriginalDuration
+    updateNavigationTransitRemainingTime()
     navigationManeuverDistance.value = instructionList[0]?.endMeters ?? null
     if (userLocation.value) updateNavigationProgress(userLocation.value, navigationAccuracy.value ?? 30)
     navigationDynamicZoom()
@@ -1067,6 +1080,7 @@ function startNavigationTracking() {
           } else (map as ClusterMap).setCenter(userLocation.value)
         }
         updateNavigationProgress(userLocation.value, coords.accuracy)
+        updateNavigationTransitRemainingTime()
         if (!navigationArrived.value) checkNavigationDeviation(userLocation.value, coords.accuracy)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
