@@ -1575,6 +1575,7 @@ function showAllPlacesOnMap() {
   selectedDay.value = 'unplanned'
   selectedCategory.value = 'all'
   searchQuery.value = ''
+  sortByDistance.value = false
   mobilePlacesOpen.value = false
   void nextTick(() => fitAllPlaces())
 }
@@ -2261,7 +2262,6 @@ onUnmounted(() => {
       </aside>
       <section class="map-panel">
         <div v-if="navigationState === 'idle'" class="map-mobile-actions">
-          <button type="button" @click="openWorkspaceTab(activeTab)" aria-label="Bereich öffnen" title="Bereich öffnen">☰</button>
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
         <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
