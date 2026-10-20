@@ -679,6 +679,7 @@ const navigationCurrentInstruction = computed(() => navigationInstructions.value
 let navigationPath: RoutePoint[] = []
 let navigationPathDistances: number[] = []
 let navigationMaxProgress = 0
+const navigationProgressMeters = ref(0)
 let navigationTotalPathDistance = 0
 let navigationOriginalDistance = 0
 let navigationOriginalDuration = 0
@@ -738,6 +739,7 @@ function updateNavigationProgress(position: RoutePoint, accuracy: number) {
   }
   if (closestDistance > Math.max(35, accuracy * 1.5) || closestProgress + 25 < navigationMaxProgress) return
   navigationMaxProgress = Math.max(navigationMaxProgress, closestProgress)
+  navigationProgressMeters.value = navigationMaxProgress
   const fraction = Math.min(1, navigationMaxProgress / Math.max(1, navigationTotalPathDistance))
   navigationRemainingDistance.value = Math.max(0, navigationOriginalDistance * (1 - fraction))
   navigationRemainingDuration.value = Math.max(0, navigationOriginalDuration * (1 - fraction))
@@ -749,14 +751,14 @@ function updateNavigationProgress(position: RoutePoint, accuracy: number) {
 const navigationTransitSteps = ref<{ line: string; direction: string; from: string; to: string; time: string }[]>([])
 const navigationTransitItinerary = ref<{ type: 'walk' | 'transit'; label: string; description: string; time: string; endMeters: number; departureTimeMs?: number; arrivalTimeMs?: number; nextTransitStop?: string }[]>([])
 const navigationCurrentTransitIndex = computed(() => {
-  const index = navigationTransitItinerary.value.findIndex(step => navigationMaxProgress < step.endMeters - 12)
+  const index = navigationTransitItinerary.value.findIndex(step => navigationProgressMeters.value < step.endMeters - 12)
   return index < 0 ? Math.max(0, navigationTransitItinerary.value.length - 1) : index
 })
 const navigationCurrentTransitStep = computed(() => navigationTransitItinerary.value[navigationCurrentTransitIndex.value])
 const navigationTransitPhase = computed(() => {
   const step = navigationCurrentTransitStep.value
   if (!step) return ''
-  if (step.type === 'walk') return step.nextTransitStop ? 'Zur Haltestelle gehen' : 'Fußweg zum Ziel'
+  if (step.type === 'walk') return step.nextTransitStop ? (navigationCurrentTransitIndex.value === 0 ? 'Zur Haltestelle gehen' : 'Umsteigen · Fußweg') : 'Fußweg zum Ziel'
   if (step.arrivalTimeMs && Date.now() >= step.arrivalTimeMs) return 'Ausstieg prüfen'
   if (step.departureTimeMs && Date.now() < step.departureTimeMs) return 'Auf Abfahrt warten'
   return 'Unterwegs · Ausstieg beachten'
@@ -904,6 +906,7 @@ function clearNavigationRouteV3() {
   navigationPath = []
   navigationPathDistances = []
   navigationMaxProgress = 0
+  navigationProgressMeters.value = 0
   navigationTotalPathDistance = 0
   navigationOffRouteSamples = 0
   navigationLastOffRouteDistance = null
@@ -1006,6 +1009,7 @@ async function updateNavigationRouteV3(force = false) {
     navigationPathDistances = distances
     navigationTotalPathDistance = totalPath
     navigationMaxProgress = 0
+    navigationProgressMeters.value = 0
     navigationOriginalDistance = route.distanceMeters ?? 0
     navigationOriginalDuration = route.durationMillis ?? 0
     navigationInstructionIndex.value = 0
