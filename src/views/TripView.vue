@@ -659,20 +659,23 @@ const navigationDetailsOpen = ref(false)
 const navigationInstructions = ref<{ text: string; distance: number }[]>([])
 let navigationPositionMarker: AdvancedMarkerInstance | null = null
 let navigationPositionArrow: HTMLElement | null = null
+let navigationPositionElement: HTMLElement | null = null
 function navigationArrowHeading() {
   if (!navigationPositionArrow) return
+  navigationPositionElement?.classList.toggle('trip-navigation-position--idle', navigationState.value === 'idle')
   navigationPositionArrow.style.transform = 'rotate(' + (navigationHeadingUp.value && navigationMapMode.value === 'follow' ? 0 : (navigationGpsHeading.value ?? 0)) + 'deg)'
 }
 async function updateNavigationPositionMarker(position: RoutePoint) {
   if (!map) return
   if (!navigationPositionMarker) {
     const { AdvancedMarkerElement } = await getMarkerLibrary()
-    if (!map || navigationState.value === 'idle') return
+    if (!map) return
     const element = document.createElement('div')
     element.className = 'trip-navigation-position'
+    navigationPositionElement = element
     element.innerHTML = '<div class="trip-navigation-position__arrow">▲</div>'
     navigationPositionArrow = element.firstElementChild as HTMLElement
-    navigationPositionMarker = new AdvancedMarkerElement({ map, position, content: element, title: 'Aktueller Standort und Bewegungsrichtung', zIndex: 10000 })
+    navigationPositionMarker = new AdvancedMarkerElement({ map, position, content: element, title: 'Aktueller Standort', zIndex: 10000 })
   } else navigationPositionMarker.position = position
   navigationArrowHeading()
 }
@@ -680,6 +683,7 @@ function clearNavigationPositionMarker() {
   if (navigationPositionMarker) navigationPositionMarker.map = null
   navigationPositionMarker = null
   navigationPositionArrow = null
+  navigationPositionElement = null
 }
 let navigationPreviousPosition: RoutePoint | null = null
 function applyNavigationBearing() {
@@ -714,7 +718,7 @@ function resetNavigationOrientation() {
   navigationPreviousPosition = null
   navigationHeadingUp.value = true
   navigationDetailsOpen.value = false
-  clearNavigationPositionMarker()
+  navigationArrowHeading()
   if (map) {
     const camera = map as unknown as { moveCamera?: (options: { heading: number; tilt: number }) => void; setHeading: (heading: number) => void }
     if (camera.moveCamera) camera.moveCamera({ heading: 0, tilt: 0 })
@@ -1089,6 +1093,7 @@ function centerOnCurrentLocation() {
   navigator.geolocation?.getCurrentPosition(({ coords }) => {
     const position = { lat: coords.latitude, lng: coords.longitude }
     userLocation.value = position
+    void updateNavigationPositionMarker(position)
     map?.panTo(position); map?.setZoom(Math.max(map?.getZoom() || 0, 14))
   })
 }
@@ -1630,6 +1635,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   stopNavigationTracking()
+  clearNavigationPositionMarker()
   hideWalkingRoute()
   if (openingClockTimer) clearInterval(openingClockTimer)
   if (realtimeRefreshTimer) clearTimeout(realtimeRefreshTimer)
@@ -2008,4 +2014,9 @@ onUnmounted(() => {
 .navigation-map-overlay__details ol { padding-left:22px; margin:7px 0 0; font-size:.82rem; }
 .navigation-map-overlay__details li { margin:5px 0; }
 .navigation-map-overlay__actions { margin-top:8px; }
+</style>
+
+<style scoped>
+.trip-navigation-position--idle { width:24px; height:24px; border:3px solid white; background:#1478ef; box-shadow:0 0 0 12px #1478ef25,0 2px 8px #0004; }
+.trip-navigation-position--idle .trip-navigation-position__arrow { display:none; }
 </style>
