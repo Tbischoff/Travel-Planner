@@ -656,6 +656,31 @@ const navigationMapMode = ref<'follow' | 'overview'>('follow')
 const navigationHeadingUp = ref(true)
 const navigationGpsHeading = ref<number | null>(null)
 const navigationDetailsOpen = ref(false)
+const navigationInstructions = ref<{ text: string; distance: number }[]>([])
+let navigationPositionMarker: AdvancedMarkerInstance | null = null
+let navigationPositionArrow: HTMLElement | null = null
+function navigationArrowHeading() {
+  if (!navigationPositionArrow) return
+  navigationPositionArrow.style.transform = 'rotate(' + (navigationHeadingUp.value && navigationMapMode.value === 'follow' ? 0 : (navigationGpsHeading.value ?? 0)) + 'deg)'
+}
+async function updateNavigationPositionMarker(position: RoutePoint) {
+  if (!map) return
+  if (!navigationPositionMarker) {
+    const { AdvancedMarkerElement } = await getMarkerLibrary()
+    if (!map || navigationState.value === 'idle') return
+    const element = document.createElement('div')
+    element.className = 'trip-navigation-position'
+    element.innerHTML = '<div class="trip-navigation-position__arrow">▲</div>'
+    navigationPositionArrow = element.firstElementChild as HTMLElement
+    navigationPositionMarker = new AdvancedMarkerElement({ map, position, content: element, title: 'Aktueller Standort und Bewegungsrichtung', zIndex: 10000 })
+  } else navigationPositionMarker.position = position
+  navigationArrowHeading()
+}
+function clearNavigationPositionMarker() {
+  if (navigationPositionMarker) navigationPositionMarker.map = null
+  navigationPositionMarker = null
+  navigationPositionArrow = null
+}
 let navigationPreviousPosition: RoutePoint | null = null
 function applyNavigationBearing() {
   if (!map || navigationState.value !== 'active' || navigationMapMode.value !== 'follow') return
@@ -663,11 +688,13 @@ function applyNavigationBearing() {
   const camera = map as unknown as { moveCamera?: (options: { heading: number; tilt: number }) => void; setHeading: (heading: number) => void }
   if (camera.moveCamera) camera.moveCamera({ heading, tilt: 0 })
   else camera.setHeading(heading)
+  navigationArrowHeading()
 }
 function toggleNavigationHeading() {
   navigationHeadingUp.value = !navigationHeadingUp.value
   if (navigationMapMode.value === 'overview') showNavigationMapMode('follow')
   else applyNavigationBearing()
+  navigationArrowHeading()
 }
 function updateNavigationHeading(position: RoutePoint, gpsHeading: number | null, speed: number | null) {
   if (gpsHeading !== null && Number.isFinite(gpsHeading) && (speed === null || speed > 0.3)) navigationGpsHeading.value = gpsHeading
@@ -680,12 +707,14 @@ function updateNavigationHeading(position: RoutePoint, gpsHeading: number | null
   }
   navigationPreviousPosition = position
   applyNavigationBearing()
+  navigationArrowHeading()
 }
 function resetNavigationOrientation() {
   navigationGpsHeading.value = null
   navigationPreviousPosition = null
   navigationHeadingUp.value = true
   navigationDetailsOpen.value = false
+  clearNavigationPositionMarker()
   if (map) {
     const camera = map as unknown as { moveCamera?: (options: { heading: number; tilt: number }) => void; setHeading: (heading: number) => void }
     if (camera.moveCamera) camera.moveCamera({ heading: 0, tilt: 0 })
@@ -696,7 +725,7 @@ let navigationRouteBounds: { fit: () => void } | null = null
 function showNavigationMapMode(mode: 'follow' | 'overview') {
   navigationMapMode.value = mode
   if (!map) return
-  if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit() }
+  if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit(); navigationArrowHeading() }
   else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(16); applyNavigationBearing() }
 }
 const navigationArrived = ref(false)
@@ -729,6 +758,7 @@ function clearNavigationRouteV3() {
   navigationLines.forEach(line => line.setMap(null))
   navigationLines = []
   navigationRouteBounds = null
+  navigationInstructions.value = []
   navigationDistance.value = null
   navigationDuration.value = null
   navigationRouting.value = false
@@ -757,6 +787,15 @@ async function updateNavigationRouteV3(force = false) {
     navigationLines.forEach(line => line.setMap(null))
     navigationLines = route.createPolylines({ polylineOptions: { strokeColor: '#e07b26', strokeWeight: 7, strokeOpacity: 0.95, zIndex: 30 } })
     navigationLines.forEach(line => line.setMap(map))
+    const instructionList: { text: string; distance: number }[] = []
+    for (const leg of route.legs || []) {
+      for (const step of leg.steps || []) {
+        const item = step as TransitStep & { instructions?: string; distanceMeters?: number; navigationInstruction?: { instructions?: string } }
+        const raw = item.navigationInstruction?.instructions || item.instructions
+        if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim(), distance: item.distanceMeters ?? 0 })
+      }
+    }
+    navigationInstructions.value = instructionList
     navigationDistance.value = route.distanceMeters ?? 0
     navigationDuration.value = route.durationMillis ?? 0
     const bounds = new (getGoogleMaps().LatLngBounds)()
@@ -786,6 +825,7 @@ function startNavigationTracking() {
       userLocation.value = { lat: coords.latitude, lng: coords.longitude }
       navigationAccuracy.value = Math.round(coords.accuracy)
       updateNavigationHeading(userLocation.value, coords.heading, coords.speed)
+      void updateNavigationPositionMarker(userLocation.value)
       if (!navigationArrived.value) navigationMessage.value = ''
       if (navigationState.value === 'active') {
         if (map && navigationMapMode.value === 'follow') (map as ClusterMap).setCenter(userLocation.value)
