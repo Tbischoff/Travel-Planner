@@ -1900,6 +1900,7 @@ function savePlanning() {
     }
   }).finally(() => { planningSaving.value = false })
 }
+// Manual entry updates the same refs as the clock picker, so the existing autosave watcher runs.
 watch([popupDay, popupStart, popupEnd], () => {
   if (activePlace.value && !editingPlace.value) savePlanning()
 })
@@ -2432,8 +2433,8 @@ onUnmounted(() => {
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
               <div v-if="popupDay" class="place-popup__times">
-                <label>Von<span class="time-combo"><input :value="popupStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Beginn manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => popupStart = value)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
-                <label>Bis<span class="time-combo"><input :value="popupEnd" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Ende manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => popupEnd = value)"><button type="button" aria-label="Ende über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupEnd" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+                <label>Von<span class="time-combo"><input :value="popupStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Beginn manuell eingeben" @input="popupStart = ($event.target as HTMLInputElement).value" @blur="popupStart = normalizedTime(popupStart)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+                <label>Bis<span class="time-combo"><input :value="popupEnd" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Ende manuell eingeben" @input="popupEnd = ($event.target as HTMLInputElement).value" @blur="popupEnd = normalizedTime(popupEnd)"><button type="button" aria-label="Ende über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupEnd" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
               </div>
             </template>
             <div class="place-popup__actions">
@@ -2462,7 +2463,7 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<span class="time-combo"><input :value="activityStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" required aria-label="Beginn manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => activityStart = value)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="activityStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+        <label>Beginn<span class="time-combo"><input :value="activityStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" required aria-label="Beginn manuell eingeben" @input="activityStart = ($event.target as HTMLInputElement).value" @blur="activityStart = normalizedTime(activityStart)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="activityStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
                 <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
