@@ -206,10 +206,12 @@ function dayScheduleTimestamp(clock: string | null | undefined): number | null {
   const date = new Date(year, month - 1, day, hour, minute)
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
+const todaySafetyMinutes = ref(10)
 const todayFeasibility = computed(() => {
   let checked = 0
   let unknown = 0
   let conflicts = 0
+  let reserveShortfalls = 0
   let minimumBuffer: number | null = null
   let totalBuffer = 0
   for (let index = 0; index < routeAgendaStops.value.length - 1; index++) {
@@ -225,14 +227,16 @@ const todayFeasibility = computed(() => {
     totalBuffer += buffer
     minimumBuffer = minimumBuffer === null ? buffer : Math.min(minimumBuffer, buffer)
     if (buffer < 0) conflicts++
+    else if (buffer < todaySafetyMinutes.value) reserveShortfalls++
   }
   const count = Math.max(0, dayStops.value.length - 1)
-  const status = conflicts ? 'conflict' : unknown || !checked ? 'unknown' : minimumBuffer !== null && minimumBuffer < 10 ? 'tight' : 'ok'
+  const status = conflicts ? 'conflict' : unknown || !checked ? 'unknown' : reserveShortfalls ? 'tight' : 'ok'
   return {
     status,
-    headline: conflicts ? conflicts + ' zeitliche Konflikte erkannt' : !count ? 'Mindestens zwei Stopps erforderlich' : status === 'ok' ? 'Alle geprüften Stopps zeitlich erreichbar' : status === 'tight' ? 'Tagesplan knapp, aber rechnerisch machbar' : 'Tagesplan nicht vollständig prüfbar',
+    headline: conflicts ? conflicts + ' zeitliche Konflikte erkannt' : !count ? 'Mindestens zwei Stopps erforderlich' : status === 'ok' ? 'Alle geprüften Übergänge mit Sicherheitspuffer machbar' : status === 'tight' ? reserveShortfalls + ' Übergänge mit zu wenig Reserve' : 'Tagesplan nicht vollständig prüfbar',
     detail: checked + ' von ' + count + ' Übergängen geprüft' + (unknown ? ' · ' + unknown + ' ohne ausreichende Zeitangaben' : ''),
     minimumBuffer,
+    reserveShortfalls,
     averageBuffer: checked ? Math.round(totalBuffer / checked) : null,
   }
 })
@@ -2153,8 +2157,9 @@ onUnmounted(() => {
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
             <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
             <span>{{ todayFeasibility.detail }}</span>
+            <label class="today-feasibility__reserve">Sicherheitsreserve je Übergang <select v-model.number="todaySafetyMinutes" aria-label="Sicherheitsreserve pro Übergang"><option :value="0">0 Min.</option><option :value="5">5 Min.</option><option :value="10">10 Min.</option><option :value="15">15 Min.</option><option :value="20">20 Min.</option></select></label>
             <span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min. · Durchschnitt: {{ todayFeasibility.averageBuffer }} Min.</span>
-            <small>Geplante End- und Startzeiten sowie berechnete Reisezeiten. Fehlende Zeiten werden nicht geschätzt.</small>
+            <small>Berechnung aus geplanten Zeiten und Routenfahrzeiten. Die Reserve ist ein frei gewählter Zuschlag für Unvorhergesehenes, keine Live-Verspätungsprognose. Fehlende Zeitangaben bleiben ungeprüft.</small>
           </section>
           <p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p>
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
@@ -2575,4 +2580,9 @@ onUnmounted(() => {
 .today-feasibility--tight, .today-feasibility--unknown { background: #fff7e8; border-color: #e8d8b7; color: #6c4c18; }
 .today-feasibility--conflict { background: #fff0ec; border-color: #ecc4b7; color: #963f2a; }
 .today-feasibility small { font-size: .74rem; opacity: .85; }
+</style>
+
+<style scoped>
+.today-feasibility__reserve { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .8rem; }
+.today-feasibility__reserve select { border: 1px solid #c7d0cd; border-radius: 7px; background: white; color: #243c33; padding: 5px 7px; font: inherit; }
 </style>
