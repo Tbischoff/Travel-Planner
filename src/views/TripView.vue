@@ -778,7 +778,7 @@ async function updateNavigationRouteV3(force = false) {
     const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
     if (!library.Route) throw new Error('Google Routes Library nicht verfügbar.')
     const mode = routeMode.value === 'transit' ? 'TRANSIT' : 'WALKING'
-    const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis'] }
+    const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
     if (mode === 'TRANSIT') request.departureTime = new Date()
     const result = await library.Route.computeRoutes(request)
     if (requestId !== navigationRouteRequest || navigationState.value !== 'active' || !map) return
@@ -1764,13 +1764,26 @@ onUnmounted(() => {
           <p v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p>
           <p v-else-if="navigationRouting">Route wird berechnet …</p>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
-          <div class="navigation-map-overlay__compact-actions"><button type="button" @click="toggleNavigationHeading">{{ navigationHeadingUp ? '🧭 Richtung' : 'N Norden' }}</button><button type="button" :aria-expanded="navigationDetailsOpen" @click="navigationDetailsOpen = !navigationDetailsOpen">{{ navigationDetailsOpen ? 'Details ▲' : 'Details ▼' }}</button></div><div v-if="navigationDetailsOpen" class="navigation-map-overlay__details"><p>GPS {{ navigationAccuracy === null ? 'wird ermittelt' : '±' + navigationAccuracy + ' m' }} · {{ navigationHeadingUp ? 'Bewegungsrichtung oben' : 'Norden oben' }}</p><div class="navigation-map-overlay__actions"><button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Gesamtroute' : '◎ Mir folgen' }}</button>
+          <p v-if="navigationInstructions.length" class="navigation-map-overlay__next">↱ {{ navigationInstructions[0]?.text }}</p>
+          <div class="navigation-map-overlay__compact-actions">
+            <button type="button" @click="toggleNavigationHeading">{{ navigationHeadingUp ? '🧭 Richtung' : 'N Norden' }}</button>
+            <button type="button" :aria-expanded="navigationDetailsOpen" @click="navigationDetailsOpen = !navigationDetailsOpen">{{ navigationDetailsOpen ? 'Details ▲' : 'Details ▼' }}</button>
+          </div>
+          <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
+            <strong>Nächste Navigationsschritte</strong>
+            <ol v-if="navigationInstructions.length">
+              <li v-for="(instruction, index) in navigationInstructions.slice(0, 6)" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li>
+            </ol>
+            <p v-else>Für diese Verbindung liefert Google Maps noch keine einzelnen Abbiegehinweise.</p>
+          </div>
+          <div class="navigation-map-overlay__actions">
+            <button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Gesamtroute' : '◎ Mir folgen' }}</button>
             <button v-if="navigationArrived" type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Abschließen' : 'Nächster Stopp →' }}</button>
             <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pause</button>
             <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Weiter</button>
             <button v-if="!navigationArrived" type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">Stopp überspringen →</button>
             <button type="button" @click="stopDayNavigationV3">■ Beenden</button>
-          </div></div>
+          </div>
         </section>
         <div v-if="navigationState === 'idle'" class="map-toolbar">
           <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
@@ -1985,4 +1998,14 @@ onUnmounted(() => {
 .navigation-map-overlay__compact-actions button { flex:1; max-width:190px; border:1px solid #b8cdc6; background:#f6faf8; border-radius:8px; padding:8px 10px; font:inherit; font-size:.84rem; cursor:pointer; }
 .navigation-map-overlay__details { margin-top:8px; padding-top:7px; border-top:1px solid #e1e9e5; }
 .navigation-map-overlay__details p { font-size:.77rem; color:#5b6f67; }
+</style>
+
+<style scoped>
+.trip-navigation-position { width:44px; height:44px; border:3px solid white; border-radius:50%; background:#1478ef; box-shadow:0 2px 10px #0006; display:flex; justify-content:center; align-items:center; box-sizing:border-box; }
+.trip-navigation-position__arrow { color:white; font-size:27px; line-height:1; transform-origin:center; text-shadow:0 1px 2px #123b7a; }
+.navigation-map-overlay__next { font-weight:600; }
+.navigation-map-overlay__details { max-height:180px; overflow:auto; text-align:left; }
+.navigation-map-overlay__details ol { padding-left:22px; margin:7px 0 0; font-size:.82rem; }
+.navigation-map-overlay__details li { margin:5px 0; }
+.navigation-map-overlay__actions { margin-top:8px; }
 </style>
