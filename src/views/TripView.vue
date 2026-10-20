@@ -770,7 +770,7 @@ function resetNavigationOrientation() {
   }
 }
 let navigationRouteBounds: { fit: () => void } | null = null
-function showNavigationMapMode(mode: 'follow' | 'overview') {
+function showNavigationMapMode(mode: 'follow' | 'overview' | 'free') {
   navigationMapMode.value = mode
   if (!map || mode === 'free') return
   if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit(); navigationArrowHeading() }
