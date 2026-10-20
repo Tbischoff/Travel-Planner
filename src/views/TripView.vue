@@ -1865,7 +1865,7 @@ onUnmounted(() => {
             <div class="navigation-map-overlay__topbuttons">
               <button v-if="navigationState === 'active'" type="button" aria-label="Navigation pausieren" title="Pausieren" @click="pauseDayNavigationV3">⏸</button>
               <button v-else type="button" aria-label="Navigation fortsetzen" title="Fortsetzen" @click="resumeDayNavigationV3">▶</button>
-              <button type="button" :aria-expanded="navigationDetailsOpen" aria-label="Navigationsdetails anzeigen" @click="navigationDetailsOpen = !navigationDetailsOpen">{{ navigationDetailsOpen ? '⌃' : '⌄' }}</button>
+              <button type="button" :aria-expanded="navigationDetailsOpen" aria-label="Navigationsdetails anzeigen" @click="navigationDetailsOpen = !navigationDetailsOpen"><svg class="navigation-control-icon" viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path :d="navigationDetailsOpen ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'"/></svg></button>
               <button type="button" aria-label="Navigation beenden" title="Beenden" @click="stopDayNavigationV3">✕</button>
             </div>
           </div>
@@ -1883,7 +1883,7 @@ onUnmounted(() => {
           <div class="navigation-map-overlay__footer">
             <span class="navigation-map-overlay__gps">GPS {{ navigationAccuracy === null ? '…' : '±' + navigationAccuracy + ' m' }}</span>
             <button type="button" @click="toggleNavigationHeading">{{ navigationHeadingUp ? '🧭 Richtung' : 'N Norden' }}</button>
-            <button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')">{{ navigationMapMode === 'follow' ? '⌗ Route' : '◎ Position' }}</button>
+            <button type="button" @click="showNavigationMapMode(navigationMapMode === 'follow' ? 'overview' : 'follow')"><svg class="navigation-control-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><template v-if="navigationMapMode === 'follow'"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></template><template v-else><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></template></svg> {{ navigationMapMode === 'follow' ? 'Route' : 'Position' }}</button>
             <button v-if="navigationArrived" type="button" @click="confirmNavigationArrivalV3">✓ Weiter</button>
             <button v-else type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">⏭ Stopp</button>
           </div>
@@ -2166,4 +2166,8 @@ onUnmounted(() => {
 .navigation-map-overlay__mode { display:flex; gap:6px; margin-top:8px; }
 .navigation-map-overlay__mode button { flex:1; border:1px solid #ccd9d5; border-radius:8px; padding:7px 4px; background:#fff; font:inherit; font-size:.78rem; cursor:pointer; }
 .navigation-map-overlay__mode button.selected { background:#dceee8; border-color:#498577; font-weight:700; }
+</style>
+
+<style scoped>
+.navigation-control-icon { display:inline-block; vertical-align:middle; flex-shrink:0; }
 </style>
