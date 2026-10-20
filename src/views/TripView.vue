@@ -799,7 +799,16 @@ const editOriginalAddress = ref('')
 const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
-const manualTimeEntry = ref(false)
+function openTimePicker(event: MouseEvent) {
+  const input = (event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLInputElement>('input[type="time"]')
+  if (!input) return
+  try { input.showPicker() } catch { input.focus(); input.click() }
+}
+function editTime(value: string, update: (time: string) => void) {
+  const formatted = normalizedTime(value)
+  if (formatted === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(formatted)) update(formatted)
+}
+
 function normalizedTime(value: string): string {
   const trimmed = value.trim()
   const digits = trimmed.replace(/[^0-9]/g, '')
@@ -2422,7 +2431,10 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
-              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-if="!manualTimeEntry" v-model="popupStart" type="time" step="60"><input v-else :value="popupStart" type="text" inputmode="numeric" placeholder="HH:MM" @change="popupStart = normalizedTime(($event.target as HTMLInputElement).value)"></label><label>Bis<input v-if="!manualTimeEntry" v-model="popupEnd" type="time" step="60"><input v-else :value="popupEnd" type="text" inputmode="numeric" placeholder="HH:MM" @change="popupEnd = normalizedTime(($event.target as HTMLInputElement).value)"></label><button type="button" class="manual-time-toggle" @click="manualTimeEntry = !manualTimeEntry">{{ manualTimeEntry ? "🕒 Uhrzeit auswählen" : "⌨ Uhrzeit eintippen" }}</button></div>
+              <div v-if="popupDay" class="place-popup__times">
+                <label>Von<span class="time-combo"><input :value="popupStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Beginn manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => popupStart = value)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+                <label>Bis<span class="time-combo"><input :value="popupEnd" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Ende manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => popupEnd = value)"><button type="button" aria-label="Ende über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="popupEnd" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+              </div>
             </template>
             <div class="place-popup__actions">
               <p v-if="activePlace.category !== 'hotel'" class="muted">{{ planningSaving ? 'Speichert automatisch …' : 'Änderungen werden automatisch gespeichert' }}</p><p v-if="planningError" class="trip-error">{{ planningError }}</p>
@@ -2450,9 +2462,8 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<input v-if="!manualTimeEntry" v-model="activityStart" type="time" step="60" required><input v-else :value="activityStart" type="text" inputmode="numeric" placeholder="HH:MM" required @change="activityStart = normalizedTime(($event.target as HTMLInputElement).value)"></label>
-        <button type="button" class="manual-time-toggle" @click="manualTimeEntry = !manualTimeEntry">{{ manualTimeEntry ? "🕒 Uhrzeit auswählen" : "⌨ Uhrzeit eintippen" }}</button>
-        <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
+        <label>Beginn<span class="time-combo"><input :value="activityStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" required aria-label="Beginn manuell eingeben" @change="editTime(($event.target as HTMLInputElement).value, value => activityStart = value)"><button type="button" aria-label="Beginn über Uhr auswählen" @click="openTimePicker">◷</button><input v-model="activityStart" type="time" step="60" tabindex="-1" aria-hidden="true"></span></label>
+                <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
         <p v-if="activityAddress" class="muted">{{ activityAddress }}</p>
@@ -2737,4 +2748,8 @@ onUnmounted(() => {
 
 <style scoped>
 .manual-time-toggle{border:1px solid #ccd9d6;background:#fff;border-radius:8px;padding:7px 10px;cursor:pointer;color:#285b53;font-size:.8rem}.stop-weather{white-space:normal}
+</style>
+
+<style scoped>
+.time-combo{display:flex;align-items:center;position:relative;border:1px solid #cbd5d1;border-radius:8px;background:#fff;overflow:hidden;min-height:40px}.time-combo>input[type="text"]{border:0!important;box-shadow:none!important;min-width:0;width:100%;flex:1;padding:9px 8px;font:inherit;background:transparent}.time-combo>button{border:0;background:transparent;padding:8px 12px;font-size:1.2rem;color:#425e58;cursor:pointer;flex:none;touch-action:manipulation}.time-combo>input[type="time"]{position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none}
 </style>
