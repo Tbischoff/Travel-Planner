@@ -676,7 +676,6 @@ const navigationManeuverDistance = ref<number | null>(null)
 const navigationRemainingDistance = ref<number | null>(null)
 const navigationRemainingDuration = ref<number | null>(null)
 const navigationCurrentInstruction = computed(() => navigationInstructions.value[navigationInstructionIndex.value])
-const navigationUpcomingInstructions = computed(() => navigationInstructions.value.slice(navigationInstructionIndex.value + 1, navigationInstructionIndex.value + 7))
 let navigationPath: RoutePoint[] = []
 let navigationPathDistances: number[] = []
 let navigationMaxProgress = 0
@@ -2047,9 +2046,7 @@ onUnmounted(() => {
                 <span>{{ step.description }}</span><small v-if="step.time">{{ step.time }}</small>
               </article>
             </div>
-            <div v-else-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div><strong>Weitere Weganweisungen</strong>
-            <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationUpcomingInstructions" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
-            <p v-else-if="!navigationTransitSteps.length">Für diese Verbindung sind keine weiteren Weganweisungen verfügbar.</p>
+            <div v-else-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div>
           </div>
           <div class="navigation-map-overlay__mode" role="group" aria-label="Verkehrsmittel für Navigation"><button type="button" :aria-pressed="navigationTravelMode === 'walking'" :class="{ selected: navigationTravelMode === 'walking' }" @click="setNavigationTravelMode('walking')">🚶 Fuß</button><button type="button" :aria-pressed="navigationTravelMode === 'transit'" :class="{ selected: navigationTravelMode === 'transit' }" @click="setNavigationTravelMode('transit')">🚇 ÖPNV</button><button type="button" :aria-pressed="navigationTravelMode === 'auto'" :class="{ selected: navigationTravelMode === 'auto' }" @click="setNavigationTravelMode('auto')">✨ Kombi</button></div>
           <div class="navigation-map-overlay__footer">
