@@ -651,6 +651,7 @@ const navigationTargetIndex = ref(0)
 const navigationAccuracy = ref<number | null>(null)
 const navigationMessage = ref('')
 let navigationWatchId: number | null = null
+let navigationInitialZoomPending = false
 let navigationRouteRequest = 0
 let navigationLastRouteAt = 0
 let navigationLastRouteOrigin: RoutePoint | null = null
@@ -955,7 +956,12 @@ function startNavigationTracking() {
       void updateNavigationPositionMarker(userLocation.value)
       if (!navigationArrived.value) navigationMessage.value = ''
       if (navigationState.value === 'active') {
-        if (map && navigationMapMode.value === 'follow') (map as ClusterMap).setCenter(userLocation.value)
+        if (map && navigationMapMode.value === 'follow') {
+          if (navigationInitialZoomPending) {
+            navigationInitialZoomPending = false
+            showNavigationMapMode('follow')
+          } else (map as ClusterMap).setCenter(userLocation.value)
+        }
         updateNavigationProgress(userLocation.value, coords.accuracy)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
@@ -976,6 +982,8 @@ function startDayNavigationV3() {
   startNavigationOrientationTracking()
   if (userLocation.value) void updateNavigationPositionMarker(userLocation.value)
   navigationMapMode.value = 'follow'
+  navigationInitialZoomPending = true
+  if (userLocation.value) { showNavigationMapMode('follow'); navigationInitialZoomPending = false }
   navigationTravelMode.value = routeMode.value
   navigationHeadingUp.value = true
   navigationPreviousPosition = null
@@ -987,15 +995,24 @@ function startDayNavigationV3() {
 function pauseDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'paused'
+  navigationInitialZoomPending = false
   stopNavigationOrientationTracking()
   clearNavigationRouteV3()
 }
 function resumeDayNavigationV3() {
-  if (startNavigationTracking()) { navigationState.value = 'active'; startNavigationOrientationTracking(); navigationLastRouteAt = 0; if (userLocation.value) void updateNavigationRouteV3(true) }
+  if (startNavigationTracking()) {
+    navigationState.value = 'active'
+    navigationInitialZoomPending = navigationMapMode.value === 'follow'
+    if (userLocation.value && navigationInitialZoomPending) { showNavigationMapMode('follow'); navigationInitialZoomPending = false }
+    startNavigationOrientationTracking()
+    navigationLastRouteAt = 0
+    if (userLocation.value) void updateNavigationRouteV3(true)
+  }
 }
 function stopDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'idle'
+  navigationInitialZoomPending = false
   resetNavigationOrientation()
   mobilePlacesOpen.value = false
   clearNavigationRouteV3()
@@ -1687,7 +1704,7 @@ async function renderMap() {
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
   map.addListener('click', () => { closePlacePopup(); mobilePlacesOpen.value = false })
-  map.addListener('dragstart', () => { if (navigationState.value !== 'idle') navigationMapMode.value = 'free' })
+  map.addListener('dragstart', () => { if (navigationState.value !== 'idle') { navigationMapMode.value = 'free'; navigationInitialZoomPending = false } })
   const MarkerClusterer = (window as MarkerClustererWindow).markerClusterer?.MarkerClusterer
   if (MarkerClusterer) {
     placeMarkerClusterer = new MarkerClusterer({
