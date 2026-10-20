@@ -1846,7 +1846,6 @@ onUnmounted(() => {
           <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
           <button type="button" title="Alle Orte anzeigen" @click="fitAllPlaces">⌗ Alle</button>
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
-          <span v-if="locationStatus && locationStatus !== 'Standort wird ermittelt …'" class="map-location-status" role="status">{{ locationStatus }}</span>
         </div>
         <div v-if="activeActivity" class="place-popup" @click.stop>
           <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
@@ -2107,4 +2106,9 @@ onUnmounted(() => {
 .navigation-transit-cards { display:grid; gap:7px; margin-bottom:9px; }
 .navigation-transit-cards article { display:flex; flex-direction:column; gap:3px; border-radius:10px; background:#eaf4f1; padding:9px 10px; font-size:.81rem; }
 .navigation-transit-cards small { color:#5a6f67; }
+</style>
+
+<style scoped>
+.map-location-fab { bottom:155px; }
+@media (min-width:768px) { .map-location-fab { bottom:24px; } }
 </style>
