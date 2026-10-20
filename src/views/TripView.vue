@@ -198,6 +198,33 @@ const routeAgendaStops = computed(() => {
   return stops
 })
 
+const todayScheduleForecast = computed(() => {
+  const forecast: Record<string, { arrival: string; deltaMinutes: number }> = {}
+  let previousDeparture: number | null = null
+  for (let index = 0; index < routeAgendaStops.value.length; index++) {
+    const stop = routeAgendaStops.value[index].stop
+    if (!stop) { previousDeparture = null; continue }
+    const plannedStart = plannedTransitTime(stop.start_time)?.getTime()
+    const plannedEnd = plannedTransitTime(stop.end_time)?.getTime()
+    if (previousDeparture !== null && plannedStart !== undefined && index > 0) {
+      const leg = transitMetrics.value[index - 1]
+      if (leg) {
+        const arrival = previousDeparture + leg.durationMillis
+        const deltaMinutes = Math.round((arrival - plannedStart) / 60000)
+        forecast[stop.id] = {
+          arrival: new Date(arrival).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+          deltaMinutes,
+        }
+        if (plannedEnd !== undefined && plannedEnd >= plannedStart) {
+          previousDeparture = Math.max(arrival, plannedStart) + (plannedEnd - plannedStart)
+          continue
+        }
+      }
+    }
+    previousDeparture = plannedEnd !== undefined && plannedStart !== undefined && plannedEnd >= plannedStart ? plannedEnd : null
+  }
+  return forecast
+})
 function plannedTransitTime(clock: string | null | undefined): Date | null {
   if (!clock || !/^\d{1,2}:\d{2}/.test(clock) || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDay.value)) return null
   const [year, month, day] = selectedDay.value.split('-').map(Number)
@@ -2089,7 +2116,7 @@ onUnmounted(() => {
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
             <div class="day-plan-stop">
               <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
-              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small></span></button>
+              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
@@ -2488,4 +2515,9 @@ onUnmounted(() => {
 <style scoped>
 .navigation-day-risks { display: grid; gap: 5px; margin-top: 7px; padding: 9px 10px; border-radius: 8px; background: #fff1d8; color: #784300; font-size: .82rem; }
 .navigation-day-risks small { font-size: .74rem; opacity: .9; }
+</style>
+
+<style scoped>
+.today-stop-forecast { display: block; margin-top: 5px; font-size: .78rem; font-weight: 600; color: #236548; }
+.today-stop-forecast--late { color: #a44b18; }
 </style>
