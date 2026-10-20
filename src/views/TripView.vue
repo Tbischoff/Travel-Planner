@@ -659,6 +659,41 @@ let navigationLines: RoutesPolyline[] = []
 const navigationDistance = ref<number | null>(null)
 const navigationDuration = ref<number | null>(null)
 const navigationRouting = ref(false)
+const navigationConnectionWarning = ref('')
+let navigationLastConnectionCheckAt = 0
+function checkNavigationConnection() {
+  if (navigationState.value !== 'active' || !navigationRouteUsesTransit || !navigationTransitItinerary.value.length) return
+  const now = Date.now()
+  if (now - navigationLastConnectionCheckAt < 15000) return
+  navigationLastConnectionCheckAt = now
+  const step = navigationCurrentTransitStep.value
+  if (!step || step.type !== 'walk') {
+    navigationConnectionWarning.value = ''
+    return
+  }
+  const nextRide = navigationTransitItinerary.value.slice(navigationCurrentTransitIndex.value + 1).find(item => item.type === 'transit')
+  if (!nextRide?.departureTimeMs) {
+    navigationConnectionWarning.value = ''
+    return
+  }
+  const remainingWalkMeters = Math.max(0, step.endMeters - navigationProgressMeters.value)
+  const estimatedWalkMs = remainingWalkMeters / 1.2 * 1000
+  const remainingUntilDepartureMs = nextRide.departureTimeMs - now
+  navigationConnectionWarning.value = remainingUntilDepartureMs < estimatedWalkMs + 120000
+    ? 'Anschluss möglicherweise knapp: ' + nextRide.label + '. Verbindung prüfen.'
+    : ''
+}
+function refreshNavigationConnection() {
+  if (navigationState.value !== 'active' || navigationRouting.value) return
+  const step = navigationCurrentTransitStep.value
+  if (navigationRouteUsesTransit && step?.type === 'transit') {
+    navigationConnectionWarning.value = 'Während der Fahrt bleibt die aktuelle Verbindung erhalten. Bitte nach dem Ausstieg aktualisieren.'
+    return
+  }
+  navigationConnectionWarning.value = ''
+  navigationLastRouteAt = 0
+  void updateNavigationRouteV3(true)
+}
 const navigationMapMode = ref<'follow' | 'overview' | 'free'>('follow')
 const navigationTravelMode = ref<'walking' | 'transit' | 'auto'>('walking')
 function setNavigationTravelMode(mode: 'walking' | 'transit' | 'auto') {
@@ -911,6 +946,8 @@ function clearNavigationRouteV3() {
   navigationRemainingDistance.value = null
   navigationRemainingDuration.value = null
   navigationTransitEstimatedArrivalMs = null
+  navigationConnectionWarning.value = ''
+  navigationLastConnectionCheckAt = 0
   navigationPath = []
   navigationPathDistances = []
   navigationMaxProgress = 0
@@ -1016,6 +1053,8 @@ async function updateNavigationRouteV3(force = false) {
       ? (scheduledDuration !== null && scheduledDuration > 0 ? finalScheduledArrival! : Date.now() + (route.durationMillis ?? 0))
       : null
     navigationRouteUsesTransit = chosenTransit
+    navigationConnectionWarning.value = ''
+    navigationLastConnectionCheckAt = 0
     navigationOffRouteSamples = 0
     navigationLastOffRouteDistance = null
     navigationPath = path
@@ -1081,6 +1120,7 @@ function startNavigationTracking() {
         }
         updateNavigationProgress(userLocation.value, coords.accuracy)
         updateNavigationTransitRemainingTime()
+        checkNavigationConnection()
         if (!navigationArrived.value) checkNavigationDeviation(userLocation.value, coords.accuracy)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
@@ -2073,6 +2113,8 @@ onUnmounted(() => {
             <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? (navigationTransitPhase + ': ' + navigationTransitInstruction) : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
+          <div v-if="navigationConnectionWarning" class="navigation-connection-warning" role="status">{{ navigationConnectionWarning }}</div>
+          <div v-if="navigationRouteUsesTransit && navigationState === 'active'" class="navigation-connection-actions"><button type="button" :disabled="navigationRouting" @click="refreshNavigationConnection">↻ Verbindung aktualisieren</button></div>
           <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
             <div v-if="navigationTransitItinerary.length" class="navigation-transit-cards">
               <article v-for="(step, index) in navigationTransitItinerary" :key="index">
@@ -2373,4 +2415,11 @@ onUnmounted(() => {
 
 <style scoped>
 .navigation-control-icon { display:inline-block; vertical-align:middle; flex-shrink:0; }
+</style>
+
+<style scoped>
+.navigation-connection-warning { margin-top: 7px; padding: 8px 10px; border-radius: 8px; background: #fff1d8; color: #694100; font-size: .82rem; }
+.navigation-connection-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
+.navigation-connection-actions button { border: 0; background: transparent; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; font-size: .8rem; padding: 4px; }
+.navigation-connection-actions button:disabled { opacity: .5; cursor: wait; }
 </style>
