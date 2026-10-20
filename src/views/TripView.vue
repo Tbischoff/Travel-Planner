@@ -683,6 +683,43 @@ let navigationMaxProgress = 0
 let navigationTotalPathDistance = 0
 let navigationOriginalDistance = 0
 let navigationOriginalDuration = 0
+let navigationRouteUsesTransit = false
+let navigationOffRouteSamples = 0
+let navigationLastOffRouteDistance: number | null = null
+let navigationLastRerouteAt = 0
+let navigationLastDynamicZoom: number | null = null
+function navigationDynamicZoom() {
+  if (!map || navigationState.value !== 'active' || navigationMapMode.value !== 'follow' || navigationRouteUsesTransit || navigationManeuverDistance.value === null) return
+  const distance = navigationManeuverDistance.value
+  const zoom = distance <= 45 ? 19 : distance <= 120 ? 18 : distance >= 500 ? 16 : 17
+  if (zoom !== navigationLastDynamicZoom) {
+    navigationLastDynamicZoom = zoom
+    map.setZoom(zoom)
+  }
+}
+function checkNavigationDeviation(position: RoutePoint, accuracy: number) {
+  if (navigationRouteUsesTransit || navigationRouting.value || navigationState.value !== 'active' || navigationPath.length < 2 || accuracy > 40) return
+  const metersPerDegree = 111195
+  let nearest = Infinity
+  for (let i = 1; i < navigationPath.length; i++) {
+    const a = navigationPath[i - 1], b = navigationPath[i]
+    const scale = metersPerDegree * Math.cos(a.lat * Math.PI / 180)
+    const dx = (b.lng - a.lng) * scale, dy = (b.lat - a.lat) * metersPerDegree
+    const px = (position.lng - a.lng) * scale, py = (position.lat - a.lat) * metersPerDegree
+    const t = Math.max(0, Math.min(1, (px * dx + py * dy) / Math.max(0.00001, dx * dx + dy * dy)))
+    nearest = Math.min(nearest, Math.hypot(px - t * dx, py - t * dy))
+  }
+  if (nearest > Math.max(45, accuracy * 1.5)) {
+    navigationOffRouteSamples++
+  } else navigationOffRouteSamples = 0
+  const movingAway = navigationLastOffRouteDistance === null || nearest >= navigationLastOffRouteDistance - 2
+  navigationLastOffRouteDistance = nearest
+  if (navigationOffRouteSamples >= 3 && movingAway && Date.now() - navigationLastRerouteAt > 30000) {
+    navigationOffRouteSamples = 0
+    navigationLastRerouteAt = Date.now()
+    void updateNavigationRouteV3(true)
+  }
+}
 function updateNavigationProgress(position: RoutePoint, accuracy: number) {
   if (navigationPath.length < 2 || accuracy > 75) return
   const metersPerDegree = 111195
@@ -708,6 +745,7 @@ function updateNavigationProgress(position: RoutePoint, accuracy: number) {
   const steps = navigationInstructions.value
   while (navigationInstructionIndex.value < steps.length - 1 && navigationMaxProgress >= steps[navigationInstructionIndex.value].endMeters - 12) navigationInstructionIndex.value++
   navigationManeuverDistance.value = steps.length ? Math.max(0, steps[navigationInstructionIndex.value].endMeters - navigationMaxProgress) : null
+  navigationDynamicZoom()
 }
 const navigationTransitSteps = ref<{ line: string; direction: string; from: string; to: string; time: string }[]>([])
 let navigationPositionMarker: AdvancedMarkerInstance | null = null
@@ -813,7 +851,7 @@ function showNavigationMapMode(mode: 'follow' | 'overview' | 'free') {
   navigationMapMode.value = mode
   if (!map || mode === 'free') return
   if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit(); navigationArrowHeading() }
-  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(18); applyNavigationBearing() }
+  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(18); navigationLastDynamicZoom = 18; applyNavigationBearing() }
 }
 const navigationArrived = ref(false)
 let navigationArrivalSamples = 0
@@ -854,6 +892,9 @@ function clearNavigationRouteV3() {
   navigationPathDistances = []
   navigationMaxProgress = 0
   navigationTotalPathDistance = 0
+  navigationOffRouteSamples = 0
+  navigationLastOffRouteDistance = null
+  navigationLastDynamicZoom = null
   navigationTransitSteps.value = []
   navigationDistance.value = null
   navigationDuration.value = null
@@ -864,7 +905,8 @@ async function updateNavigationRouteV3(force = false) {
   const origin = { ...userLocation.value }
   const destination = stopCoordinates(navigationTarget.value)
   if (!destination) { navigationMessage.value = 'Für diesen Stopp fehlen die Kartenkoordinaten.'; return }
-  if (!force && navigationLastRouteOrigin && Date.now() - navigationLastRouteAt < 45000 && distanceBetween(origin, navigationLastRouteOrigin) < 80) return
+  if (!force && (navigationRouting.value || navigationPath.length >= 2)) return
+  if (!force && navigationLastRouteOrigin && Date.now() - navigationLastRouteAt < 15000) return
   const requestId = ++navigationRouteRequest
   navigationLastRouteAt = Date.now()
   navigationLastRouteOrigin = origin
@@ -880,11 +922,13 @@ async function updateNavigationRouteV3(force = false) {
       return result.routes?.[0] || null
     }
     let route: ComputedRoute | null = null
+    let chosenTransit = navigationTravelMode.value === 'transit'
     if (navigationTravelMode.value === 'auto') {
       const [walking, transit] = await Promise.allSettled([fetchMode('WALKING'), fetchMode('TRANSIT')])
       const walk = walking.status === 'fulfilled' ? walking.value : null
       const publicTransport = transit.status === 'fulfilled' ? transit.value : null
-      route = publicTransport && (!walk || (publicTransport.durationMillis ?? Infinity) + 300000 < (walk.durationMillis ?? Infinity)) ? publicTransport : walk || publicTransport
+      chosenTransit = Boolean(publicTransport && (!walk || (publicTransport.durationMillis ?? Infinity) + 300000 < (walk.durationMillis ?? Infinity)))
+      route = chosenTransit ? publicTransport : walk || publicTransport
     } else route = await fetchMode(navigationTravelMode.value === 'transit' ? 'TRANSIT' : 'WALKING')
     if (requestId !== navigationRouteRequest || navigationState.value !== 'active' || !map) return
     if (!route) throw new Error('Keine Verbindung zum nächsten Stopp für diese Verkehrsart gefunden.')
@@ -904,6 +948,9 @@ async function updateNavigationRouteV3(force = false) {
       const raw = step.navigationInstruction?.instructions || step.instructions
       if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(), distance: step.distanceMeters || 0, endMeters: totalStepsDistance ? totalPath * stepDistance / totalStepsDistance : totalPath })
     }
+    navigationRouteUsesTransit = chosenTransit
+    navigationOffRouteSamples = 0
+    navigationLastOffRouteDistance = null
     navigationPath = path
     navigationPathDistances = distances
     navigationTotalPathDistance = totalPath
@@ -916,6 +963,7 @@ async function updateNavigationRouteV3(force = false) {
     navigationRemainingDuration.value = navigationOriginalDuration
     navigationManeuverDistance.value = instructionList[0]?.endMeters ?? null
     if (userLocation.value) updateNavigationProgress(userLocation.value, navigationAccuracy.value ?? 30)
+    navigationDynamicZoom()
     const transitSteps: { line: string; direction: string; from: string; to: string; time: string }[] = []
     for (const leg of route.legs || []) for (const step of leg.steps || []) {
       const details = step.transitDetails
@@ -963,6 +1011,7 @@ function startNavigationTracking() {
           } else (map as ClusterMap).setCenter(userLocation.value)
         }
         updateNavigationProgress(userLocation.value, coords.accuracy)
+        if (!navigationArrived.value) checkNavigationDeviation(userLocation.value, coords.accuracy)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
       }
