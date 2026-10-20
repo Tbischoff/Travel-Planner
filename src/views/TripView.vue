@@ -14,6 +14,49 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+type WeatherForecast = { daily?: { time?: string[]; weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } }
+const weatherForecast = ref<WeatherForecast | null>(null)
+const weatherLoading = ref(false)
+const weatherError = ref('')
+let weatherRequestId = 0
+function weatherIcon(code: number | undefined): string {
+  if (code === 0) return '☀️'
+  if (code === 1 || code === 2) return '🌤️'
+  if (code === 3) return '☁️'
+  if (code === 45 || code === 48) return '🌫️'
+  if ([51,53,55,56,57].includes(code ?? -1)) return '🌦️'
+  if ([61,63,65,66,67,80,81,82].includes(code ?? -1)) return '🌧️'
+  if ([71,73,75,77,85,86].includes(code ?? -1)) return '🌨️'
+  if ([95,96,99].includes(code ?? -1)) return '⛈️'
+  return '🌤️'
+}
+const selectedDayWeather = computed(() => {
+  const daily = weatherForecast.value?.daily
+  const index = daily?.time?.indexOf(selectedDay.value) ?? -1
+  if (index < 0) return null
+  return { icon: weatherIcon(daily?.weather_code?.[index]), max: daily?.temperature_2m_max?.[index], min: daily?.temperature_2m_min?.[index], rain: daily?.precipitation_probability_max?.[index] }
+})
+async function loadTripWeather() {
+  const requestId = ++weatherRequestId
+  weatherLoading.value = true
+  weatherError.value = ''
+  try {
+    const params = new URLSearchParams({
+      latitude: String(tripCenter.lat), longitude: String(tripCenter.lng),
+      daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+      timezone: 'auto', forecast_days: '16',
+    })
+    const response = await fetch('https://api.open-meteo.com/v1/forecast?' + params)
+    if (!response.ok) throw new Error('HTTP ' + response.status)
+    const data = await response.json() as WeatherForecast
+    if (requestId === weatherRequestId) weatherForecast.value = data
+  } catch {
+    if (requestId === weatherRequestId) { weatherForecast.value = null; weatherError.value = 'Wettervorhersage derzeit nicht verfügbar.' }
+  } finally {
+    if (requestId === weatherRequestId) weatherLoading.value = false
+  }
+}
+
 type Activity = { id: string; trip_day_id: string; name: string; start_time: string | null; end_time: string | null; meeting_place_name: string | null; note: string | null; planned_order: number | null; address: string | null; google_place_id: string | null; latitude: number | null; longitude: number | null }
 const activities = ref<Activity[]>([])
 const activityName = ref('')
@@ -2114,6 +2157,7 @@ onMounted(async () => {
     await loadActivities()
     await nextTick()
     await renderMap()
+    void loadTripWeather()
     await refreshActivityMarkers()
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_places', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
@@ -2169,6 +2213,13 @@ onUnmounted(() => {
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
         </template>
         <template v-if="activeTab === 'plan' || activeTab === 'today'">
+          <section v-if="selectedDayRecord" class="day-weather" aria-label="Wettervorhersage für den Reisetag">
+            <strong>Wetter am Reisetag</strong>
+            <p v-if="weatherLoading" class="muted">Wetter wird geladen …</p>
+            <p v-else-if="selectedDayWeather" class="day-weather__details"><span aria-hidden="true">{{ selectedDayWeather.icon }}</span> {{ selectedDayWeather.min ?? '–' }}–{{ selectedDayWeather.max ?? '–' }} °C · Regenwahrscheinlichkeit bis {{ selectedDayWeather.rain ?? '–' }} %</p>
+            <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
+          </section>
+
           <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
             <option value="unplanned">Noch offen</option>
@@ -2643,4 +2694,8 @@ onUnmounted(() => {
 
 <style scoped>
 .today-leg-buffer__recommendation { display: block; margin-top: 5px; line-height: 1.45; font-weight: 400; }
+</style>
+
+<style scoped>
+.day-weather{margin:8px 0 12px;padding:12px;border:1px solid #dce7e2;border-radius:12px;background:#f6faf8}.day-weather strong{font-size:.86rem}.day-weather p{margin:6px 0 0}.day-weather__details{font-size:.9rem}
 </style>
