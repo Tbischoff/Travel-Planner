@@ -657,6 +657,7 @@ const navigationHeadingUp = ref(true)
 const navigationGpsHeading = ref<number | null>(null)
 const navigationDetailsOpen = ref(false)
 const navigationInstructions = ref<{ text: string; distance: number }[]>([])
+const navigationTransitSteps = ref<{ line: string; direction: string; from: string; to: string; time: string }[]>([])
 let navigationPositionMarker: AdvancedMarkerInstance | null = null
 let navigationPositionArrow: HTMLElement | null = null
 let navigationPositionElement: HTMLElement | null = null
@@ -770,6 +771,7 @@ function clearNavigationRouteV3() {
   navigationLines = []
   navigationRouteBounds = null
   navigationInstructions.value = []
+  navigationTransitSteps.value = []
   navigationDistance.value = null
   navigationDuration.value = null
   navigationRouting.value = false
@@ -803,10 +805,18 @@ async function updateNavigationRouteV3(force = false) {
       for (const step of leg.steps || []) {
         const item = step as TransitStep & { instructions?: string; distanceMeters?: number; navigationInstruction?: { instructions?: string } }
         const raw = item.navigationInstruction?.instructions || item.instructions
-        if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\\s+/g, ' ').trim(), distance: item.distanceMeters ?? 0 })
+        if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(), distance: item.distanceMeters ?? 0 })
       }
     }
     navigationInstructions.value = instructionList
+    const transitSteps: { line: string; direction: string; from: string; to: string; time: string }[] = []
+    for (const leg of route.legs || []) for (const step of leg.steps || []) {
+      const details = step.transitDetails
+      if (!details) continue
+      const clock = (value?: string | Date) => value ? new Date(value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''
+      transitSteps.push({ line: details.transitLine?.shortName || details.transitLine?.name || 'ÖPNV', direction: details.headsign || '', from: details.departureStop?.name || '', to: details.arrivalStop?.name || '', time: [clock(details.departureTime), clock(details.arrivalTime)].filter(Boolean).join('–') })
+    }
+    navigationTransitSteps.value = transitSteps
     navigationDistance.value = route.distanceMeters ?? 0
     navigationDuration.value = route.durationMillis ?? 0
     const bounds = new (getGoogleMaps().LatLngBounds)()
@@ -1803,7 +1813,7 @@ onUnmounted(() => {
         <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
         <section v-if="navigationState !== 'idle'" class="navigation-map-overlay navigation-map-overlay--v2" aria-label="Aktive Navigation" role="region">
           <div class="navigation-map-overlay__topline">
-            <div><small>Navigation</small><strong>{{ navigationTarget?.name || 'Nächster Stopp' }}</strong></div>
+            <div><small>Navigation · Stopp {{ navigationTargetIndex + 1 }}/{{ dayStops.length }}</small><strong>{{ navigationTarget?.name || 'Nächster Stopp' }}</strong></div>
             <div class="navigation-map-overlay__topbuttons">
               <button v-if="navigationState === 'active'" type="button" aria-label="Navigation pausieren" title="Pausieren" @click="pauseDayNavigationV3">⏸</button>
               <button v-else type="button" aria-label="Navigation fortsetzen" title="Fortsetzen" @click="resumeDayNavigationV3">▶</button>
@@ -1813,13 +1823,13 @@ onUnmounted(() => {
           </div>
           <div class="navigation-map-overlay__guidance">
             <span class="navigation-map-overlay__maneuver" aria-hidden="true">↱</span>
-            <div><strong>{{ navigationInstructions[0]?.text || (navigationRouting ? 'Route wird berechnet …' : 'Route zum nächsten Ziel') }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+            <div><strong>{{ navigationInstructions[0]?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen') }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
-            <strong>Nächste Navigationsschritte</strong>
-            <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationInstructions.slice(0, 6)" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
-            <p v-else>Für diese Verbindung sind keine einzelnen Abbiegehinweise verfügbar.</p>
+            <div v-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div><strong>Weitere Weganweisungen</strong>
+            <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationInstructions.slice(1, 7)" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
+            <p v-else-if="!navigationTransitSteps.length">Für diese Verbindung sind keine weiteren Weganweisungen verfügbar.</p>
           </div>
           <div class="navigation-map-overlay__footer">
             <span class="navigation-map-overlay__gps">GPS {{ navigationAccuracy === null ? '…' : '±' + navigationAccuracy + ' m' }}</span>
@@ -2087,4 +2097,14 @@ onUnmounted(() => {
 .navigation-map-overlay__footer button:disabled { opacity:.45; }
 .navigation-map-overlay__gps { font-size:.73rem; color:#536f63; }
 @media (min-width:768px) { .map-location-fab { right:22px; bottom:22px; } }
+</style>
+
+<style scoped>
+.navigation-map-overlay--v2 { border-radius:18px; box-shadow:0 6px 24px #0002; }
+.navigation-map-overlay--v2 .navigation-map-overlay__topbuttons button { min-width:33px; padding:7px; }
+.navigation-map-overlay--v2 .navigation-map-overlay__maneuver { display:grid; place-items:center; background:#edf4fd; border-radius:11px; min-width:45px; height:50px; font-size:1.6rem; }
+.navigation-map-overlay--v2 .navigation-map-overlay__guidance { align-items:flex-start; }
+.navigation-transit-cards { display:grid; gap:7px; margin-bottom:9px; }
+.navigation-transit-cards article { display:flex; flex-direction:column; gap:3px; border-radius:10px; background:#eaf4f1; padding:9px 10px; font-size:.81rem; }
+.navigation-transit-cards small { color:#5a6f67; }
 </style>
