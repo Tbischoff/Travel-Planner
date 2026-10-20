@@ -807,7 +807,7 @@ function openTimePicker(event: MouseEvent) {
 const manualTimeDraft = reactive({ popupStart: '', popupEnd: '', activityStart: '' })
 function commitManualTime(field: 'popupStart' | 'popupEnd' | 'activityStart', update: (time: string) => void) {
   const value = normalizedTime(manualTimeDraft[field])
-  if (value === '' || /^([01]\\d|2[0-3]):[0-5]\\d$/.test(value)) {
+  if (value === '' || /^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
     manualTimeDraft[field] = value
     update(value)
   }
