@@ -39,7 +39,7 @@ const selectedDayWeather = computed(() => {
 function stopWeather(stop: { start_time: string | null; end_time: string | null }) {
   const time = stop.start_time || stop.end_time
   const hours = weatherForecast.value?.hourly
-  if (!time || !hours?.time?.length || !/^([01]\\d|2[0-3]):[0-5]\\d/.test(time)) return null
+  if (!time || !hours?.time?.length || !/^([01]\d|2[0-3]):[0-5]\d/.test(time)) return null
   const target = selectedDay.value + 'T' + time.slice(0, 2) + ':00'
   const index = hours.time.indexOf(target)
   if (index < 0) return null
@@ -799,6 +799,17 @@ const editOriginalAddress = ref('')
 const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
+const manualTimeEntry = ref(false)
+function normalizedTime(value: string): string {
+  const trimmed = value.trim()
+  const digits = trimmed.replace(/[^0-9]/g, '')
+  if (digits.length === 4) {
+    const hour = Number(digits.slice(0, 2)), minute = Number(digits.slice(2))
+    if (hour < 24 && minute < 60) return digits.slice(0, 2) + ':' + digits.slice(2)
+  }
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(trimmed) ? trimmed : value
+}
+
 const userLocation = ref<{ lat: number; lng: number } | null>(null)
 const navigationState = ref<'idle' | 'active' | 'paused'>('idle')
 const navigationTargetIndex = ref(0)
@@ -2411,7 +2422,7 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
-              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="time" step="60"></label><label>Bis<input v-model="popupEnd" type="time" step="60"></label></div>
+              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-if="!manualTimeEntry" v-model="popupStart" type="time" step="60"><input v-else :value="popupStart" type="text" inputmode="numeric" placeholder="HH:MM" @change="popupStart = normalizedTime(($event.target as HTMLInputElement).value)"></label><label>Bis<input v-if="!manualTimeEntry" v-model="popupEnd" type="time" step="60"><input v-else :value="popupEnd" type="text" inputmode="numeric" placeholder="HH:MM" @change="popupEnd = normalizedTime(($event.target as HTMLInputElement).value)"></label><button type="button" class="manual-time-toggle" @click="manualTimeEntry = !manualTimeEntry">{{ manualTimeEntry ? "🕒 Uhrzeit auswählen" : "⌨ Uhrzeit eintippen" }}</button></div>
             </template>
             <div class="place-popup__actions">
               <p v-if="activePlace.category !== 'hotel'" class="muted">{{ planningSaving ? 'Speichert automatisch …' : 'Änderungen werden automatisch gespeichert' }}</p><p v-if="planningError" class="trip-error">{{ planningError }}</p>
@@ -2439,7 +2450,8 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<input v-model="activityStart" type="time" step="60" required></label>
+        <label>Beginn<input v-if="!manualTimeEntry" v-model="activityStart" type="time" step="60" required><input v-else :value="activityStart" type="text" inputmode="numeric" placeholder="HH:MM" required @change="activityStart = normalizedTime(($event.target as HTMLInputElement).value)"></label>
+        <button type="button" class="manual-time-toggle" @click="manualTimeEntry = !manualTimeEntry">{{ manualTimeEntry ? "🕒 Uhrzeit auswählen" : "⌨ Uhrzeit eintippen" }}</button>
         <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
@@ -2721,4 +2733,8 @@ onUnmounted(() => {
 <style scoped>
 /* Preserve native clock picker while allowing taps on the numeric time area. */
 .place-popup__times input[type="time"], input[type="time"][required]{min-height:42px;touch-action:manipulation;cursor:text}
+</style>
+
+<style scoped>
+.manual-time-toggle{border:1px solid #ccd9d6;background:#fff;border-radius:8px;padding:7px 10px;cursor:pointer;color:#285b53;font-size:.8rem}.stop-weather{white-space:normal}
 </style>
