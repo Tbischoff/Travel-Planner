@@ -748,6 +748,12 @@ function updateNavigationProgress(position: RoutePoint, accuracy: number) {
   navigationDynamicZoom()
 }
 const navigationTransitSteps = ref<{ line: string; direction: string; from: string; to: string; time: string }[]>([])
+const navigationTransitItinerary = ref<{ type: 'walk' | 'transit'; label: string; description: string; time: string; endMeters: number }[]>([])
+const navigationCurrentTransitIndex = computed(() => {
+  const index = navigationTransitItinerary.value.findIndex(step => navigationMaxProgress < step.endMeters - 12)
+  return index < 0 ? Math.max(0, navigationTransitItinerary.value.length - 1) : index
+})
+const navigationCurrentTransitStep = computed(() => navigationTransitItinerary.value[navigationCurrentTransitIndex.value])
 let navigationPositionMarker: AdvancedMarkerInstance | null = null
 let navigationPositionArrow: HTMLElement | null = null
 let navigationPositionElement: HTMLElement | null = null
@@ -896,6 +902,7 @@ function clearNavigationRouteV3() {
   navigationLastOffRouteDistance = null
   navigationLastDynamicZoom = null
   navigationTransitSteps.value = []
+  navigationTransitItinerary.value = []
   navigationDistance.value = null
   navigationDuration.value = null
   navigationRouting.value = false
@@ -917,7 +924,11 @@ async function updateNavigationRouteV3(force = false) {
     if (!library.Route) throw new Error('Google Routes Library nicht verfügbar.')
     const fetchMode = async (mode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
       const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
-      if (mode === 'TRANSIT') request.departureTime = new Date()
+      if (mode === 'TRANSIT') {
+        const plannedArrival = plannedTransitTime(navigationTarget.value?.start_time)
+        if (plannedArrival && plannedArrival.getTime() > Date.now()) request.arrivalTime = plannedArrival
+        else request.departureTime = new Date()
+      }
       const result = await library.Route!.computeRoutes(request)
       return result.routes?.[0] || null
     }
@@ -948,6 +959,32 @@ async function updateNavigationRouteV3(force = false) {
       const raw = step.navigationInstruction?.instructions || step.instructions
       if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(), distance: step.distanceMeters || 0, endMeters: totalStepsDistance ? totalPath * stepDistance / totalStepsDistance : totalPath })
     }
+    const itinerary: typeof navigationTransitItinerary.value = []
+    let itineraryMeters = 0
+    for (const step of allSteps) {
+      itineraryMeters += step.distanceMeters || 0
+      const endMeters = totalStepsDistance ? totalPath * itineraryMeters / totalStepsDistance : totalPath
+      const details = step.transitDetails
+      if (details) {
+        const clock = (value?: string | Date) => value ? new Date(value).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''
+        itinerary.push({
+          type: 'transit',
+          label: (details.transitLine?.shortName || details.transitLine?.name || 'ÖPNV') + (details.headsign ? ' Richtung ' + details.headsign : ''),
+          description: (details.departureStop?.name || 'Einstieg') + ' → ' + (details.arrivalStop?.name || 'Ausstieg'),
+          time: [clock(details.departureTime), clock(details.arrivalTime)].filter(Boolean).join('–'),
+          endMeters,
+        })
+      } else if (step.distanceMeters || step.instructions || step.navigationInstruction?.instructions) {
+        itinerary.push({
+          type: 'walk',
+          label: (step.navigationInstruction?.instructions || step.instructions || 'Fußweg').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
+          description: Math.round(step.distanceMeters || 0) + ' m zu Fuß',
+          time: '',
+          endMeters,
+        })
+      }
+    }
+    navigationTransitItinerary.value = chosenTransit ? itinerary : []
     navigationRouteUsesTransit = chosenTransit
     navigationOffRouteSamples = 0
     navigationLastOffRouteDistance = null
@@ -2000,11 +2037,17 @@ onUnmounted(() => {
           </div>
           <div class="navigation-map-overlay__guidance">
             <span class="navigation-map-overlay__maneuver" aria-hidden="true">↱</span>
-            <div><strong>{{ navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen') }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+            <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? navigationCurrentTransitStep.label : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
-            <div v-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div><strong>Weitere Weganweisungen</strong>
+            <div v-if="navigationTransitItinerary.length" class="navigation-transit-cards">
+              <article v-for="(step, index) in navigationTransitItinerary" :key="index">
+                <strong>{{ step.type === 'transit' ? '🚉' : '🚶' }} {{ step.label }} {{ index === navigationCurrentTransitIndex ? '· Aktuell' : index < navigationCurrentTransitIndex ? '· Erledigt' : '' }}</strong>
+                <span>{{ step.description }}</span><small v-if="step.time">{{ step.time }}</small>
+              </article>
+            </div>
+            <div v-else-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div><strong>Weitere Weganweisungen</strong>
             <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationUpcomingInstructions" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
             <p v-else-if="!navigationTransitSteps.length">Für diese Verbindung sind keine weiteren Weganweisungen verfügbar.</p>
           </div>
