@@ -14,7 +14,7 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
-type WeatherForecast = { daily?: { time?: string[]; weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } }
+type WeatherForecast = { hourly?: { time?: string[]; temperature_2m?: number[]; apparent_temperature?: number[]; precipitation_probability?: number[]; weather_code?: number[]; wind_speed_10m?: number[] }; daily?: { time?: string[]; weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } }
 const weatherForecast = ref<WeatherForecast | null>(null)
 const weatherLoading = ref(false)
 const weatherError = ref('')
@@ -36,6 +36,14 @@ const selectedDayWeather = computed(() => {
   if (index < 0) return null
   return { icon: weatherIcon(daily?.weather_code?.[index]), max: daily?.temperature_2m_max?.[index], min: daily?.temperature_2m_min?.[index], rain: daily?.precipitation_probability_max?.[index] }
 })
+const selectedHourlyWeather = computed(() => {
+  const hourly = weatherForecast.value?.hourly
+  if (!hourly?.time) return []
+  return hourly.time.flatMap((time, index) => {
+    if (!time.startsWith(selectedDay.value + 'T')) return []
+    return [{ time: time.slice(11, 16), icon: weatherIcon(hourly.weather_code?.[index]), temp: hourly.temperature_2m?.[index], feels: hourly.apparent_temperature?.[index], rain: hourly.precipitation_probability?.[index], wind: hourly.wind_speed_10m?.[index] }]
+  })
+})
 async function loadTripWeather() {
   const requestId = ++weatherRequestId
   weatherLoading.value = true
@@ -44,6 +52,7 @@ async function loadTripWeather() {
     const params = new URLSearchParams({
       latitude: String(tripCenter.lat), longitude: String(tripCenter.lng),
       daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
+      hourly: 'temperature_2m,apparent_temperature,precipitation_probability,weather_code,wind_speed_10m',
       timezone: 'auto', forecast_days: '16',
     })
     const response = await fetch('https://api.open-meteo.com/v1/forecast?' + params)
@@ -2217,6 +2226,13 @@ onUnmounted(() => {
             <strong>Wetter am Reisetag</strong>
             <p v-if="weatherLoading" class="muted">Wetter wird geladen …</p>
             <p v-else-if="selectedDayWeather" class="day-weather__details"><span aria-hidden="true">{{ selectedDayWeather.icon }}</span> {{ selectedDayWeather.min ?? '–' }}–{{ selectedDayWeather.max ?? '–' }} °C · Regenwahrscheinlichkeit bis {{ selectedDayWeather.rain ?? '–' }} %</p>
+            <div v-if="selectedHourlyWeather.length" class="day-weather__hours" aria-label="Stündliche Wettervorhersage">
+              <div v-for="hour in selectedHourlyWeather" :key="hour.time" class="day-weather__hour">
+                <strong>{{ hour.time }}</strong><span aria-hidden="true">{{ hour.icon }}</span>
+                <span>{{ hour.temp ?? '–' }} °C</span><small>Gefühlt {{ hour.feels ?? '–' }} °C</small>
+                <small>Regen {{ hour.rain ?? '–' }} %</small><small>Wind {{ hour.wind ?? '–' }} km/h</small>
+              </div>
+            </div>
             <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
           </section>
 
@@ -2401,7 +2417,7 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
-              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="time"></label><label>Bis<input v-model="popupEnd" type="time"></label></div>
+              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5"></label><label>Bis<input v-model="popupEnd" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5"></label></div>
             </template>
             <div class="place-popup__actions">
               <p v-if="activePlace.category !== 'hotel'" class="muted">{{ planningSaving ? 'Speichert automatisch …' : 'Änderungen werden automatisch gespeichert' }}</p><p v-if="planningError" class="trip-error">{{ planningError }}</p>
@@ -2429,7 +2445,7 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<input v-model="activityStart" type="time" required></label>
+        <label>Beginn<input v-model="activityStart" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required></label>
         <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
@@ -2698,4 +2714,8 @@ onUnmounted(() => {
 
 <style scoped>
 .day-weather{margin:8px 0 12px;padding:12px;border:1px solid #dce7e2;border-radius:12px;background:#f6faf8}.day-weather strong{font-size:.86rem}.day-weather p{margin:6px 0 0}.day-weather__details{font-size:.9rem}
+</style>
+
+<style scoped>
+.day-weather__hours{display:flex;gap:8px;overflow-x:auto;padding:10px 0 4px;scroll-snap-type:x proximity}.day-weather__hour{display:flex;flex:0 0 112px;flex-direction:column;gap:4px;padding:9px;border:1px solid #dce7e2;border-radius:10px;background:#fff;scroll-snap-align:start;font-size:.85rem}.day-weather__hour small{font-size:.72rem;color:#52645f}.place-popup__times input[inputmode="numeric"]{min-width:0;width:100%;box-sizing:border-box}
 </style>
