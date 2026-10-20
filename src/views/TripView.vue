@@ -209,7 +209,7 @@ const todayScheduleForecast = computed(() => {
     if (previousDeparture !== null && plannedStart !== undefined && index > 0) {
       const leg = transitMetrics.value[index - 1]
       if (leg) {
-        const arrival = previousDeparture + leg.durationMillis
+        const arrival: number = previousDeparture + leg.durationMillis
         const deltaMinutes = Math.round((arrival - plannedStart) / 60000)
         forecast[stop.id] = {
           arrival: new Date(arrival).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
