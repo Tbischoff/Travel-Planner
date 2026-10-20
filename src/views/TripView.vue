@@ -711,6 +711,23 @@ const navigationManeuverDistance = ref<number | null>(null)
 const navigationRemainingDistance = ref<number | null>(null)
 const navigationRemainingDuration = ref<number | null>(null)
 const navigationCurrentInstruction = computed(() => navigationInstructions.value[navigationInstructionIndex.value])
+const navigationArrivalForecast = computed(() => {
+  if (navigationRemainingDuration.value === null || navigationState.value === 'idle') return null
+  return new Date(Date.now() + navigationRemainingDuration.value)
+})
+const navigationScheduleStatus = computed(() => {
+  const planned = plannedTransitTime(navigationTarget.value?.start_time)
+  const arrival = navigationArrivalForecast.value
+  if (!planned || !arrival) return null
+  const deltaMinutes = Math.round((planned.getTime() - arrival.getTime()) / 60000)
+  return {
+    deltaMinutes,
+    label: deltaMinutes < -2 ? Math.abs(deltaMinutes) + ' Min. nach geplanter Zeit'
+      : deltaMinutes > 2 ? deltaMinutes + ' Min. Puffer'
+      : 'Ankunft etwa zur geplanten Zeit',
+    warning: deltaMinutes < -2,
+  }
+})
 let navigationPath: RoutePoint[] = []
 let navigationPathDistances: number[] = []
 let navigationMaxProgress = 0
@@ -2110,7 +2127,11 @@ onUnmounted(() => {
           </div>
           <div class="navigation-map-overlay__guidance">
             <span class="navigation-map-overlay__maneuver" aria-hidden="true">↱</span>
-            <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? (navigationTransitPhase + ': ' + navigationTransitInstruction) : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+            <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? (navigationTransitPhase + ': ' + navigationTransitInstruction) : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationRemainingDuration !== null">{{ legDistance(navigationRemainingDistance ?? navigationDistance) }} · {{ legDuration(navigationRemainingDuration) }} · Ankunft ca. {{ navigationArrivalForecast?.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+          </div>
+          <div v-if="navigationScheduleStatus" class="navigation-schedule-status" :class="{ 'navigation-schedule-status--late': navigationScheduleStatus.warning }" role="status">
+            <span>{{ navigationScheduleStatus.warning ? '⚠' : '◷' }} {{ navigationScheduleStatus.label }}</span>
+            <small>Geplanter Beginn: {{ navigationTarget?.start_time?.slice(0, 5) }} Uhr</small>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationConnectionWarning" class="navigation-connection-warning" role="status">{{ navigationConnectionWarning }}</div>
@@ -2422,4 +2443,10 @@ onUnmounted(() => {
 .navigation-connection-actions { display: flex; justify-content: flex-end; margin-top: 5px; }
 .navigation-connection-actions button { border: 0; background: transparent; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; font-size: .8rem; padding: 4px; }
 .navigation-connection-actions button:disabled { opacity: .5; cursor: wait; }
+</style>
+
+<style scoped>
+.navigation-schedule-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; margin-top: 7px; padding: 8px 10px; border-radius: 8px; background: #e8f3ed; color: #1b5e3c; font-size: .83rem; }
+.navigation-schedule-status--late { background: #fff1d8; color: #784300; }
+.navigation-schedule-status small { font-size: .76rem; }
 </style>
