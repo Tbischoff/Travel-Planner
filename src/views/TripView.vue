@@ -982,8 +982,8 @@ function requestUserLocation(center = false) {
       locationStatus.value = 'Standort aktiv · Genauigkeit ca. ' + Math.round(coords.accuracy) + ' m'
       void updateNavigationPositionMarker(position)
       if (center || initialLocationPending) {
-        initialLocationPending = false
         if (map && navigationState.value === 'idle') {
+          initialLocationPending = false
           map.panTo(position)
           map.setZoom(Math.max(map.getZoom() || 0, 14))
         }
