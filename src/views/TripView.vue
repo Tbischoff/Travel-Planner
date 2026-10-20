@@ -890,7 +890,7 @@ async function updateNavigationRouteV3(force = false) {
     navigationLines.forEach(line => line.setMap(null))
     navigationLines = route.createPolylines({ polylineOptions: { strokeColor: '#e07b26', strokeWeight: 7, strokeOpacity: 0.95, zIndex: 30 } })
     navigationLines.forEach(line => line.setMap(map))
-    const path = (route.path || []).map(point => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+    const path = (route.path || []).map(point => ({ lat: typeof point.lat === 'function' ? (point.lat as () => number)() : Number(point.lat), lng: typeof point.lng === 'function' ? (point.lng as () => number)() : Number(point.lng) })).filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
     const distances = [0]
     for (let index = 1; index < path.length; index++) distances.push(distances[index - 1] + distanceBetween(path[index - 1], path[index]))
     const totalPath = distances[distances.length - 1] || 0
