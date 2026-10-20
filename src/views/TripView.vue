@@ -728,6 +728,33 @@ const navigationScheduleStatus = computed(() => {
     warning: deltaMinutes < -2,
   }
 })
+type DownstreamScheduleRisk = { id: string; name: string; planned: string; delayMinutes: number }
+const navigationDownstreamRisks = computed<DownstreamScheduleRisk[]>(() => {
+  const arrival = navigationArrivalForecast.value
+  const current = navigationTarget.value
+  if (!arrival || !current || navigationState.value === 'idle') return []
+  const currentStart = plannedTransitTime(current.start_time)
+  const currentEnd = plannedTransitTime(current.end_time)
+  if (!currentStart || !currentEnd || currentEnd.getTime() < currentStart.getTime()) return []
+  // Preserve the scheduled duration of the current stop; subsequent legs use
+  // planned schedule gaps as a baseline, not unverified live routing estimates.
+  let projectedEnd = Math.max(arrival.getTime(), currentStart.getTime()) + (currentEnd.getTime() - currentStart.getTime())
+  let previousPlannedEnd = currentEnd.getTime()
+  const risks: DownstreamScheduleRisk[] = []
+  for (const stop of dayStops.value.slice(navigationTargetIndex.value + 1)) {
+    const start = plannedTransitTime(stop.start_time)
+    const end = plannedTransitTime(stop.end_time)
+    // Without both times we cannot safely propagate a schedule forecast.
+    if (!start || !end || end.getTime() < start.getTime()) break
+    const plannedGap = Math.max(0, start.getTime() - previousPlannedEnd)
+    const projectedArrival = projectedEnd + plannedGap
+    const delayMinutes = Math.max(0, Math.round((projectedArrival - start.getTime()) / 60000))
+    if (delayMinutes > 2) risks.push({ id: stop.id, name: stop.name, planned: stop.start_time?.slice(0, 5) || '', delayMinutes })
+    projectedEnd = Math.max(projectedArrival, start.getTime()) + (end.getTime() - start.getTime())
+    previousPlannedEnd = end.getTime()
+  }
+  return risks
+})
 let navigationPath: RoutePoint[] = []
 let navigationPathDistances: number[] = []
 let navigationMaxProgress = 0
@@ -2133,6 +2160,13 @@ onUnmounted(() => {
             <span>{{ navigationScheduleStatus.warning ? '⚠' : '◷' }} {{ navigationScheduleStatus.label }}</span>
             <small>Geplanter Beginn: {{ navigationTarget?.start_time?.slice(0, 5) }} Uhr</small>
           </div>
+          <div v-if="navigationDownstreamRisks.length" class="navigation-day-risks" role="status">
+            <strong>⚠ Mögliche Auswirkungen auf spätere Stopps</strong>
+            <div v-for="risk in navigationDownstreamRisks.slice(0, 3)" :key="risk.id">
+              {{ risk.name }} ({{ risk.planned }} Uhr): bis zu {{ risk.delayMinutes }} Min. später
+            </div>
+            <small>Schätzung anhand der geplanten Zeitfenster, ohne neue Routenberechnung.</small>
+          </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationConnectionWarning" class="navigation-connection-warning" role="status">{{ navigationConnectionWarning }}</div>
           <div v-if="navigationRouteUsesTransit && navigationState === 'active'" class="navigation-connection-actions"><button type="button" :disabled="navigationRouting" @click="refreshNavigationConnection">↻ Verbindung aktualisieren</button></div>
@@ -2449,4 +2483,9 @@ onUnmounted(() => {
 .navigation-schedule-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; margin-top: 7px; padding: 8px 10px; border-radius: 8px; background: #e8f3ed; color: #1b5e3c; font-size: .83rem; }
 .navigation-schedule-status--late { background: #fff1d8; color: #784300; }
 .navigation-schedule-status small { font-size: .76rem; }
+</style>
+
+<style scoped>
+.navigation-day-risks { display: grid; gap: 5px; margin-top: 7px; padding: 9px 10px; border-radius: 8px; background: #fff1d8; color: #784300; font-size: .82rem; }
+.navigation-day-risks small { font-size: .74rem; opacity: .9; }
 </style>
