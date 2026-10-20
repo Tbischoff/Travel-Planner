@@ -694,6 +694,28 @@ function clearNavigationPositionMarker() {
   navigationPositionElement = null
 }
 let navigationPreviousPosition: RoutePoint | null = null
+let navigationOrientationHandler: ((event: DeviceOrientationEvent) => void) | null = null
+function stopNavigationOrientationTracking() {
+  if (!navigationOrientationHandler) return
+  window.removeEventListener('deviceorientationabsolute', navigationOrientationHandler, true)
+  window.removeEventListener('deviceorientation', navigationOrientationHandler, true)
+  navigationOrientationHandler = null
+}
+function startNavigationOrientationTracking() {
+  stopNavigationOrientationTracking()
+  navigationOrientationHandler = event => {
+    const sensor = event as DeviceOrientationEvent & { webkitCompassHeading?: number }
+    let heading: number | null = null
+    if (typeof sensor.webkitCompassHeading === 'number' && Number.isFinite(sensor.webkitCompassHeading)) heading = sensor.webkitCompassHeading
+    else if (event.absolute && typeof event.alpha === 'number' && Number.isFinite(event.alpha)) heading = 360 - event.alpha
+    if (heading === null) return
+    navigationGpsHeading.value = ((heading % 360) + 360) % 360
+    applyNavigationBearing()
+    navigationArrowHeading()
+  }
+  window.addEventListener('deviceorientationabsolute', navigationOrientationHandler, true)
+  window.addEventListener('deviceorientation', navigationOrientationHandler, true)
+}
 function applyNavigationBearing() {
   if (!map || navigationState.value !== 'active' || navigationMapMode.value !== 'follow') return
   const heading = navigationHeadingUp.value ? (navigationGpsHeading.value ?? 0) : 0
@@ -722,6 +744,7 @@ function updateNavigationHeading(position: RoutePoint, gpsHeading: number | null
   navigationArrowHeading()
 }
 function resetNavigationOrientation() {
+  stopNavigationOrientationTracking()
   navigationGpsHeading.value = null
   navigationPreviousPosition = null
   navigationHeadingUp.value = true
@@ -866,6 +889,7 @@ function startDayNavigationV3() {
   navigationArrivalSamples = 0
   if (!startNavigationTracking()) return
   navigationState.value = 'active'
+  startNavigationOrientationTracking()
   if (userLocation.value) void updateNavigationPositionMarker(userLocation.value)
   navigationMapMode.value = 'follow'
   navigationHeadingUp.value = true
@@ -878,10 +902,11 @@ function startDayNavigationV3() {
 function pauseDayNavigationV3() {
   stopNavigationTracking()
   navigationState.value = 'paused'
+  stopNavigationOrientationTracking()
   clearNavigationRouteV3()
 }
 function resumeDayNavigationV3() {
-  if (startNavigationTracking()) { navigationState.value = 'active'; navigationLastRouteAt = 0; if (userLocation.value) void updateNavigationRouteV3(true) }
+  if (startNavigationTracking()) { navigationState.value = 'active'; startNavigationOrientationTracking(); navigationLastRouteAt = 0; if (userLocation.value) void updateNavigationRouteV3(true) }
 }
 function stopDayNavigationV3() {
   stopNavigationTracking()
