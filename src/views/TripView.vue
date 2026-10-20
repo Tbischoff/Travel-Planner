@@ -964,12 +964,38 @@ function distanceLabel(distance: number) {
   return distance < 1 ? Math.round(distance * 1000) + ' m Luftlinie entfernt' : distance.toFixed(distance < 10 ? 1 : 0).replace('.', ',') + ' km Luftlinie entfernt'
 }
 
-function requestUserLocation() {
-  if (!navigator.geolocation) return
+const locationStatus = ref('')
+const locationLoading = ref(false)
+let initialLocationPending = true
+let locationRequestId = 0
+function requestUserLocation(center = false) {
+  if (!navigator.geolocation) { locationStatus.value = 'Standortbestimmung wird von diesem Browser nicht unterstützt.'; return }
+  const id = ++locationRequestId
+  locationLoading.value = true
+  locationStatus.value = 'Standort wird ermittelt …'
   navigator.geolocation.getCurrentPosition(
-    ({ coords }) => { userLocation.value = { lat: coords.latitude, lng: coords.longitude } },
-    () => { userLocation.value = null },
-    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    ({ coords }) => {
+      if (id !== locationRequestId) return
+      const position = { lat: coords.latitude, lng: coords.longitude }
+      userLocation.value = position
+      locationLoading.value = false
+      locationStatus.value = 'Standort aktiv · Genauigkeit ca. ' + Math.round(coords.accuracy) + ' m'
+      void updateNavigationPositionMarker(position)
+      if (center || initialLocationPending) {
+        initialLocationPending = false
+        if (map && navigationState.value === 'idle') {
+          map.panTo(position)
+          map.setZoom(Math.max(map.getZoom() || 0, 14))
+        }
+      }
+    },
+    error => {
+      if (id !== locationRequestId) return
+      locationLoading.value = false
+      initialLocationPending = false
+      locationStatus.value = error.code === 1 ? 'Standortfreigabe wurde abgelehnt.' : error.code === 3 ? 'Standortabfrage hat zu lange gedauert.' : 'Standort ist derzeit nicht verfügbar.'
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 },
   )
 }
 
@@ -1089,13 +1115,8 @@ async function saveNewPlace() {
 }
 
 function centerOnCurrentLocation() {
-  requestUserLocation()
-  navigator.geolocation?.getCurrentPosition(({ coords }) => {
-    const position = { lat: coords.latitude, lng: coords.longitude }
-    userLocation.value = position
-    void updateNavigationPositionMarker(position)
-    map?.panTo(position); map?.setZoom(Math.max(map?.getZoom() || 0, 14))
-  })
+  requestUserLocation(true)
+  mobilePlacesOpen.value = false
 }
 
 function fitAllPlaces() {
@@ -1563,6 +1584,13 @@ async function renderMap() {
   }
   if (markerCount) map.fitBounds(bounds, 56)
   syncMarkerVisibility()
+  if (userLocation.value && initialLocationPending) {
+    const position = userLocation.value
+    initialLocationPending = false
+    void updateNavigationPositionMarker(position)
+    map.panTo(position)
+    map.setZoom(Math.max(map.getZoom() || 0, 14))
+  }
 }
 
 function fitMapToSelectedDay() {
@@ -1793,9 +1821,10 @@ onUnmounted(() => {
         </section>
         <div v-if="navigationState === 'idle'" class="map-toolbar">
           <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
-          <button type="button" title="Aktueller Standort" @click="centerOnCurrentLocation">◎ Standort</button>
+          <button type="button" title="Aktuellen Standort anzeigen und aktualisieren" :disabled="locationLoading" @click="centerOnCurrentLocation">{{ locationLoading ? '⌖ Ermittle …' : '◎ Standort' }}</button>
           <button type="button" title="Alle Orte anzeigen" @click="fitAllPlaces">⌗ Alle</button>
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
+          <span v-if="locationStatus && locationStatus !== 'Standort wird ermittelt …'" class="map-location-status" role="status">{{ locationStatus }}</span>
         </div>
         <div v-if="activeActivity" class="place-popup" @click.stop>
           <button class="place-popup__close" type="button" @click="closePlacePopup">✕</button>
@@ -2019,4 +2048,9 @@ onUnmounted(() => {
 <style scoped>
 .trip-navigation-position--idle { width:24px; height:24px; border:3px solid white; background:#1478ef; box-shadow:0 0 0 12px #1478ef25,0 2px 8px #0004; }
 .trip-navigation-position--idle .trip-navigation-position__arrow { display:none; }
+</style>
+
+<style scoped>
+.map-location-status { flex-basis:100%; width:fit-content; max-width:100%; background:#ffffffed; border-radius:8px; padding:5px 8px; color:#334b46; font-size:.7rem; box-shadow:0 2px 8px #0002; }
+.map-toolbar button:disabled { opacity:.65; cursor:wait; }
 </style>
