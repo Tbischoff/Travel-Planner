@@ -207,6 +207,29 @@ function dayScheduleTimestamp(clock: string | null | undefined): number | null {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
 const todaySafetyMinutes = ref(10)
+type DayLegBuffer = { kind: 'conflict' | 'tight' | 'ok' | 'unknown'; buffer: number | null; text: string }
+const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
+  const result: Record<number, DayLegBuffer> = {}
+  for (let index = 0; index < routeAgendaStops.value.length - 1; index++) {
+    const from = routeAgendaStops.value[index].stop
+    const to = routeAgendaStops.value[index + 1].stop
+    if (!from || !to) continue
+    const departure = dayScheduleTimestamp(from.end_time)
+    const deadline = dayScheduleTimestamp(to.start_time)
+    const leg = transitMetrics.value[index]
+    if (departure === null || deadline === null || !leg) {
+      result[index] = { kind: 'unknown', buffer: null, text: 'Zeitpuffer nicht berechenbar · Zeitangaben oder Route fehlen' }
+      continue
+    }
+    const buffer = Math.floor((deadline - departure - leg.durationMillis) / 60000)
+    result[index] = buffer < 0
+      ? { kind: 'conflict', buffer, text: 'Zeitkonflikt · ' + Math.abs(buffer) + ' Min. zu wenig Zeit' }
+      : buffer < todaySafetyMinutes.value
+        ? { kind: 'tight', buffer, text: 'Knapp · ' + buffer + ' Min. Puffer (Ziel: ' + todaySafetyMinutes.value + ' Min.)' }
+        : { kind: 'ok', buffer, text: buffer + ' Min. Zeitpuffer' }
+  }
+  return result
+})
 const todayFeasibility = computed(() => {
   let checked = 0
   let unknown = 0
@@ -2169,6 +2192,9 @@ onUnmounted(() => {
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
               <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
             </div>
+            <div v-if="todayLegBuffers[index]" class="today-leg-buffer" :class="'today-leg-buffer--' + todayLegBuffers[index].kind" role="status">
+              <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
+            </div>
             <div v-if="index < routeAgendaStops.length - 1 && transitMetrics[index]" class="today-leg">
               <div v-if="transitMetrics[index]?.mode === 'walking'" class="today-leg__summary">
                 <span class="today-leg__icon">🚶</span>
@@ -2585,4 +2611,11 @@ onUnmounted(() => {
 <style scoped>
 .today-feasibility__reserve { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: .8rem; }
 .today-feasibility__reserve select { border: 1px solid #c7d0cd; border-radius: 7px; background: white; color: #243c33; padding: 5px 7px; font: inherit; }
+</style>
+
+<style scoped>
+.today-leg-buffer { margin: 4px 0 7px 24px; padding: 6px 9px; border-left: 3px solid #6c9d86; color: #285a43; background: #eef7f1; border-radius: 0 6px 6px 0; font-size: .77rem; font-weight: 600; }
+.today-leg-buffer--tight { border-color: #d5a24c; color: #81530e; background: #fff8e8; }
+.today-leg-buffer--conflict { border-color: #d36b54; color: #993d2d; background: #fff0ec; }
+.today-leg-buffer--unknown { border-color: #a0a8ae; color: #5f666b; background: #f3f4f5; font-weight: 400; }
 </style>
