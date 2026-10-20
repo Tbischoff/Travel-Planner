@@ -2411,7 +2411,7 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
-              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5"></label><label>Bis<input v-model="popupEnd" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5"></label></div>
+              <div v-if="popupDay" class="place-popup__times"><label>Von<input v-model="popupStart" type="time" step="60"></label><label>Bis<input v-model="popupEnd" type="time" step="60"></label></div>
             </template>
             <div class="place-popup__actions">
               <p v-if="activePlace.category !== 'hotel'" class="muted">{{ planningSaving ? 'Speichert automatisch …' : 'Änderungen werden automatisch gespeichert' }}</p><p v-if="planningError" class="trip-error">{{ planningError }}</p>
@@ -2439,7 +2439,7 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<input v-model="activityStart" type="text" inputmode="numeric" placeholder="HH:MM" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" maxlength="5" required></label>
+        <label>Beginn<input v-model="activityStart" type="time" step="60" required></label>
         <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
@@ -2716,4 +2716,9 @@ onUnmounted(() => {
 
 <style scoped>
 .stop-weather{display:block;margin-top:4px;color:#356a60;font-weight:500;line-height:1.45}.stop-weather__detail{font-weight:400}@media(max-width:480px){.stop-weather__detail{display:block}}
+</style>
+
+<style scoped>
+/* Preserve native clock picker while allowing taps on the numeric time area. */
+.place-popup__times input[type="time"], input[type="time"][required]{min-height:42px;touch-action:manipulation;cursor:text}
 </style>
