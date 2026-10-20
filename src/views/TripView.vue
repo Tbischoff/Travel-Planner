@@ -755,6 +755,7 @@ const navigationCurrentTransitIndex = computed(() => {
   return index < 0 ? Math.max(0, navigationTransitItinerary.value.length - 1) : index
 })
 const navigationCurrentTransitStep = computed(() => navigationTransitItinerary.value[navigationCurrentTransitIndex.value])
+const navigationTransitInstruction = computed(() => navigationCurrentTransitStep.value?.type === 'walk' ? navigationCurrentTransitStep.value.label : navigationCurrentTransitStep.value?.description || '')
 const navigationTransitPhase = computed(() => {
   const step = navigationCurrentTransitStep.value
   if (!step) return ''
@@ -2055,7 +2056,7 @@ onUnmounted(() => {
           </div>
           <div class="navigation-map-overlay__guidance">
             <span class="navigation-map-overlay__maneuver" aria-hidden="true">↱</span>
-            <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? (navigationTransitPhase + ': ' + navigationCurrentTransitStep.label) : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+            <div><strong>{{ navigationRouteUsesTransit && navigationCurrentTransitStep ? (navigationTransitPhase + ': ' + navigationTransitInstruction) : (navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen')) }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
