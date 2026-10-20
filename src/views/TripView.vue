@@ -173,7 +173,13 @@ const transitConnections = ref<TransitConnection[]>([])
 type RouteLegMetric = { distanceMeters: number; durationMillis: number; mode: 'walking' | 'transit' }
 const transitMetrics = ref<RouteLegMetric[]>([])
 function legDistance(meters: number): string { return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' }
-function legDuration(millis: number): string { return 'ca. ' + Math.round(millis / 60000) + ' Min.' }
+function legDuration(millis: number): string {
+  const minutes = Math.max(0, Math.round(millis / 60000))
+  const days = Math.floor(minutes / 1440)
+  const hours = Math.floor((minutes % 1440) / 60)
+  const mins = minutes % 60
+  return 'ca. ' + [days ? days + ' Tage' : '', hours ? hours + ' Std.' : '', mins || (!days && !hours) ? mins + ' Min.' : ''].filter(Boolean).join(' ')
+}
 const transitLegs = computed(() => {
   const groups = new Map<number, TransitConnection[]>()
   for (const connection of transitConnections.value) {
@@ -652,7 +658,14 @@ let navigationLines: RoutesPolyline[] = []
 const navigationDistance = ref<number | null>(null)
 const navigationDuration = ref<number | null>(null)
 const navigationRouting = ref(false)
-const navigationMapMode = ref<'follow' | 'overview'>('follow')
+const navigationMapMode = ref<'follow' | 'overview' | 'free'>('follow')
+const navigationTravelMode = ref<'walking' | 'transit' | 'auto'>('walking')
+function setNavigationTravelMode(mode: 'walking' | 'transit' | 'auto') {
+  if (navigationTravelMode.value === mode) return
+  navigationTravelMode.value = mode
+  navigationLastRouteAt = 0
+  if (navigationState.value === 'active') void updateNavigationRouteV3(true)
+}
 const navigationHeadingUp = ref(true)
 const navigationGpsHeading = ref<number | null>(null)
 const navigationDetailsOpen = ref(false)
@@ -759,9 +772,9 @@ function resetNavigationOrientation() {
 let navigationRouteBounds: { fit: () => void } | null = null
 function showNavigationMapMode(mode: 'follow' | 'overview') {
   navigationMapMode.value = mode
-  if (!map) return
+  if (!map || mode === 'free') return
   if (mode === 'overview') { (map as unknown as { setHeading: (value: number) => void }).setHeading(0); navigationRouteBounds?.fit(); navigationArrowHeading() }
-  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(16); applyNavigationBearing() }
+  else if (userLocation.value) { (map as ClusterMap).setCenter(userLocation.value); (map as unknown as { setZoom: (zoom: number) => void }).setZoom(18); applyNavigationBearing() }
 }
 const navigationArrived = ref(false)
 let navigationArrivalSamples = 0
@@ -813,13 +826,21 @@ async function updateNavigationRouteV3(force = false) {
     await loadGoogleMaps()
     const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
     if (!library.Route) throw new Error('Google Routes Library nicht verfügbar.')
-    const mode = routeMode.value === 'transit' ? 'TRANSIT' : 'WALKING'
-    const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
-    if (mode === 'TRANSIT') request.departureTime = new Date()
-    const result = await library.Route.computeRoutes(request)
+    const fetchMode = async (mode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
+      const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
+      if (mode === 'TRANSIT') request.departureTime = new Date()
+      const result = await library.Route!.computeRoutes(request)
+      return result.routes?.[0] || null
+    }
+    let route: ComputedRoute | null = null
+    if (navigationTravelMode.value === 'auto') {
+      const [walking, transit] = await Promise.allSettled([fetchMode('WALKING'), fetchMode('TRANSIT')])
+      const walk = walking.status === 'fulfilled' ? walking.value : null
+      const publicTransport = transit.status === 'fulfilled' ? transit.value : null
+      route = publicTransport && (!walk || (publicTransport.durationMillis ?? Infinity) + 300000 < (walk.durationMillis ?? Infinity)) ? publicTransport : walk || publicTransport
+    } else route = await fetchMode(navigationTravelMode.value === 'transit' ? 'TRANSIT' : 'WALKING')
     if (requestId !== navigationRouteRequest || navigationState.value !== 'active' || !map) return
-    const route = result.routes?.[0]
-    if (!route) throw new Error('Keine Verbindung zum nächsten Stopp gefunden.')
+    if (!route) throw new Error('Keine Verbindung zum nächsten Stopp für diese Verkehrsart gefunden.')
     navigationLines.forEach(line => line.setMap(null))
     navigationLines = route.createPolylines({ polylineOptions: { strokeColor: '#e07b26', strokeWeight: 7, strokeOpacity: 0.95, zIndex: 30 } })
     navigationLines.forEach(line => line.setMap(map))
@@ -892,6 +913,7 @@ function startDayNavigationV3() {
   startNavigationOrientationTracking()
   if (userLocation.value) void updateNavigationPositionMarker(userLocation.value)
   navigationMapMode.value = 'follow'
+  navigationTravelMode.value = routeMode.value
   navigationHeadingUp.value = true
   navigationPreviousPosition = null
   navigationDetailsOpen.value = false
@@ -1602,6 +1624,7 @@ async function renderMap() {
   })
   infoWindow = new googleMaps.InfoWindow({ disableAutoPan: true })
   map.addListener('click', () => { closePlacePopup(); mobilePlacesOpen.value = false })
+  map.addListener('dragstart', () => { if (navigationState.value !== 'idle') navigationMapMode.value = 'free' })
   const MarkerClusterer = (window as MarkerClustererWindow).markerClusterer?.MarkerClusterer
   if (MarkerClusterer) {
     placeMarkerClusterer = new MarkerClusterer({
@@ -1856,6 +1879,7 @@ onUnmounted(() => {
             <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationInstructions.slice(1, 7)" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
             <p v-else-if="!navigationTransitSteps.length">Für diese Verbindung sind keine weiteren Weganweisungen verfügbar.</p>
           </div>
+          <div class="navigation-map-overlay__mode" role="group" aria-label="Verkehrsmittel für Navigation"><button type="button" :aria-pressed="navigationTravelMode === 'walking'" :class="{ selected: navigationTravelMode === 'walking' }" @click="setNavigationTravelMode('walking')">🚶 Fuß</button><button type="button" :aria-pressed="navigationTravelMode === 'transit'" :class="{ selected: navigationTravelMode === 'transit' }" @click="setNavigationTravelMode('transit')">🚇 ÖPNV</button><button type="button" :aria-pressed="navigationTravelMode === 'auto'" :class="{ selected: navigationTravelMode === 'auto' }" @click="setNavigationTravelMode('auto')">✨ Kombi</button></div>
           <div class="navigation-map-overlay__footer">
             <span class="navigation-map-overlay__gps">GPS {{ navigationAccuracy === null ? '…' : '±' + navigationAccuracy + ' m' }}</span>
             <button type="button" @click="toggleNavigationHeading">{{ navigationHeadingUp ? '🧭 Richtung' : 'N Norden' }}</button>
@@ -1864,7 +1888,7 @@ onUnmounted(() => {
             <button v-else type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">⏭ Stopp</button>
           </div>
         </section>
-        <button v-if="navigationState === 'idle'" type="button" class="map-location-fab" :disabled="locationLoading" title="Mein Standort" aria-label="Mein Standort" @click="centerOnCurrentLocation">
+        <button type="button" class="map-location-fab" :disabled="locationLoading" title="Mein Standort" aria-label="Mein Standort" @click="navigationState === 'idle' ? centerOnCurrentLocation() : showNavigationMapMode('follow')">
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
         </button>
         <div v-if="navigationState === 'idle'" class="map-toolbar">
@@ -2136,4 +2160,10 @@ onUnmounted(() => {
 <style scoped>
 .map-location-fab { bottom:155px; }
 @media (min-width:768px) { .map-location-fab { bottom:24px; } }
+</style>
+
+<style scoped>
+.navigation-map-overlay__mode { display:flex; gap:6px; margin-top:8px; }
+.navigation-map-overlay__mode button { flex:1; border:1px solid #ccd9d5; border-radius:8px; padding:7px 4px; background:#fff; font:inherit; font-size:.78rem; cursor:pointer; }
+.navigation-map-overlay__mode button.selected { background:#dceee8; border-color:#498577; font-weight:700; }
 </style>
