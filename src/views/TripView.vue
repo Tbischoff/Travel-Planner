@@ -153,7 +153,7 @@ function focusTodayStop(stop: DayStop) {
 type RoutePoint = { lat: number; lng: number }
 type RoutesPolyline = { setMap: (map: MapInstance | null) => void }
 type TransitDetails = { transitLine?: { shortName?: string; name?: string; vehicle?: { type?: string } }; headsign?: string; departureStop?: { name?: string }; arrivalStop?: { name?: string }; departureTime?: Date | string; arrivalTime?: Date | string; stopCount?: number }
-type TransitStep = { transitDetails?: TransitDetails }
+type TransitStep = { transitDetails?: TransitDetails; distanceMeters?: number; instructions?: string; navigationInstruction?: { instructions?: string } }
 type TransitLeg = { steps?: TransitStep[] }
 type TransitConnection = { section: number; fromStop: string; toStop: string; line: string; icon: string; headsign: string; from: string; to: string; departure: string; arrival: string; stops: number }
 type ComputedRoute = { legs?: TransitLeg[]; path?: RoutePoint[]; distanceMeters?: number; durationMillis?: number; createPolylines: (options: { polylineOptions: Record<string, unknown> }) => RoutesPolyline[] }
@@ -669,7 +669,45 @@ function setNavigationTravelMode(mode: 'walking' | 'transit' | 'auto') {
 const navigationHeadingUp = ref(true)
 const navigationGpsHeading = ref<number | null>(null)
 const navigationDetailsOpen = ref(false)
-const navigationInstructions = ref<{ text: string; distance: number }[]>([])
+const navigationInstructions = ref<{ text: string; distance: number; endMeters: number }[]>([])
+const navigationInstructionIndex = ref(0)
+const navigationManeuverDistance = ref<number | null>(null)
+const navigationRemainingDistance = ref<number | null>(null)
+const navigationRemainingDuration = ref<number | null>(null)
+const navigationCurrentInstruction = computed(() => navigationInstructions.value[navigationInstructionIndex.value])
+const navigationUpcomingInstructions = computed(() => navigationInstructions.value.slice(navigationInstructionIndex.value + 1, navigationInstructionIndex.value + 7))
+let navigationPath: RoutePoint[] = []
+let navigationPathDistances: number[] = []
+let navigationMaxProgress = 0
+let navigationTotalPathDistance = 0
+let navigationOriginalDistance = 0
+let navigationOriginalDuration = 0
+function updateNavigationProgress(position: RoutePoint, accuracy: number) {
+  if (navigationPath.length < 2 || accuracy > 75) return
+  const metersPerDegree = 111195
+  let closestDistance = Infinity
+  let closestProgress = 0
+  for (let i = 1; i < navigationPath.length; i++) {
+    const a = navigationPath[i - 1], b = navigationPath[i]
+    const lngScale = metersPerDegree * Math.cos(a.lat * Math.PI / 180)
+    const dx = (b.lng - a.lng) * lngScale, dy = (b.lat - a.lat) * metersPerDegree
+    const px = (position.lng - a.lng) * lngScale, py = (position.lat - a.lat) * metersPerDegree
+    const fraction = Math.max(0, Math.min(1, (px * dx + py * dy) / Math.max(0.00001, dx * dx + dy * dy)))
+    const deviation = Math.hypot(px - fraction * dx, py - fraction * dy)
+    if (deviation < closestDistance) {
+      closestDistance = deviation
+      closestProgress = navigationPathDistances[i - 1] + fraction * (navigationPathDistances[i] - navigationPathDistances[i - 1])
+    }
+  }
+  if (closestDistance > Math.max(35, accuracy * 1.5) || closestProgress + 25 < navigationMaxProgress) return
+  navigationMaxProgress = Math.max(navigationMaxProgress, closestProgress)
+  const fraction = Math.min(1, navigationMaxProgress / Math.max(1, navigationTotalPathDistance))
+  navigationRemainingDistance.value = Math.max(0, navigationOriginalDistance * (1 - fraction))
+  navigationRemainingDuration.value = Math.max(0, navigationOriginalDuration * (1 - fraction))
+  const steps = navigationInstructions.value
+  while (navigationInstructionIndex.value < steps.length - 1 && navigationMaxProgress >= steps[navigationInstructionIndex.value].endMeters - 12) navigationInstructionIndex.value++
+  navigationManeuverDistance.value = steps.length ? Math.max(0, steps[navigationInstructionIndex.value].endMeters - navigationMaxProgress) : null
+}
 const navigationTransitSteps = ref<{ line: string; direction: string; from: string; to: string; time: string }[]>([])
 let navigationPositionMarker: AdvancedMarkerInstance | null = null
 let navigationPositionArrow: HTMLElement | null = null
@@ -807,6 +845,14 @@ function clearNavigationRouteV3() {
   navigationLines = []
   navigationRouteBounds = null
   navigationInstructions.value = []
+  navigationInstructionIndex.value = 0
+  navigationManeuverDistance.value = null
+  navigationRemainingDistance.value = null
+  navigationRemainingDuration.value = null
+  navigationPath = []
+  navigationPathDistances = []
+  navigationMaxProgress = 0
+  navigationTotalPathDistance = 0
   navigationTransitSteps.value = []
   navigationDistance.value = null
   navigationDuration.value = null
@@ -844,15 +890,31 @@ async function updateNavigationRouteV3(force = false) {
     navigationLines.forEach(line => line.setMap(null))
     navigationLines = route.createPolylines({ polylineOptions: { strokeColor: '#e07b26', strokeWeight: 7, strokeOpacity: 0.95, zIndex: 30 } })
     navigationLines.forEach(line => line.setMap(map))
-    const instructionList: { text: string; distance: number }[] = []
-    for (const leg of route.legs || []) {
-      for (const step of leg.steps || []) {
-        const item = step as TransitStep & { instructions?: string; distanceMeters?: number; navigationInstruction?: { instructions?: string } }
-        const raw = item.navigationInstruction?.instructions || item.instructions
-        if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(), distance: item.distanceMeters ?? 0 })
-      }
+    const path = (route.path || []).map(point => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+    const distances = [0]
+    for (let index = 1; index < path.length; index++) distances.push(distances[index - 1] + distanceBetween(path[index - 1], path[index]))
+    const totalPath = distances[distances.length - 1] || 0
+    const allSteps = (route.legs || []).flatMap(leg => leg.steps || [])
+    const totalStepsDistance = allSteps.reduce((sum, step) => sum + (step.distanceMeters || 0), 0)
+    const instructionList: { text: string; distance: number; endMeters: number }[] = []
+    let stepDistance = 0
+    for (const step of allSteps) {
+      stepDistance += step.distanceMeters || 0
+      const raw = step.navigationInstruction?.instructions || step.instructions
+      if (raw) instructionList.push({ text: raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(), distance: step.distanceMeters || 0, endMeters: totalStepsDistance ? totalPath * stepDistance / totalStepsDistance : totalPath })
     }
+    navigationPath = path
+    navigationPathDistances = distances
+    navigationTotalPathDistance = totalPath
+    navigationMaxProgress = 0
+    navigationOriginalDistance = route.distanceMeters ?? 0
+    navigationOriginalDuration = route.durationMillis ?? 0
+    navigationInstructionIndex.value = 0
     navigationInstructions.value = instructionList
+    navigationRemainingDistance.value = navigationOriginalDistance
+    navigationRemainingDuration.value = navigationOriginalDuration
+    navigationManeuverDistance.value = instructionList[0]?.endMeters ?? null
+    if (userLocation.value) updateNavigationProgress(userLocation.value, navigationAccuracy.value ?? 30)
     const transitSteps: { line: string; direction: string; from: string; to: string; time: string }[] = []
     for (const leg of route.legs || []) for (const step of leg.steps || []) {
       const details = step.transitDetails
@@ -868,7 +930,7 @@ async function updateNavigationRouteV3(force = false) {
     bounds.extend(destination)
     for (const point of route.path || []) bounds.extend(point)
     navigationRouteBounds = { fit: () => map?.fitBounds(bounds, 65) }
-    showNavigationMapMode(navigationMapMode.value)
+    if (navigationMapMode.value === 'overview') showNavigationMapMode('overview')
     navigationMessage.value = ''
   } catch (cause) {
     if (requestId === navigationRouteRequest) navigationMessage.value = cause instanceof Error ? cause.message : 'Navigationsroute konnte nicht berechnet werden.'
@@ -894,6 +956,7 @@ function startNavigationTracking() {
       if (!navigationArrived.value) navigationMessage.value = ''
       if (navigationState.value === 'active') {
         if (map && navigationMapMode.value === 'follow') (map as ClusterMap).setCenter(userLocation.value)
+        updateNavigationProgress(userLocation.value, coords.accuracy)
         checkNavigationArrivalV3(userLocation.value, coords.accuracy)
         if (!navigationArrived.value) void updateNavigationRouteV3()
       }
@@ -1786,7 +1849,7 @@ onUnmounted(() => {
           <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
           <template v-else>
             <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
-            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p><div v-if="navigationArrived" class="today-navigation-v3__arrival" role="status"><strong>📍 Ziel erreicht!</strong><p>{{ navigationTarget?.name }} ist erreicht.</p><button type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Navigation abschließen' : 'Weiter zum nächsten Stopp →' }}</button></div>
+            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ navigationManeuverDistance === null ? '' : legDistance(navigationManeuverDistance) + ' bis zum Manöver · ' }}{{ legDistance(navigationRemainingDistance ?? navigationDistance) }} verbleibend · {{ legDuration(navigationRemainingDuration ?? navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + (navigationRemainingDuration ?? navigationDuration)).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p><div v-if="navigationArrived" class="today-navigation-v3__arrival" role="status"><strong>📍 Ziel erreicht!</strong><p>{{ navigationTarget?.name }} ist erreicht.</p><button type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Navigation abschließen' : 'Weiter zum nächsten Stopp →' }}</button></div>
           </template>
           <div class="today-navigation-v3__actions">
             <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
@@ -1871,12 +1934,12 @@ onUnmounted(() => {
           </div>
           <div class="navigation-map-overlay__guidance">
             <span class="navigation-map-overlay__maneuver" aria-hidden="true">↱</span>
-            <div><strong>{{ navigationInstructions[0]?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen') }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
+            <div><strong>{{ navigationCurrentInstruction?.text || (navigationRouting ? 'Route wird berechnet …' : 'Dem Routenverlauf folgen') }}</strong><small v-if="navigationDistance !== null && navigationDuration !== null">{{ legDistance(navigationDistance) }} · {{ legDuration(navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + navigationDuration).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small></div>
           </div>
           <p v-if="navigationMessage" role="status">{{ navigationMessage }}</p>
           <div v-if="navigationDetailsOpen" class="navigation-map-overlay__details">
             <div v-if="navigationTransitSteps.length" class="navigation-transit-cards"><article v-for="(step, index) in navigationTransitSteps" :key="index"><strong>🚉 {{ step.line }} {{ step.direction ? 'Richtung ' + step.direction : '' }}</strong><small>{{ step.time }}</small><span>{{ step.from }} → {{ step.to }}</span></article></div><strong>Weitere Weganweisungen</strong>
-            <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationInstructions.slice(1, 7)" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
+            <ol v-if="navigationInstructions.length"><li v-for="(instruction, index) in navigationUpcomingInstructions" :key="index">{{ instruction.text }} <small v-if="instruction.distance">({{ legDistance(instruction.distance) }})</small></li></ol>
             <p v-else-if="!navigationTransitSteps.length">Für diese Verbindung sind keine weiteren Weganweisungen verfügbar.</p>
           </div>
           <div class="navigation-map-overlay__mode" role="group" aria-label="Verkehrsmittel für Navigation"><button type="button" :aria-pressed="navigationTravelMode === 'walking'" :class="{ selected: navigationTravelMode === 'walking' }" @click="setNavigationTravelMode('walking')">🚶 Fuß</button><button type="button" :aria-pressed="navigationTravelMode === 'transit'" :class="{ selected: navigationTravelMode === 'transit' }" @click="setNavigationTravelMode('transit')">🚇 ÖPNV</button><button type="button" :aria-pressed="navigationTravelMode === 'auto'" :class="{ selected: navigationTravelMode === 'auto' }" @click="setNavigationTravelMode('auto')">✨ Kombi</button></div>
