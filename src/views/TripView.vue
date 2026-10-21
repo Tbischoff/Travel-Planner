@@ -16,6 +16,7 @@ const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
 type TryItem = { id: string; trip_id: string; name: string; category: string; note: string | null; tried: boolean; created_at?: string }
 const tryItems = ref<TryItem[]>([])
+const tryListExpanded = ref(false)
 const tryLoading = ref(false)
 const trySaving = ref(false)
 const tryError = ref('')
@@ -2488,7 +2489,12 @@ onUnmounted(() => {
         </button>
           <template v-if="activeTab === 'plan'">
           <section class="try-panel" aria-label="Probierliste">
-            <div class="try-panel__head"><div><strong>🍴 In {{ trips.currentTrip?.destination || 'der Reise' }} probieren</strong><p class="muted">{{ tryCompletedCount }} von {{ tryItems.length }} probiert</p></div><button v-if="trips.canEditContent" type="button" @click="editTryItem()">＋ Hinzufügen</button></div>
+            <button type="button" class="try-panel__toggle" :aria-expanded="tryListExpanded" aria-controls="try-list-content" @click="tryListExpanded = !tryListExpanded">
+              <span><strong>🍴 In {{ trips.currentTrip?.destination || 'der Reise' }} probieren</strong><small>{{ tryCompletedCount }} von {{ tryItems.length }} probiert</small></span>
+              <span aria-hidden="true">{{ tryListExpanded ? '⌃' : '⌄' }}</span>
+            </button>
+            <div v-if="tryListExpanded" id="try-list-content" class="try-panel__content">
+              <button v-if="trips.canEditContent" type="button" class="try-panel__add" @click="editTryItem()">＋ Hinzufügen</button>
             <progress :value="tryCompletedCount" :max="Math.max(1, tryItems.length)" class="try-panel__progress"></progress>
             <p v-if="tryLoading" class="muted">Probierliste wird geladen …</p>
             <p v-else-if="!tryItems.length" class="muted">Noch nichts vorgemerkt.</p>
@@ -2506,6 +2512,7 @@ onUnmounted(() => {
               <div class="try-panel__actions"><button type="submit" :disabled="trySaving || !tryName.trim()">Speichern</button><button type="button" @click="tryFormOpen = false">Abbrechen</button><button v-if="tryEditingId" type="button" :disabled="trySaving" @click="deleteTryItem">Löschen</button></div>
             </form>
             <p v-if="tryError" class="trip-error">{{ tryError }}</p>
+            </div>
           </section>
           </template>
         </template>
@@ -2942,4 +2949,13 @@ onUnmounted(() => {
 .try-panel{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #d9e4e0;border-radius:14px;margin-bottom:16px}
 .try-panel__head{display:flex;align-items:start;justify-content:space-between;gap:8px}.try-panel__head p{margin:4px 0 0}.try-panel__head button,.try-panel__row button,.try-panel__actions button{border:1px solid #cbd7d2;border-radius:8px;background:transparent;padding:7px 10px;cursor:pointer}
 .try-panel__progress{width:100%;height:8px;accent-color:#25665c}.try-panel__row{display:flex;gap:10px;align-items:center;border-bottom:1px solid #e4ebe8;padding:8px 0}.try-panel__row input{width:18px;height:18px}.try-panel__details{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.try-panel__details small{opacity:.7}.try-panel__done{text-decoration:line-through;opacity:.6}.try-panel__form{display:flex;flex-direction:column;gap:10px;border-top:1px solid #e4ebe8;padding-top:12px}.try-panel__form label{display:flex;flex-direction:column;gap:4px}.try-panel__form input:not([type=checkbox]),.try-panel__form select,.try-panel__form textarea{border:1px solid #cbd7d2;border-radius:8px;padding:8px;max-width:100%}.try-panel__form .try-panel__checkbox{flex-direction:row;align-items:center}.try-panel__actions{display:flex;flex-wrap:wrap;gap:8px}
+</style>
+
+<style scoped>
+.try-panel__toggle{display:flex;justify-content:space-between;align-items:center;width:100%;padding:2px 0;text-align:left;border:0;background:transparent;cursor:pointer;gap:12px}
+.try-panel__toggle>span:first-child{display:flex;flex-direction:column;gap:5px}
+.try-panel__toggle small{font-size:.8rem;opacity:.75;font-weight:400}
+.try-panel__toggle>span:last-child{font-size:1.3rem}
+.try-panel__content{display:flex;flex-direction:column;gap:10px}
+.try-panel__add{align-self:flex-start;border:1px solid #cbd7d2;border-radius:8px;background:transparent;padding:7px 10px;cursor:pointer}
 </style>
