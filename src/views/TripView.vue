@@ -196,6 +196,32 @@ const dayStops = computed<DayStop[]>(() => {
 const todayCompletedCount = computed(() => dayStops.value.filter(stop => stop.place?.visited).length)
 const todayNextStop = computed(() => dayStops.value.find(stop => !stop.place?.visited) || null)
 const todayIsTripDay = computed(() => tripDays.value.some(day => day.day_date === selectedDay.value))
+type NearbySuggestion = { place: TripPlace; distanceKm: number; status: 'open' | 'closed' | 'unknown'; rank: number }
+const nearbySuggestions = computed<NearbySuggestion[]>(() => {
+  const origin = userLocation.value
+  if (!origin || !todayIsTripDay.value) return []
+  const radius = Math.PI / 180
+  return places.value
+    .filter(place => !place.visited && place.category !== 'hotel' && (!place.planned_day || place.planned_day === selectedDay.value) && place.latitude != null && place.longitude != null)
+    .map(place => {
+      const latitude = Number(place.latitude) * radius
+      const longitude = Number(place.longitude) * radius
+      const deltaLat = latitude - origin.lat * radius
+      const deltaLng = longitude - origin.lng * radius
+      const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(origin.lat * radius) * Math.cos(latitude) * Math.sin(deltaLng / 2) ** 2
+      const distanceKm = 12742 * Math.asin(Math.min(1, Math.sqrt(a)))
+      const status = openingStatus(place.opening_hours, trips.currentTrip?.destination)
+      return { place, distanceKm, status, rank: status === 'open' ? 0 : status === 'unknown' ? 1 : 2 }
+    })
+    .filter(item => Number.isFinite(item.distanceKm))
+    .sort((a, b) => a.rank - b.rank || a.distanceKm - b.distanceKm)
+    .slice(0, 3)
+})
+function openNearbySuggestion(place: TripPlace) {
+  focusDayPlace(place)
+  mobilePlacesOpen.value = false
+}
+
 function focusTodayStop(stop: DayStop) {
   if (stop.activity) void focusActivity(stop.activity)
   else if (stop.place) focusDayPlace(stop.place)
@@ -2289,6 +2315,21 @@ onUnmounted(() => {
             <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
           </section>
 
+          <section v-if="activeTab === 'today' && todayIsTripDay" class="today-nearby" aria-label="In meiner Nähe">
+            <div class="today-nearby__heading"><strong>📍 In meiner Nähe</strong><span>Spontane Optionen rund um deinen Standort</span></div>
+            <template v-if="!userLocation">
+              <p class="muted">Aktiviere deinen Standort, um nahe Orte zu entdecken.</p>
+              <button type="button" @click="requestUserLocation()">📍 Standort verwenden</button>
+              <p v-if="locationStatus" class="muted">{{ locationStatus }}</p>
+            </template>
+            <template v-else-if="nearbySuggestions.length">
+              <button v-for="item in nearbySuggestions" :key="item.place.id" type="button" class="today-nearby__item" @click="openNearbySuggestion(item.place)">
+                <span><strong>{{ item.place.name }}</strong><small>{{ item.status === 'open' ? '🟢 Geöffnet' : item.status === 'closed' ? '🔴 Geschlossen' : '⚪ Öffnungszeiten unbekannt' }} · {{ item.place.planned_day ? 'Heute geplant' : 'Spontane Option' }}</small></span>
+                <span>{{ item.distanceKm < 1 ? Math.round(item.distanceKm * 1000) + ' m' : item.distanceKm.toFixed(1).replace('.', ',') + ' km' }}<small>ca. {{ Math.max(1, Math.round(item.distanceKm * 1000 / 80)) }} Min. zu Fuß</small></span>
+              </button>
+            </template>
+            <p v-else class="muted">Keine unbesuchten Orte in der Nähe für diesen Reisetag verfügbar.</p>
+          </section>
           <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
             <option value="unplanned">Noch offen</option>
@@ -2791,4 +2832,11 @@ onUnmounted(() => {
 
 <style scoped>
 .time-combo{display:flex;align-items:center;position:relative;border:1px solid #cbd5d1;border-radius:8px;background:#fff;overflow:hidden;min-height:40px}.time-combo>input[type="text"]{border:0!important;box-shadow:none!important;min-width:0;width:100%;flex:1;padding:9px 8px;font:inherit;background:transparent}.time-combo>button{border:0;background:transparent;padding:8px 12px;font-size:1.2rem;color:#425e58;cursor:pointer;flex:none;touch-action:manipulation}.time-combo>input[type="time"]{position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none}
+</style>
+
+<style scoped>
+.today-nearby{border:1px solid #d9e4e0;border-radius:14px;padding:14px;margin:12px 0;background:var(--surface,#fff);display:flex;flex-direction:column;gap:10px}
+.today-nearby__heading{display:flex;flex-direction:column;gap:3px}.today-nearby__heading span{font-size:.85rem;opacity:.7}
+.today-nearby__item{display:flex;justify-content:space-between;align-items:center;text-align:left;gap:12px;border:1px solid #dce5e1;border-radius:10px;background:transparent;padding:10px;cursor:pointer;width:100%}
+.today-nearby__item>span{display:flex;flex-direction:column;gap:4px}.today-nearby__item>span:last-child{text-align:right;white-space:nowrap}.today-nearby__item small{font-size:.75rem;opacity:.75}
 </style>
