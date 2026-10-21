@@ -1894,6 +1894,8 @@ function openPlace(place: TripPlace, focus = false) {
 const planningSaving = ref(false)
 const planningError = ref('')
 let planningQueue = Promise.resolve()
+let pendingPlanningWrites = 0
+let localPlanningRevision = 0
 function savePlanning() {
   const place = activePlace.value
   const trip = trips.currentTrip
@@ -1905,22 +1907,29 @@ function savePlanning() {
   const day = tripDays.value.find(item => item.day_date === dayDate)
   const previousDay = place.planned_day
   const order = day ? (previousDay === dayDate ? place.planned_order : Math.max(0, ...places.value.filter(item => item.planned_day === dayDate).map(item => item.planned_order || 0)) + 1) : null
+  const revision = ++localPlanningRevision
+  pendingPlanningWrites++
   planningSaving.value = true
   planningError.value = ''
+  // Reflect the newest edit immediately, including when the popup is closed.
+  place.planned_day = day?.day_date || null
+  place.planned_order = order
+  place.start_time = start
+  place.end_time = end
   planningQueue = planningQueue.catch(() => {}).then(async () => {
     const current = places.value.find(item => item.id === placeId)
     if (!current) return
     try {
       await updateTripPlacePlanning(trip.id, current, day?.id || null, order, start, end)
-      current.planned_day = day?.day_date || null
-      current.planned_order = order
-      current.start_time = start
-      current.end_time = end
-      refreshMarkerAppearances()
+      if (revision === localPlanningRevision) refreshMarkerAppearances()
     } catch (cause) {
       planningError.value = cause instanceof Error ? cause.message : 'Automatisches Speichern fehlgeschlagen.'
+      console.error('Zeitplanung konnte nicht gespeichert werden', { placeId, start, end, cause })
     }
-  }).finally(() => { planningSaving.value = false })
+  }).finally(() => {
+    pendingPlanningWrites--
+    planningSaving.value = pendingPlanningWrites > 0
+  })
 }
 // Manual entry updates the same refs as the clock picker, so the existing autosave watcher runs.
 watch(popupStart, value => { manualTimeDraft.popupStart = value })
@@ -1933,7 +1942,7 @@ let realtimeChannel: RealtimeChannel | null = null
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
 async function refreshRemotePlaces() {
   const trip = trips.currentTrip
-  if (!trip || planningSaving.value || dayPlanSaving.value || stopDrag) {
+  if (!trip || pendingPlanningWrites > 0 || dayPlanSaving.value || stopDrag) {
     scheduleRealtimeRefresh()
     return
   }
@@ -1945,8 +1954,8 @@ async function refreshRemotePlaces() {
     if (activePlace.value) {
       const updated = byId.get(activePlace.value.id)
       if (updated) {
-        // Realtime responses must not overwrite edits while an autosave is queued.
-        if (planningSaving.value) return
+        // Never replace a locally edited value while a database write is pending.
+        if (pendingPlanningWrites > 0) return
         initializingPlaceTime = true
         popupDay.value = updated.planned_day || ''
         popupStart.value = updated.start_time?.slice(0, 5) || ''
