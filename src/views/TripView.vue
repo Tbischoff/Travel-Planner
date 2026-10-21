@@ -14,6 +14,65 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+const backupExporting = ref(false)
+const backupExportError = ref('')
+const backupExportMessage = ref('')
+async function exportTripBackup() {
+  const trip = trips.currentTrip
+  if (!trip || backupExporting.value) return
+  backupExporting.value = true
+  backupExportError.value = ''
+  backupExportMessage.value = ''
+  try {
+    const [tripResult, daysResult, relationsResult, tryResult, activityResult] = await Promise.all([
+      supabase.from('trips').select('*').eq('id', trip.id).single(),
+      supabase.from('trip_days').select('*').eq('trip_id', trip.id).order('day_date'),
+      supabase.from('trip_places').select('*').eq('trip_id', trip.id),
+      supabase.from('trip_try_items').select('*').eq('trip_id', trip.id).order('created_at'),
+      supabase.from('trip_activities').select('*').eq('trip_id', trip.id).order('planned_order'),
+    ])
+    for (const result of [tripResult, daysResult, relationsResult, tryResult, activityResult]) {
+      if (result.error) throw result.error
+    }
+    const ids = [...new Set((relationsResult.data || []).map(row => row.place_id).filter((id): id is string => typeof id === 'string'))]
+    let dbPlaces: Record<string, unknown>[] = []
+    if (ids.length) {
+      const result = await supabase.from('places').select('*').in('id', ids).order('name')
+      if (result.error) throw result.error
+      dbPlaces = result.data || []
+    }
+    const payload = {
+      app: 'Travel Planner',
+      backupVersion: 2,
+      backupType: 'supabase-trip',
+      appVersion: '3',
+      exportedAt: new Date().toISOString(),
+      supabase: {
+        trip: tripResult.data,
+        tripDays: daysResult.data || [],
+        tripPlaces: relationsResult.data || [],
+        places: dbPlaces,
+        tryItems: tryResult.data || [],
+        activities: activityResult.data || [],
+      },
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    try {
+      const link = document.createElement('a')
+      link.href = url
+      const safeName = (trip.name || 'reise').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'reise'
+      link.download = safeName + '-backup-' + new Date().toISOString().slice(0, 10) + '.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+    } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
+    backupExportMessage.value = 'Backup erstellt: ' + dbPlaces.length + ' Orte, ' + (tryResult.data || []).length + ' Probierlisten-Einträge.'
+  } catch (cause) {
+    backupExportError.value = cause instanceof Error ? cause.message : 'Backup konnte nicht erstellt werden.'
+  } finally { backupExporting.value = false }
+}
+
 type TryItem = { id: string; trip_id: string; name: string; category: string; note: string | null; tried: boolean; created_at?: string }
 const tryItems = ref<TryItem[]>([])
 const tryListExpanded = ref(false)
@@ -2518,6 +2577,13 @@ onUnmounted(() => {
         </template>
         <template v-if="activeTab === 'tools'">
 
+          <section class="backup-export-panel">
+            <strong>💾 Datensicherung</strong>
+            <p class="muted">Exportiert die aktuelle Reise einschließlich Orte, Tagesplanung, Aktivitäten und Probierliste als JSON-Datei.</p>
+            <button type="button" class="place-sort-button" :disabled="backupExporting" @click="exportTripBackup">{{ backupExporting ? 'Backup wird erstellt …' : 'Backup exportieren' }}</button>
+            <p v-if="backupExportMessage" role="status">{{ backupExportMessage }}</p>
+            <p v-if="backupExportError" class="trip-error" role="alert">{{ backupExportError }}</p>
+          </section>
           <p class="muted">Verfügbare Reisefunktionen</p>
           <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
           <button type="button" class="place-sort-button" @click="centerOnCurrentLocation(); mobilePlacesOpen = false">◎ Aktuellen Standort anzeigen</button>
@@ -2958,4 +3024,9 @@ onUnmounted(() => {
 .try-panel__toggle>span:last-child{font-size:1.3rem}
 .try-panel__content{display:flex;flex-direction:column;gap:10px}
 .try-panel__add{align-self:flex-start;border:1px solid #cbd7d2;border-radius:8px;background:transparent;padding:7px 10px;cursor:pointer}
+</style>
+
+<style scoped>
+.backup-export-panel{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px;border:1px solid #d9e4e0;border-radius:12px}
+.backup-export-panel p{margin:0}
 </style>
