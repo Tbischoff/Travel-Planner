@@ -14,6 +14,87 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+
+const backupImporting = ref(false)
+const backupImportError = ref('')
+const backupImportMessage = ref('')
+const backupFileInput = ref<HTMLInputElement | null>(null)
+type BackupRow = Record<string, unknown>
+function backupRows(value: unknown, label: string, max: number): BackupRow[] {
+  if (!Array.isArray(value) || value.length > max || value.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('Ungültige Daten im Backup: ' + label)
+  return value as BackupRow[]
+}
+function safeBackupRow(row: BackupRow, excluded: string[] = []): BackupRow {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !['__proto__', 'prototype', 'constructor', ...excluded].includes(key)))
+}
+async function importTripBackup(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const trip = trips.currentTrip
+  if (!file || !trip || backupImporting.value) return
+  backupImportError.value = ''
+  backupImportMessage.value = ''
+  if (!trips.canEditContent) { backupImportError.value = 'Für die Wiederherstellung sind Bearbeitungsrechte erforderlich.'; return }
+  if (file.size > 10 * 1024 * 1024) { backupImportError.value = 'Die Datei darf höchstens 10 MB groß sein.'; return }
+  try {
+    const payload: unknown = JSON.parse(await file.text())
+    if (!payload || typeof payload !== 'object') throw new Error('Ungültige JSON-Datei.')
+    const backup = payload as Record<string, unknown>
+    if (backup.app !== 'Travel Planner' || backup.backupVersion !== 2 || backup.backupType !== 'supabase-trip') throw new Error('Nur Travel-Planner-Datenbank-Backups der Version 2 werden unterstützt.')
+    const db = backup.supabase as Record<string, unknown> | undefined
+    if (!db || typeof db !== 'object') throw new Error('Die Datenbankdaten fehlen.')
+    const source = db.trip as BackupRow | undefined
+    if (!source || source.id !== trip.id) throw new Error('Das Backup gehört nicht zur aktuell geöffneten Reise. Bitte öffne zuerst die passende Reise.')
+    const days = backupRows(db.tripDays, 'Reisetage', 1000)
+    const relations = backupRows(db.tripPlaces, 'Ortszuordnungen', 10000)
+    const locations = backupRows(db.places, 'Orte', 5000)
+    const tryRows = backupRows(db.tryItems, 'Probierliste', 10000)
+    const activityRows = backupRows(db.activities, 'Aktivitäten', 10000)
+    const placeIds = new Set(locations.map(row => row.id))
+    const dayIds = new Set(days.map(row => row.id))
+    if (locations.some(row => typeof row.id !== 'string') || days.some(row => typeof row.id !== 'string') ||
+        relations.some(row => !placeIds.has(row.place_id) || (row.trip_day_id != null && !dayIds.has(row.trip_day_id))) ||
+        [...days, ...relations, ...tryRows, ...activityRows].some(row => row.trip_id !== trip.id)) throw new Error('Das Backup enthält ungültige Referenzen oder Reisezuordnungen.')
+    const summary = 'Backup für „' + trip.name + '“ wiederherstellen?\\n\\n' +
+      locations.length + ' Orte, ' + days.length + ' Reisetage, ' + relations.length + ' Planungszuordnungen, ' +
+      tryRows.length + ' Probierlisten-Einträge und ' + activityRows.length + ' Aktivitäten.\\n\\n' +
+      'Die aktuellen Daten dieser Reise werden durch den Backup-Stand ersetzt. Erstelle vorher eine aktuelle Sicherung. Der Vorgang kann bei einem Datenbankfehler teilweise abgeschlossen sein.'
+    if (!window.confirm(summary)) return
+    backupImporting.value = true
+    const assert = (error: { message: string } | null) => { if (error) throw new Error(error.message) }
+    // First restore referenced records. Only then replace trip-specific collections.
+    if (locations.length) assert((await supabase.from('places').upsert(locations.map(row => safeBackupRow(row)), { onConflict: 'id' })).error)
+    if (days.length) assert((await supabase.from('trip_days').upsert(days.map(row => safeBackupRow(row)), { onConflict: 'id' })).error)
+    // Upsert before removing obsolete records to reduce risk of losing current data on write errors.
+    if (relations.length) assert((await supabase.from('trip_places').upsert(relations.map(row => safeBackupRow(row)), { onConflict: 'trip_id,place_id' })).error)
+    if (tryRows.length) assert((await supabase.from('trip_try_items').upsert(tryRows.map(row => safeBackupRow(row)), { onConflict: 'id' })).error)
+    if (activityRows.length) assert((await supabase.from('trip_activities').upsert(activityRows.map(row => safeBackupRow(row)), { onConflict: 'id' })).error)
+    const prune = async (table: 'trip_places' | 'trip_try_items' | 'trip_activities', ids: unknown[]) => {
+      const query = supabase.from(table).delete().eq('trip_id', trip.id)
+      const result = ids.length ? await query.not('id', 'in', '(' + ids.map(id => String(id)).join(',') + ')') : await query
+      assert(result.error)
+    }
+    // trip_places uses a unique (trip_id, place_id) pair; upsert may retain old IDs.
+    // Reconcile by place_id rather than relation ID to avoid deleting restored rows.
+    const { data: currentRelations, error: relationError } = await supabase.from('trip_places').select('id,place_id').eq('trip_id', trip.id)
+    assert(relationError)
+    const keptPlaces = new Set(relations.map(row => row.place_id))
+    const obsoleteRelations = (currentRelations || []).filter(row => !keptPlaces.has(row.place_id)).map(row => row.id)
+    if (obsoleteRelations.length) assert((await supabase.from('trip_places').delete().eq('trip_id', trip.id).in('id', obsoleteRelations)).error)
+    await prune('trip_try_items', tryRows.map(row => row.id))
+    await prune('trip_activities', activityRows.map(row => row.id))
+    const obsoleteDays = (await supabase.from('trip_days').select('id').eq('trip_id', trip.id))
+    assert(obsoleteDays.error)
+    const removedDayIds = (obsoleteDays.data || []).filter(row => !dayIds.has(row.id)).map(row => row.id)
+    if (removedDayIds.length) assert((await supabase.from('trip_days').delete().eq('trip_id', trip.id).in('id', removedDayIds)).error)
+    backupImportMessage.value = 'Backup wiederhergestellt. Die Ansicht wird neu geladen.'
+    window.location.reload()
+  } catch (cause) {
+    backupImportError.value = cause instanceof Error ? cause.message : 'Backup konnte nicht importiert werden.'
+  } finally { backupImporting.value = false }
+}
+
 const backupExporting = ref(false)
 const backupExportError = ref('')
 const backupExportMessage = ref('')
@@ -2583,6 +2664,11 @@ onUnmounted(() => {
             <button type="button" class="place-sort-button" :disabled="backupExporting" @click="exportTripBackup">{{ backupExporting ? 'Backup wird erstellt …' : 'Backup exportieren' }}</button>
             <p v-if="backupExportMessage" role="status">{{ backupExportMessage }}</p>
             <p v-if="backupExportError" class="trip-error" role="alert">{{ backupExportError }}</p>
+            <input ref="backupFileInput" type="file" accept=".json,application/json" hidden @change="importTripBackup">
+            <button type="button" class="place-sort-button" :disabled="backupImporting || !trips.canEditContent" @click="backupFileInput?.click()">{{ backupImporting ? 'Backup wird importiert …' : 'Backup importieren' }}</button>
+            <p class="muted">Importiert ausschließlich Backups derselben Reise. Vorhandene Planungsdaten werden nach Bestätigung ersetzt.</p>
+            <p v-if="backupImportMessage" role="status">{{ backupImportMessage }}</p>
+            <p v-if="backupImportError" class="trip-error" role="alert">{{ backupImportError }}</p>
           </section>
           <p class="muted">Verfügbare Reisefunktionen</p>
           <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
