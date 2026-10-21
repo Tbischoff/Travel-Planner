@@ -2403,6 +2403,28 @@ onUnmounted(() => {
             </template>
             <p v-else class="muted">Keine unbesuchten Orte in der Nähe für diesen Reisetag verfügbar.</p>
           </section>
+          <template v-if="activeTab === 'plan'">
+          <section class="try-panel" aria-label="Probierliste">
+            <div class="try-panel__head"><div><strong>🍴 In {{ trips.currentTrip?.destination || 'der Reise' }} probieren</strong><p class="muted">{{ tryCompletedCount }} von {{ tryItems.length }} probiert</p></div><button v-if="trips.canEditContent" type="button" @click="editTryItem()">＋ Hinzufügen</button></div>
+            <progress :value="tryCompletedCount" :max="Math.max(1, tryItems.length)" class="try-panel__progress"></progress>
+            <p v-if="tryLoading" class="muted">Probierliste wird geladen …</p>
+            <p v-else-if="!tryItems.length" class="muted">Noch nichts vorgemerkt.</p>
+            <div v-for="item in tryItems" :key="item.id" class="try-panel__row">
+              <input type="checkbox" :checked="item.tried" :disabled="!trips.canEditContent" :aria-label="item.name + ' probiert'" @change="setTryItemTried(item, ($event.target as HTMLInputElement).checked)">
+              <div class="try-panel__details"><strong :class="{ 'try-panel__done': item.tried }">{{ item.name }}</strong><small>{{ item.category === 'drink' ? '🥤 Getränk' : item.category === 'other' ? '✨ Sonstiges' : '🍴 Essen' }}</small><small v-if="item.note">{{ item.note }}</small></div>
+              <button v-if="trips.canEditContent" type="button" aria-label="Eintrag bearbeiten" @click="editTryItem(item)">✎</button>
+            </div>
+            <form v-if="tryFormOpen && trips.canEditContent" class="try-panel__form" @submit.prevent="saveTryItem">
+              <strong>{{ tryEditingId ? 'Eintrag bearbeiten' : 'Zum Probieren hinzufügen' }}</strong>
+              <label>Name<input v-model="tryName" type="text" required maxlength="120"></label>
+              <label>Kategorie<select v-model="tryCategory"><option value="food">🍴 Essen</option><option value="drink">🥤 Getränk</option><option value="other">✨ Sonstiges</option></select></label>
+              <label>Notiz<textarea v-model="tryNote" rows="2"></textarea></label>
+              <label class="try-panel__checkbox"><input v-model="tryTried" type="checkbox"> Schon probiert</label>
+              <div class="try-panel__actions"><button type="submit" :disabled="trySaving || !tryName.trim()">Speichern</button><button type="button" @click="tryFormOpen = false">Abbrechen</button><button v-if="tryEditingId" type="button" :disabled="trySaving" @click="deleteTryItem">Löschen</button></div>
+            </form>
+            <p v-if="tryError" class="trip-error">{{ tryError }}</p>
+          </section>
+          </template>
           <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
           <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
             <option value="unplanned">Noch offen</option>
@@ -2487,26 +2509,7 @@ onUnmounted(() => {
         </button>
         </template>
         <template v-if="activeTab === 'tools'">
-          <section class="try-panel" aria-label="Probierliste">
-            <div class="try-panel__head"><div><strong>🍴 In {{ trips.currentTrip?.destination || 'der Reise' }} probieren</strong><p class="muted">{{ tryCompletedCount }} von {{ tryItems.length }} probiert</p></div><button v-if="trips.canEditContent" type="button" @click="editTryItem()">＋ Hinzufügen</button></div>
-            <progress :value="tryCompletedCount" :max="Math.max(1, tryItems.length)" class="try-panel__progress"></progress>
-            <p v-if="tryLoading" class="muted">Probierliste wird geladen …</p>
-            <p v-else-if="!tryItems.length" class="muted">Noch nichts vorgemerkt.</p>
-            <div v-for="item in tryItems" :key="item.id" class="try-panel__row">
-              <input type="checkbox" :checked="item.tried" :disabled="!trips.canEditContent" :aria-label="item.name + ' probiert'" @change="setTryItemTried(item, ($event.target as HTMLInputElement).checked)">
-              <div class="try-panel__details"><strong :class="{ 'try-panel__done': item.tried }">{{ item.name }}</strong><small>{{ item.category === 'drink' ? '🥤 Getränk' : item.category === 'other' ? '✨ Sonstiges' : '🍴 Essen' }}</small><small v-if="item.note">{{ item.note }}</small></div>
-              <button v-if="trips.canEditContent" type="button" aria-label="Eintrag bearbeiten" @click="editTryItem(item)">✎</button>
-            </div>
-            <form v-if="tryFormOpen && trips.canEditContent" class="try-panel__form" @submit.prevent="saveTryItem">
-              <strong>{{ tryEditingId ? 'Eintrag bearbeiten' : 'Zum Probieren hinzufügen' }}</strong>
-              <label>Name<input v-model="tryName" type="text" required maxlength="120"></label>
-              <label>Kategorie<select v-model="tryCategory"><option value="food">🍴 Essen</option><option value="drink">🥤 Getränk</option><option value="other">✨ Sonstiges</option></select></label>
-              <label>Notiz<textarea v-model="tryNote" rows="2"></textarea></label>
-              <label class="try-panel__checkbox"><input v-model="tryTried" type="checkbox"> Schon probiert</label>
-              <div class="try-panel__actions"><button type="submit" :disabled="trySaving || !tryName.trim()">Speichern</button><button type="button" @click="tryFormOpen = false">Abbrechen</button><button v-if="tryEditingId" type="button" :disabled="trySaving" @click="deleteTryItem">Löschen</button></div>
-            </form>
-            <p v-if="tryError" class="trip-error">{{ tryError }}</p>
-          </section>
+
           <p class="muted">Verfügbare Reisefunktionen</p>
           <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
           <button type="button" class="place-sort-button" @click="centerOnCurrentLocation(); mobilePlacesOpen = false">◎ Aktuellen Standort anzeigen</button>
