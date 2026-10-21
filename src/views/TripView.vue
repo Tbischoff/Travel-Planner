@@ -14,6 +14,77 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+type TryItem = { id: string; trip_id: string; name: string; category: string; note: string | null; tried: boolean; created_at?: string }
+const tryItems = ref<TryItem[]>([])
+const tryLoading = ref(false)
+const trySaving = ref(false)
+const tryError = ref('')
+const tryEditingId = ref<string | null>(null)
+const tryFormOpen = ref(false)
+const tryName = ref('')
+const tryCategory = ref('food')
+const tryNote = ref('')
+const tryTried = ref(false)
+const tryCompletedCount = computed(() => tryItems.value.filter(item => item.tried).length)
+async function loadTryItems() {
+  const trip = trips.currentTrip
+  if (!trip) return
+  tryLoading.value = true
+  try {
+    const { data, error } = await supabase.from('trip_try_items').select('id,trip_id,name,category,note,tried,created_at').eq('trip_id', trip.id).order('created_at', { ascending: true })
+    if (error) throw error
+    tryItems.value = (data || []) as TryItem[]
+    tryError.value = ''
+  } catch (cause) {
+    tryError.value = cause instanceof Error ? cause.message : 'Probierliste konnte nicht geladen werden.'
+  } finally { tryLoading.value = false }
+}
+function editTryItem(item?: TryItem) {
+  if (!trips.canEditContent) return
+  tryEditingId.value = item?.id || null
+  tryName.value = item?.name || ''
+  tryCategory.value = item?.category || 'food'
+  tryNote.value = item?.note || ''
+  tryTried.value = Boolean(item?.tried)
+  tryError.value = ''
+  tryFormOpen.value = true
+}
+async function saveTryItem() {
+  const trip = trips.currentTrip
+  const name = tryName.value.trim()
+  if (!trip || !trips.canEditContent || !name || trySaving.value) return
+  trySaving.value = true
+  tryError.value = ''
+  const payload = { name, category: tryCategory.value, note: tryNote.value.trim() || null, tried: tryTried.value, updated_at: new Date().toISOString() }
+  try {
+    const result = tryEditingId.value
+      ? await supabase.from('trip_try_items').update(payload).eq('id', tryEditingId.value).eq('trip_id', trip.id)
+      : await supabase.from('trip_try_items').insert({ ...payload, trip_id: trip.id })
+    if (result.error) throw result.error
+    tryFormOpen.value = false
+    await loadTryItems()
+  } catch (cause) { tryError.value = cause instanceof Error ? cause.message : 'Eintrag konnte nicht gespeichert werden.' }
+  finally { trySaving.value = false }
+}
+async function setTryItemTried(item: TryItem, tried: boolean) {
+  const trip = trips.currentTrip
+  if (!trip || !trips.canEditContent) return
+  const previous = item.tried
+  item.tried = tried
+  const { error } = await supabase.from('trip_try_items').update({ tried, updated_at: new Date().toISOString() }).eq('id', item.id).eq('trip_id', trip.id)
+  if (error) { item.tried = previous; tryError.value = error.message }
+}
+async function deleteTryItem() {
+  const trip = trips.currentTrip
+  if (!trip || !trips.canEditContent || !tryEditingId.value || !window.confirm('Eintrag wirklich löschen?')) return
+  trySaving.value = true
+  const { error } = await supabase.from('trip_try_items').delete().eq('id', tryEditingId.value).eq('trip_id', trip.id)
+  trySaving.value = false
+  if (error) { tryError.value = error.message; return }
+  tryFormOpen.value = false
+  await loadTryItems()
+}
+
 type WeatherForecast = { hourly?: { time?: string[]; temperature_2m?: number[]; apparent_temperature?: number[]; precipitation_probability?: number[]; weather_code?: number[]; wind_speed_10m?: number[] }; daily?: { time?: string[]; weather_code?: number[]; temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_probability_max?: number[] } }
 const weatherForecast = ref<WeatherForecast | null>(null)
 const weatherLoading = ref(false)
@@ -2250,6 +2321,7 @@ onMounted(async () => {
     if (!trips.currentTrip) { await router.replace('/trips'); return }
     ;[places.value, tripDays.value] = await Promise.all([listTripPlaces(trips.currentTrip.id), listTripDays(trips.currentTrip.id)])
     await loadActivities()
+    await loadTryItems()
     await nextTick()
     await renderMap()
     void loadTripWeather()
@@ -2257,6 +2329,7 @@ onMounted(async () => {
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_places', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_activities', filter: 'trip_id=eq.' + trips.currentTrip.id }, scheduleRealtimeRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trip_try_items', filter: 'trip_id=eq.' + trips.currentTrip.id }, () => { void loadTryItems() })
       .subscribe()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : 'Orte konnten nicht geladen werden.'
@@ -2414,6 +2487,26 @@ onUnmounted(() => {
         </button>
         </template>
         <template v-if="activeTab === 'tools'">
+          <section class="try-panel" aria-label="Probierliste">
+            <div class="try-panel__head"><div><strong>🍴 In {{ trips.currentTrip?.destination || 'der Reise' }} probieren</strong><p class="muted">{{ tryCompletedCount }} von {{ tryItems.length }} probiert</p></div><button v-if="trips.canEditContent" type="button" @click="editTryItem()">＋ Hinzufügen</button></div>
+            <progress :value="tryCompletedCount" :max="Math.max(1, tryItems.length)" class="try-panel__progress"></progress>
+            <p v-if="tryLoading" class="muted">Probierliste wird geladen …</p>
+            <p v-else-if="!tryItems.length" class="muted">Noch nichts vorgemerkt.</p>
+            <div v-for="item in tryItems" :key="item.id" class="try-panel__row">
+              <input type="checkbox" :checked="item.tried" :disabled="!trips.canEditContent" :aria-label="item.name + ' probiert'" @change="setTryItemTried(item, ($event.target as HTMLInputElement).checked)">
+              <div class="try-panel__details"><strong :class="{ 'try-panel__done': item.tried }">{{ item.name }}</strong><small>{{ item.category === 'drink' ? '🥤 Getränk' : item.category === 'other' ? '✨ Sonstiges' : '🍴 Essen' }}</small><small v-if="item.note">{{ item.note }}</small></div>
+              <button v-if="trips.canEditContent" type="button" aria-label="Eintrag bearbeiten" @click="editTryItem(item)">✎</button>
+            </div>
+            <form v-if="tryFormOpen && trips.canEditContent" class="try-panel__form" @submit.prevent="saveTryItem">
+              <strong>{{ tryEditingId ? 'Eintrag bearbeiten' : 'Zum Probieren hinzufügen' }}</strong>
+              <label>Name<input v-model="tryName" type="text" required maxlength="120"></label>
+              <label>Kategorie<select v-model="tryCategory"><option value="food">🍴 Essen</option><option value="drink">🥤 Getränk</option><option value="other">✨ Sonstiges</option></select></label>
+              <label>Notiz<textarea v-model="tryNote" rows="2"></textarea></label>
+              <label class="try-panel__checkbox"><input v-model="tryTried" type="checkbox"> Schon probiert</label>
+              <div class="try-panel__actions"><button type="submit" :disabled="trySaving || !tryName.trim()">Speichern</button><button type="button" @click="tryFormOpen = false">Abbrechen</button><button v-if="tryEditingId" type="button" :disabled="trySaving" @click="deleteTryItem">Löschen</button></div>
+            </form>
+            <p v-if="tryError" class="trip-error">{{ tryError }}</p>
+          </section>
           <p class="muted">Verfügbare Reisefunktionen</p>
           <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
           <button type="button" class="place-sort-button" @click="centerOnCurrentLocation(); mobilePlacesOpen = false">◎ Aktuellen Standort anzeigen</button>
@@ -2839,4 +2932,10 @@ onUnmounted(() => {
 .today-nearby__heading{display:flex;flex-direction:column;gap:3px}.today-nearby__heading span{font-size:.85rem;opacity:.7}
 .today-nearby__item{display:flex;justify-content:space-between;align-items:center;text-align:left;gap:12px;border:1px solid #dce5e1;border-radius:10px;background:transparent;padding:10px;cursor:pointer;width:100%}
 .today-nearby__item>span{display:flex;flex-direction:column;gap:4px}.today-nearby__item>span:last-child{text-align:right;white-space:nowrap}.today-nearby__item small{font-size:.75rem;opacity:.75}
+</style>
+
+<style scoped>
+.try-panel{display:flex;flex-direction:column;gap:10px;padding:14px;border:1px solid #d9e4e0;border-radius:14px;margin-bottom:16px}
+.try-panel__head{display:flex;align-items:start;justify-content:space-between;gap:8px}.try-panel__head p{margin:4px 0 0}.try-panel__head button,.try-panel__row button,.try-panel__actions button{border:1px solid #cbd7d2;border-radius:8px;background:transparent;padding:7px 10px;cursor:pointer}
+.try-panel__progress{width:100%;height:8px;accent-color:#25665c}.try-panel__row{display:flex;gap:10px;align-items:center;border-bottom:1px solid #e4ebe8;padding:8px 0}.try-panel__row input{width:18px;height:18px}.try-panel__details{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0}.try-panel__details small{opacity:.7}.try-panel__done{text-decoration:line-through;opacity:.6}.try-panel__form{display:flex;flex-direction:column;gap:10px;border-top:1px solid #e4ebe8;padding-top:12px}.try-panel__form label{display:flex;flex-direction:column;gap:4px}.try-panel__form input:not([type=checkbox]),.try-panel__form select,.try-panel__form textarea{border:1px solid #cbd7d2;border-radius:8px;padding:8px;max-width:100%}.try-panel__form .try-panel__checkbox{flex-direction:row;align-items:center}.try-panel__actions{display:flex;flex-wrap:wrap;gap:8px}
 </style>
