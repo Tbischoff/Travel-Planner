@@ -800,11 +800,13 @@ const popupDay = ref('')
 const popupStart = ref('')
 const popupEnd = ref('')
 function openTimePicker(event: MouseEvent) {
-  suppressManualTimeBlur = true
   const input = (event.currentTarget as HTMLElement).parentElement?.querySelector<HTMLInputElement>('input[type="time"]')
   if (!input) return
+  // The native Android picker commits on change, not on intermediate input events.
+  // Keep the text input blur from overwriting the picker selection.
+  suppressManualTimeBlur = true
   try { input.showPicker() } catch { input.focus(); input.click() }
-  queueMicrotask(() => { suppressManualTimeBlur = false })
+  window.setTimeout(() => { suppressManualTimeBlur = false }, 500)
 }
 let suppressManualTimeBlur = false
 let initializingPlaceTime = false
@@ -1934,10 +1936,14 @@ async function refreshRemotePlaces() {
     if (activePlace.value) {
       const updated = byId.get(activePlace.value.id)
       if (updated) {
-        activePlace.value = updated
+        // Realtime responses must not overwrite edits while an autosave is queued.
+        if (planningSaving.value) return
+        initializingPlaceTime = true
         popupDay.value = updated.planned_day || ''
-        popupStart.value = updated.start_time || ''
-        popupEnd.value = updated.end_time || ''
+        popupStart.value = updated.start_time?.slice(0, 5) || ''
+        popupEnd.value = updated.end_time?.slice(0, 5) || ''
+        activePlace.value = updated
+        initializingPlaceTime = false
       } else closePlacePopup()
     }
     refreshMarkerAppearances()
@@ -2447,8 +2453,8 @@ onUnmounted(() => {
             <template v-else>
               <label>Reisetag<select v-model="popupDay"><option value="">Noch offen</option><option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE') }}</option></select></label>
               <div v-if="popupDay" class="place-popup__times">
-                <label>Von<span class="time-combo"><input :value="manualTimeDraft.popupStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Beginn manuell eingeben" @input="manualTimeDraft.popupStart = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('popupStart', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Beginn über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="popupStart" type="time" step="60" tabindex="-1" aria-hidden="true" @input="commitManualTime('popupStart', ($event.target as HTMLInputElement).value)" @change="commitManualTime('popupStart', ($event.target as HTMLInputElement).value)"></span></label>
-                <label>Bis<span class="time-combo"><input :value="manualTimeDraft.popupEnd" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Ende manuell eingeben" @input="manualTimeDraft.popupEnd = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('popupEnd', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Ende über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="popupEnd" type="time" step="60" tabindex="-1" aria-hidden="true" @input="commitManualTime('popupEnd', ($event.target as HTMLInputElement).value)" @change="commitManualTime('popupEnd', ($event.target as HTMLInputElement).value)"></span></label>
+                <label>Von<span class="time-combo"><input :value="manualTimeDraft.popupStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Beginn manuell eingeben" @input="manualTimeDraft.popupStart = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('popupStart', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Beginn über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="popupStart" type="time" step="60" tabindex="-1" aria-hidden="true" @change="commitManualTime('popupStart', ($event.target as HTMLInputElement).value)"></span></label>
+                <label>Bis<span class="time-combo"><input :value="manualTimeDraft.popupEnd" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" aria-label="Ende manuell eingeben" @input="manualTimeDraft.popupEnd = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('popupEnd', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Ende über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="popupEnd" type="time" step="60" tabindex="-1" aria-hidden="true" @change="commitManualTime('popupEnd', ($event.target as HTMLInputElement).value)"></span></label>
               </div>
             </template>
             <div class="place-popup__actions">
@@ -2477,7 +2483,7 @@ onUnmounted(() => {
         <h2>{{ editingActivityId ? "Aktivität bearbeiten" : "Aktivität hinzufügen" }}</h2>
         <label>Name<input v-model="activityName" required></label>
         <label>Reisetag<select v-model="activityDayId" required><option v-for="day in tripDays" :key="day.id" :value="day.id">{{ day.day_date }}</option></select></label>
-        <label>Beginn<span class="time-combo"><input :value="manualTimeDraft.activityStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" required aria-label="Beginn manuell eingeben" @input="manualTimeDraft.activityStart = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('activityStart', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Beginn über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="activityStart" type="time" step="60" tabindex="-1" aria-hidden="true" @input="commitManualTime('activityStart', ($event.target as HTMLInputElement).value)" @change="commitManualTime('activityStart', ($event.target as HTMLInputElement).value)"></span></label>
+        <label>Beginn<span class="time-combo"><input :value="manualTimeDraft.activityStart" type="text" inputmode="numeric" placeholder="--:--" maxlength="5" required aria-label="Beginn manuell eingeben" @input="manualTimeDraft.activityStart = ($event.target as HTMLInputElement).value" @blur="!suppressManualTimeBlur && commitManualTime('activityStart', ($event.target as HTMLInputElement).value)"><button type="button" aria-label="Beginn über Uhr auswählen" @pointerdown="suppressManualTimeBlur = true" @click="openTimePicker">◷</button><input  :value="activityStart" type="time" step="60" tabindex="-1" aria-hidden="true" @change="commitManualTime('activityStart', ($event.target as HTMLInputElement).value)"></span></label>
                 <label>Treffpunkt über Google suchen<div ref="activityPlaceHost" class="google-place-host"></div></label>
         <p v-if="activityPlaceError" class="muted">{{ activityPlaceError }}</p>
         <p v-if="activityMeeting" class="muted">Ausgewählt: {{ activityMeeting }}</p>
