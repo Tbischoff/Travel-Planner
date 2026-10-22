@@ -96,6 +96,68 @@ async function importTripBackup(event: Event) {
 }
 
 
+
+const offlineVisible = ref(false)
+const offlineMapHost = ref<HTMLElement | null>(null)
+let offlineMapInstance: { remove: () => void; resize: () => void } | null = null
+async function showOfflineMap() {
+  const id = trips.currentTrip?.id
+  if (!id) return
+  offlineError.value = ''
+  try {
+    const file = await offlinePackage(id)
+    if (!(file instanceof Blob)) throw new Error('Kein Kartenpaket auf diesem Gerät vorhanden.')
+    const w = window as unknown as { maplibregl?: any; pmtiles?: any }
+    if (!w.maplibregl || !w.pmtiles?.PMTiles || !w.pmtiles?.FileSource) throw new Error('Kartenbibliotheken sind nicht geladen. Bitte zunächst online öffnen.')
+    offlineVisible.value = true
+    await nextTick()
+    if (!offlineMapHost.value) throw new Error('Offline-Kartenfläche fehlt.')
+    offlineMapInstance?.remove()
+    const archive = new w.pmtiles.PMTiles(new w.pmtiles.FileSource(new File([file], 'offline.pmtiles')))
+    const protocol = new w.pmtiles.Protocol()
+    w.maplibregl.addProtocol('pmtiles', protocol.tile)
+    protocol.add(archive)
+    const points = [...places.value, ...activities.value].map(p => [Number(p.longitude), Number(p.latitude)])
+      .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
+    const center = points.length ? points[0] : [0, 0]
+    const map = new w.maplibregl.Map({
+      container: offlineMapHost.value, center, zoom: 12,
+      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + archive.getKey() } },
+        layers: [
+          { id: 'background', type: 'background', paint: { 'background-color': '#eef1ed' } },
+          { id: 'water', type: 'fill', source: 'basemap', 'source-layer': 'water', paint: { 'fill-color': '#b9d9e8' } },
+          { id: 'landuse', type: 'fill', source: 'basemap', 'source-layer': 'landuse', paint: { 'fill-color': '#dfe8d8' } },
+          { id: 'roads', type: 'line', source: 'basemap', 'source-layer': 'roads', paint: { 'line-color': '#fff', 'line-width': 2 } },
+          { id: 'buildings', type: 'fill', source: 'basemap', 'source-layer': 'buildings', paint: { 'fill-color': '#d5d4d0' } },
+        ] }
+    })
+    offlineMapInstance = map
+    map.on('load', () => {
+      for (const p of [...places.value, ...activities.value]) {
+        const lat = Number(p.latitude), lng = Number(p.longitude)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+        const pin = document.createElement('button')
+        pin.type = 'button'
+        pin.className = 'offline-map-pin'
+        pin.textContent = '📍'
+        pin.title = p.name
+        new w.maplibregl.Marker({ element: pin }).setLngLat([lng, lat])
+          .setPopup(new w.maplibregl.Popup({ offset: 18 }).setText(p.name)).addTo(map)
+      }
+      map.resize()
+    })
+    offlineStatus.value = 'Gespeicherte Karte wird angezeigt.'
+  } catch (e) {
+    offlineVisible.value = false
+    offlineError.value = e instanceof Error ? e.message : 'Offline-Karte konnte nicht geöffnet werden.'
+  }
+}
+function hideOfflineMap() {
+  offlineVisible.value = false
+  offlineMapInstance?.remove()
+  offlineMapInstance = null
+}
+
 const offlineBusy = ref(false)
 const offlineStatus = ref('')
 const offlineError = ref('')
@@ -2749,6 +2811,7 @@ onUnmounted(() => {
             <strong>🗺️ Offline-Karte</strong>
             <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Die Offline-Kartenanzeige folgt separat.</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy" @click="prepareOfflinePackage">{{ offlineBusy ? 'Offline-Karte wird vorbereitet …' : offlineReady ? 'Offline-Karte aktualisieren' : 'Offline-Karte vorbereiten' }}</button>
+            <button v-if="offlineReady" type="button" class="place-sort-button" @click="offlineVisible ? hideOfflineMap() : showOfflineMap()">{{ offlineVisible ? 'Offline-Karte schließen' : 'Offline-Karte anzeigen' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
             <p v-if="offlineStatus" role="status">{{ offlineStatus }}</p>
             <p v-if="offlineError" class="trip-error" role="alert">{{ offlineError }}</p>
@@ -2771,7 +2834,9 @@ onUnmounted(() => {
         <div v-if="navigationState === 'idle'" class="map-mobile-actions">
           <button type="button" class="map-mobile-trips" @click="router.push('/trips')" aria-label="Reise wechseln">Reisen</button>
         </div>
-        <div ref="mapHost" class="trip-map" aria-label="Karte der Reise"></div>
+        <div ref="mapHost" class="trip-map" :class="{ 'offline-map-hidden': offlineVisible }" aria-label="Karte der Reise"></div>
+        <div v-if="offlineVisible" ref="offlineMapHost" class="trip-map offline-map-layer" aria-label="Gespeicherte Offline-Karte"></div>
+        <button v-if="offlineVisible" type="button" class="offline-map-exit" @click="hideOfflineMap">Online-Karte anzeigen</button>
         <section v-if="navigationState !== 'idle'" class="navigation-map-overlay navigation-map-overlay--v2" aria-label="Aktive Navigation" role="region">
           <div class="navigation-map-overlay__topline">
             <div><small>Navigation · Stopp {{ navigationTargetIndex + 1 }}/{{ dayStops.length }}</small><strong>{{ navigationTarget?.name || 'Nächster Stopp' }}</strong></div>
@@ -3205,4 +3270,11 @@ onUnmounted(() => {
 <style scoped>
 .backup-export-panel{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;padding:14px;border:1px solid #d9e4e0;border-radius:12px}
 .backup-export-panel p{margin:0}
+</style>
+
+<style scoped>
+.offline-map-hidden{visibility:hidden}
+.offline-map-layer{position:absolute;inset:0;z-index:3}
+.offline-map-exit{position:absolute;top:12px;right:12px;z-index:5;border-radius:8px;padding:9px 12px;background:white;border:1px solid #cad6d2;cursor:pointer}
+:deep(.offline-map-pin){background:transparent;border:0;font-size:23px;cursor:pointer}
 </style>
