@@ -2670,11 +2670,6 @@ onUnmounted(() => {
             <p v-if="backupImportMessage" role="status">{{ backupImportMessage }}</p>
             <p v-if="backupImportError" class="trip-error" role="alert">{{ backupImportError }}</p>
           </section>
-          <p class="muted">Verfügbare Reisefunktionen</p>
-          <button type="button" class="place-sort-button" @click="centerOnDestination(); mobilePlacesOpen = false">📍 Auf Reiseziel zentrieren</button>
-          <button type="button" class="place-sort-button" @click="centerOnCurrentLocation(); mobilePlacesOpen = false">◎ Aktuellen Standort anzeigen</button>
-          <button type="button" class="place-sort-button" @click="fitAllPlaces(); mobilePlacesOpen = false"><svg class="navigation-control-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="11" cy="18" r="2"/><path d="M7 6.5l9 1M17 10l-5 6M6 8l4 8"/></svg> Alle Orte auf der Karte</button>
-          <button type="button" class="place-sort-button" @click="router.push('/trips')">Reise wechseln</button>
         </template>
       </aside>
       <section class="map-panel">
