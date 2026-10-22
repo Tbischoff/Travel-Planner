@@ -97,6 +97,7 @@ async function importTripBackup(event: Event) {
 
 
 
+const offlineReady = ref(false)
 const offlineVisible = ref(false)
 const offlineMapHost = ref<HTMLElement | null>(null)
 let offlineMapInstance: { remove: () => void; resize: () => void } | null = null
@@ -167,7 +168,6 @@ function hideOfflineMap() {
 const offlineBusy = ref(false)
 const offlineStatus = ref('')
 const offlineError = ref('')
-const offlineReady = ref(false)
 async function offlineDb() {
   return await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('travel-planner-v3-maps', 1)
