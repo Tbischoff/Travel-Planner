@@ -121,9 +121,9 @@ async function showOfflineMap() {
     if (!w.maplibregl.__tripGlyphProtocolInstalled) {
       w.maplibregl.addProtocol(glyphProtocol, async (params: { url: string }) => {
         const path = params.url.replace(/^cachedglyph:\/\//, '')
-        const match = /^([^/]+)\/(\d+-\d+)\.pbf$/.exec(path)
+        const match = /^fonts\/([^/]+)\/(\d+-\d+)\.pbf$/.exec(path)
         if (!match) throw new Error('Ungültiger Schriftdateipfad')
-        const glyphUrl = 'https://protomaps.github.io/basemaps-assets/fonts/' + encodeURIComponent(match[1]) + '/' + match[2] + '.pbf'
+        const glyphUrl = 'https://protomaps.github.io/basemaps-assets/fonts/' + encodeURIComponent(decodeURIComponent(match[1])) + '/' + match[2] + '.pbf'
         const cached = 'caches' in window ? await (await caches.open('travel-planner-map-glyphs-v1')).match(glyphUrl) : undefined
         const response = cached || (navigator.onLine ? await fetch(glyphUrl) : undefined)
         if (!response?.ok) throw new Error('Schriftdatei nicht offline verfügbar: ' + match[2])
