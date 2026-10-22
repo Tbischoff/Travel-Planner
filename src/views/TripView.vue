@@ -851,6 +851,11 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   } catch { /* Storage full or disabled: online route remains usable */ }
 }
 function renderOfflineRoute(map: any) {
+  if (!map.getStyle?.()) return
+  const previous = map.getStyle().layers?.filter((layer: { id: string }) => layer.id.startsWith('offline-route-')) || []
+  for (const layer of previous) map.removeLayer(layer.id)
+  const sources = Object.keys(map.getStyle().sources || {}).filter(key => key.startsWith('offline-route-'))
+  for (const source of sources) map.removeSource(source)
   const id = trips.currentTrip?.id
   if (!id) return
   const rows = loadOfflineRoutes(id)
@@ -958,6 +963,14 @@ function hideWalkingRoute() {
   clearRoutePolylines()
 }
 async function showWalkingRoute() {
+  if (offlineVisible.value || !navigator.onLine) {
+    routeBusy.value = false
+    routeError.value = ''
+    if (offlineVisible.value && offlineMapInstance) {
+      try { renderOfflineRoute(offlineMapInstance) } catch (error) { console.warn('Offline-Route konnte nicht geladen werden', error) }
+    }
+    return
+  }
   if (!map) return
   const requestId = ++routeRequestId
   routeBusy.value = true
@@ -1095,7 +1108,9 @@ function toggleWalkingRoute() {
   else { routeVisible.value = true; void showWalkingRoute() }
 }
 watch([selectedDay, routeStart, routeEnd, routeMode, dayStops], () => {
-  if (routeVisible.value) void showWalkingRoute()
+  if (offlineVisible.value && offlineMapInstance) {
+    try { renderOfflineRoute(offlineMapInstance) } catch (error) { console.warn('Offline-Routenwechsel fehlgeschlagen', error) }
+  } else if (routeVisible.value && navigator.onLine) void showWalkingRoute()
 })
 
 const dayPlanList = ref<HTMLElement | null>(null)
