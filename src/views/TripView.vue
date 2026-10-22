@@ -840,10 +840,17 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   if (!id || selectedDay.value === 'unplanned') return
   const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
     mode: (metrics[index]?.mode === 'transit' ? 'transit' : 'walking') as OfflineRouteSegment['mode'],
-    coordinates: (segment.path || []).map(point => [Number(point.lng), Number(point.lat)] as [number, number])
-      .filter(point => point.every(Number.isFinite))
+    coordinates: (segment.path || []).map(point => {
+      const position = point as RoutePoint & { lat: number | (() => number); lng: number | (() => number) }
+      const lat = typeof position.lat === 'function' ? position.lat() : position.lat
+      const lng = typeof position.lng === 'function' ? position.lng() : position.lng
+      return [Number(lng), Number(lat)] as [number, number]
+    }).filter(point => point.every(Number.isFinite))
   })).filter(segment => segment.coordinates.length > 1)
-  if (!savedSegments.length) return
+  if (!savedSegments.length) {
+    console.warn('Offline-Routenspeicherung: Google Routes lieferte keine verwendbaren Wegpunkte.')
+    return
+  }
   try {
     const rows = loadOfflineRoutes(id).filter(row => row.day !== selectedDay.value || row.mode !== routeMode.value)
     rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments })
@@ -982,6 +989,7 @@ async function showWalkingRoute() {
   clearRoutePolylines()
   const key = routeCacheKey()
   if (cachedRoute?.key === key) {
+    saveOfflineRoute(cachedRoute.segments, cachedRoute.metrics)
     renderRoute(cachedRoute.segments, cachedRoute.metrics, cachedRoute.connections, cachedRoute.summary)
     routeBusy.value = false
     return
