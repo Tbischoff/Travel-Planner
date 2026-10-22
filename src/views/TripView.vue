@@ -942,6 +942,7 @@ function renderOfflineRoute(map: any) {
   for (const layer of previous) map.removeLayer(layer.id)
   const sources = Object.keys(map.getStyle().sources || {}).filter(key => key.startsWith('offline-route-'))
   for (const source of sources) map.removeSource(source)
+  if (!routeVisible.value) return
   const id = trips.currentTrip?.id
   if (!id) return
   const rows = loadOfflineRoutes(id)
@@ -968,7 +969,7 @@ let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
 let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
 function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
-function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines() }
+function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines(); if (offlineVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance) }
 function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = ''; transitLastUpdated.value = null; transitChangeWarnings.value = {}; transitRefreshNotice.value = '' }
 function getCachedRoute() { return cachedRoute }
 function transitSignature(connections: TransitConnection[], section: number): string { return JSON.stringify(connections.filter(connection => connection.section === section).map(connection => [connection.line, connection.headsign, connection.from, connection.to, connection.departure, connection.arrival])) }
@@ -3074,6 +3075,7 @@ onUnmounted(() => {
           <section class="backup-export-panel">
             <strong>🗺️ Offline-Karte</strong>
             <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Bei fehlender Internetverbindung wird die gespeicherte Karte automatisch angezeigt.</p>
+            <p class="muted">{{ offlineReady ? '✓ Offline-Karte verfügbar' : '○ Offline-Karte noch nicht gespeichert' }} · {{ offlineRouteDayStatus.filter(day => day.ready).length }} von {{ offlineRouteDayStatus.filter(day => day.count >= 2).length }} Fußrouten gespeichert</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy || offlineRoutesBusy" @click="updateOfflineData">{{ offlineBusy || offlineRoutesBusy ? 'Offline-Daten werden vorbereitet …' : offlineReady ? 'Offline-Daten aktualisieren' : 'Offline-Daten vorbereiten' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
             <p v-if="offlineBusy || offlineRoutesBusy" role="status">{{ offlineRoutesBusy ? offlineRoutesProgress : offlineStatus }}</p>
