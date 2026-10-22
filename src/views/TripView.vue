@@ -134,6 +134,7 @@ async function showOfflineMap() {
         ] }
     })
     offlineMapInstance = map
+    map.on('click', () => closePlacePopup())
     map.on('load', () => {
       for (const p of [...places.value, ...activities.value]) {
         const lat = Number(p.latitude), lng = Number(p.longitude)
@@ -144,17 +145,19 @@ async function showOfflineMap() {
         pin.textContent = '📍'
         pin.title = p.name
         pin.addEventListener('click', () => {
-          if ('trip_day_id' in p) {
-            activePlace.value = null
+          if (activities.value.includes(p as Activity)) {
+            closePlacePopup()
             activeActivity.value = p as Activity
           } else {
             const place = p as TripPlace
-            activeActivity.value = null
-            activePlace.value = place
-            selectedPlaceId.value = place.id
+            closePlacePopup()
+            initializingPlaceTime = true
             popupDay.value = place.planned_day || ''
             popupStart.value = place.start_time?.slice(0, 5) || ''
             popupEnd.value = place.end_time?.slice(0, 5) || ''
+            activePlace.value = place
+            selectedPlaceId.value = place.id
+            initializingPlaceTime = false
           }
         })
         new w.maplibregl.Marker({ element: pin }).setLngLat([lng, lat]).addTo(map)
@@ -2342,7 +2345,7 @@ watch(popupStart, value => { manualTimeDraft.popupStart = value })
 watch(popupEnd, value => { manualTimeDraft.popupEnd = value })
 watch(activityStart, value => { manualTimeDraft.activityStart = value })
 watch([popupDay, popupStart, popupEnd], () => {
-  if (!initializingPlaceTime && activePlace.value && !editingPlace.value) savePlanning()
+  if (!initializingPlaceTime && !offlineVisible.value && activePlace.value && !editingPlace.value) savePlanning()
 }, { flush: 'sync' })
 let realtimeChannel: RealtimeChannel | null = null
 let realtimeRefreshTimer: ReturnType<typeof setTimeout> | null = null
