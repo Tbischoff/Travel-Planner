@@ -117,6 +117,20 @@ async function showOfflineMap() {
     offlineMapInstance?.remove()
     const fileSource = new w.pmtiles.FileSource(new File([file], 'offline.pmtiles'))
     const archive = new w.pmtiles.PMTiles(fileSource)
+    const glyphProtocol = 'cachedglyph'
+    if (!w.maplibregl.__tripGlyphProtocolInstalled) {
+      w.maplibregl.addProtocol(glyphProtocol, async (params: { url: string }) => {
+        const path = params.url.replace(/^cachedglyph:\/\//, '')
+        const match = /^([^/]+)\/(\d+-\d+)\.pbf$/.exec(path)
+        if (!match) throw new Error('Ungültiger Schriftdateipfad')
+        const glyphUrl = 'https://protomaps.github.io/basemaps-assets/fonts/' + encodeURIComponent(match[1]) + '/' + match[2] + '.pbf'
+        const cached = 'caches' in window ? await (await caches.open('travel-planner-map-glyphs-v1')).match(glyphUrl) : undefined
+        const response = cached || (navigator.onLine ? await fetch(glyphUrl) : undefined)
+        if (!response?.ok) throw new Error('Schriftdatei nicht offline verfügbar: ' + match[2])
+        return { data: await response.arrayBuffer() }
+      })
+      w.maplibregl.__tripGlyphProtocolInstalled = true
+    }
     const protocol = new w.pmtiles.Protocol()
     w.maplibregl.addProtocol('pmtiles', protocol.tile)
     protocol.add(archive)
@@ -125,7 +139,7 @@ async function showOfflineMap() {
     const center = points.length ? points[0] : [0, 0]
     const map = new w.maplibregl.Map({
       container: offlineMapHost.value, center, zoom: 12,
-      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + fileSource.getKey() } },
+      style: { version: 8, glyphs: 'cachedglyph://fonts/{fontstack}/{range}.pbf', sources: { basemap: { type: 'vector', url: 'pmtiles://' + fileSource.getKey() } },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#eef1ed' } },
           { id: 'water', type: 'fill', source: 'basemap', 'source-layer': 'water', paint: { 'fill-color': '#b9d9e8' } },
@@ -141,6 +155,22 @@ async function showOfflineMap() {
       closePlacePopup()
     })
     map.on('load', () => {
+      // Add labels after the base style is loaded so an unsupported layer cannot blank the basemap.
+      try {
+        map.addLayer({
+          id: 'offline-street-names', type: 'symbol', source: 'basemap',
+          'source-layer': 'roads', minzoom: 13,
+          filter: ['has', 'name'],
+          layout: {
+            'symbol-placement': 'line',
+            'text-field': ['get', 'name'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 12,
+            'text-padding': 3
+          },
+          paint: { 'text-color': '#52605c', 'text-halo-color': '#ffffff', 'text-halo-width': 1.5 }
+        })
+      } catch (error) { console.warn('Offline-Straßenbeschriftung konnte nicht aktiviert werden', error) }
       for (const p of [...places.value, ...activities.value]) {
         const lat = Number(p.latitude), lng = Number(p.longitude)
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
