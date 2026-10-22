@@ -1060,6 +1060,10 @@ function hideWalkingRoute() {
   routeError.value = ''
   clearRouteCache()
   clearRoutePolylines()
+  // MapLibre uses independent layers, not Google polylines.
+  if (offlineVisible.value && offlineMapInstance) {
+    try { renderOfflineRoute(offlineMapInstance) } catch (error) { console.warn('Offline-Route konnte nicht ausgeblendet werden', error) }
+  }
 }
 async function showWalkingRoute() {
   if (offlineVisible.value || !navigator.onLine) {
