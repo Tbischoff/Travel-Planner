@@ -1143,7 +1143,9 @@ async function focusActivity(activity: Activity) {
     } catch { /* no geocodable meeting point */ }
   }
   activityPosition.value = lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : null
-  if (activityPosition.value && map) {
+  if (activityPosition.value && offlineVisible.value && offlineMapInstance) {
+    (offlineMapInstance as any).flyTo({ center: [activityPosition.value.lng, activityPosition.value.lat], zoom: Math.max((offlineMapInstance as any).getZoom(), 16) })
+  } else if (activityPosition.value && map) {
     map.panTo(activityPosition.value)
     map.setZoom(Math.max(map.getZoom() || 0, 16))
   }
@@ -2367,6 +2369,10 @@ function cancelPendingPlaceFocus() {
   pendingPlaceIdle = null
 }
 function focusDayPlace(place: TripPlace) {
+  if (offlineVisible.value && offlineMapInstance && place.latitude != null && place.longitude != null) {
+    openPlace(place, true)
+    return
+  }
   if (!map || place.latitude == null || place.longitude == null) {
     openPlace(place, true)
     return
@@ -2405,9 +2411,13 @@ function openPlace(place: TripPlace, focus = false) {
   selectedPlaceId.value = place.id
   syncSelectedMarker()
   if (place.latitude != null && place.longitude != null) {
-    map.panTo({ lat: Number(place.latitude), lng: Number(place.longitude) })
-    if (focus) map.setZoom(Math.max(map.getZoom() || 0, 16))
-
+    const lat = Number(place.latitude), lng = Number(place.longitude)
+    if (offlineVisible.value && offlineMapInstance) {
+      (offlineMapInstance as any).flyTo({ center: [lng, lat], zoom: Math.max((offlineMapInstance as any).getZoom(), 16) })
+    } else {
+      map.panTo({ lat, lng })
+      if (focus) map.setZoom(Math.max(map.getZoom() || 0, 16))
+    }
   }
 }
 
@@ -2750,6 +2760,13 @@ onMounted(async () => {
     await nextTick()
     await renderMap()
     handleOfflineConnectivity()
+    // Prepare a package once per device/trip; manual refresh remains in Werkzeuge.
+    if (navigator.onLine && !offlineReady.value) {
+      try {
+        offlineReady.value = !!(await offlinePackage(trips.currentTrip.id))
+        if (!offlineReady.value) void prepareOfflinePackage()
+      } catch { /* Offline storage may be unavailable on this device */ }
+    }
     void loadTripWeather()
     await refreshActivityMarkers()
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
