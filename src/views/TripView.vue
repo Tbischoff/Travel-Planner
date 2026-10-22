@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { openingStatus } from '../utils/openingStatus'
+import { cacheOfflineMapGlyphs } from '../utils/offlineMapGlyphs'
 import { supabase } from '../services/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAuthStore } from '../stores/auth'
@@ -268,7 +269,10 @@ async function prepareOfflinePackage() {
     if (result.error || !result.data) throw result.error || new Error('Download fehlgeschlagen.')
     await offlinePackage(trip.id, result.data)
     offlineReady.value = true
-    offlineStatus.value = 'Kartenpaket gespeichert (' + (result.data.size / 1048576).toFixed(1) + ' MB).'
+    offlineStatus.value = 'Kartenpaket gespeichert (' + (result.data.size / 1048576).toFixed(1) + ' MB). Kartenschriften werden zwischengespeichert …'
+    const glyphs = await cacheOfflineMapGlyphs()
+    offlineStatus.value = 'Kartenpaket gespeichert (' + (result.data.size / 1048576).toFixed(1) + ' MB). Schriftdateien vorgemerkt: ' + glyphs.stored + '/' + glyphs.total + '.'
+
   } catch (e) { offlineError.value = e instanceof Error ? e.message : 'Kartenerstellung fehlgeschlagen.' }
   finally { offlineBusy.value = false }
 }
