@@ -841,7 +841,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
     mode: (metrics[index]?.mode === 'transit' ? 'transit' : 'walking') as OfflineRouteSegment['mode'],
     coordinates: (segment.path || []).map(point => {
-      const position = point as RoutePoint & { lat: number | (() => number); lng: number | (() => number) }
+      const position = point as unknown as { lat: number | (() => number); lng: number | (() => number) }
       const lat = typeof position.lat === 'function' ? position.lat() : position.lat
       const lng = typeof position.lng === 'function' ? position.lng() : position.lng
       return [Number(lng), Number(lat)] as [number, number]
