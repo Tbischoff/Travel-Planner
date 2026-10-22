@@ -220,6 +220,13 @@ function hideOfflineMap() {
   offlineMapInstance = null
 }
 
+const offlineToast = ref('')
+let offlineToastTimer: ReturnType<typeof setTimeout> | null = null
+function showOfflineToast(message: string) {
+  offlineToast.value = message
+  if (offlineToastTimer) clearTimeout(offlineToastTimer)
+  offlineToastTimer = setTimeout(() => { offlineToast.value = ''; offlineToastTimer = null }, 4500)
+}
 const offlineBusy = ref(false)
 const offlineStatus = ref('')
 const offlineError = ref('')
@@ -314,6 +321,8 @@ async function updateOfflineData() {
   if (offlineError.value) return
   await prepareOfflineDayRoutes()
   offlineStatus.value = offlineRoutesProgress.value
+  const count = offlineRouteDayStatus.value.filter(day => day.ready).length
+  if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Fußroute(n) gespeichert')
 }
 
 const backupExporting = ref(false)
@@ -2872,7 +2881,10 @@ onMounted(async () => {
         try {
           offlineReady.value = !!(await offlinePackage(currentTripId))
           if (!offlineReady.value) void updateOfflineData()
-          else void prepareOfflineDayRoutes(true)
+          else void prepareOfflineDayRoutes(true).then(() => {
+            const count = offlineRouteDayStatus.value.filter(day => day.ready).length
+            if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Fußroute(n) gespeichert')
+          })
         } catch { /* Offline storage may be unavailable on this device */ }
       }
     }
@@ -2891,6 +2903,7 @@ onUnmounted(() => {
   window.removeEventListener('online', handleOfflineConnectivity)
   window.removeEventListener('offline', handleOfflineConnectivity)
   hideOfflineMap()
+  if (offlineToastTimer) clearTimeout(offlineToastTimer)
   stopNavigationTracking()
   clearNavigationPositionMarker()
   hideWalkingRoute()
@@ -2903,6 +2916,7 @@ onUnmounted(() => {
 
 <template>
   <main class="trip-workspace">
+    <div v-if="offlineToast" role="status" aria-live="polite" style="position:fixed;top:calc(env(safe-area-inset-top, 0px) + 14px);left:50%;transform:translateX(-50%);z-index:9999;max-width:calc(100vw - 32px);width:max-content;padding:12px 18px;border-radius:12px;background:#163d35;color:#fff;box-shadow:0 6px 22px #0003;text-align:center;font-size:14px;font-weight:600;pointer-events:none">{{ offlineToast }}</div>
     <header class="trip-header" :class="{ 'trip-header--mobile-hidden': mobilePlacesOpen }">
       <div><p class="auth-card__eyebrow">Travel Planner v3 · Orte & Karte</p><h1>{{ trips.currentTrip?.name }}</h1><p>{{ trips.currentTrip?.destination }} · {{ places.length }} Orte</p></div>
       <button type="button" class="trip-header__trips-button" @click="router.push('/trips')">↔ Reise wechseln</button>
