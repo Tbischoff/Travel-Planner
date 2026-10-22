@@ -116,13 +116,13 @@ async function showOfflineMap() {
     const archive = new w.pmtiles.PMTiles(new w.pmtiles.FileSource(new File([file], 'offline.pmtiles')))
     const protocol = new w.pmtiles.Protocol()
     w.maplibregl.addProtocol('pmtiles', protocol.tile)
-    protocol.add(archive)
+    const source = protocol.add(archive)
     const points = [...places.value, ...activities.value].map(p => [Number(p.longitude), Number(p.latitude)])
       .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
     const center = points.length ? points[0] : [0, 0]
     const map = new w.maplibregl.Map({
       container: offlineMapHost.value, center, zoom: 12,
-      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + archive.getKey() } },
+      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + source.getKey() } },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#eef1ed' } },
           { id: 'water', type: 'fill', source: 'basemap', 'source-layer': 'water', paint: { 'fill-color': '#b9d9e8' } },
