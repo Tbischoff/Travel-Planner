@@ -2050,10 +2050,16 @@ function requestUserLocation(center = false) {
       locationStatus.value = 'Standort aktiv · Genauigkeit ca. ' + Math.round(coords.accuracy) + ' m'
       void updateNavigationPositionMarker(position)
       if (center || initialLocationPending) {
-        if (map && navigationState.value === 'idle') {
-          initialLocationPending = false
-          map.panTo(position)
-          map.setZoom(Math.max(map.getZoom() || 0, 14))
+        if (navigationState.value === 'idle') {
+          if (offlineVisible.value && offlineMapInstance) {
+            const offlineMap = offlineMapInstance as any
+            offlineMap.flyTo({ center: [position.lng, position.lat], zoom: Math.max(offlineMap.getZoom(), 14) })
+            initialLocationPending = false
+          } else if (map) {
+            initialLocationPending = false
+            map.panTo(position)
+            map.setZoom(Math.max(map.getZoom() || 0, 14))
+          }
         }
       }
     },
@@ -2200,6 +2206,18 @@ function showAllPlacesOnMap() {
 }
 
 function fitAllPlaces() {
+  if (offlineVisible.value && offlineMapInstance) {
+    const coords = visiblePlaces.value
+      .filter(p => p.latitude != null && p.longitude != null)
+      .map(p => [Number(p.longitude), Number(p.latitude)] as [number, number])
+      .filter(p => p.every(Number.isFinite))
+    const offlineMap = offlineMapInstance as any
+    if (coords.length > 1) {
+      const lngs = coords.map(p => p[0]), lats = coords.map(p => p[1])
+      offlineMap.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 56, maxZoom: 16 })
+    } else if (coords.length === 1) offlineMap.flyTo({ center: coords[0], zoom: 15 })
+    return
+  }
   if (!map) return
   const googleMaps = getGoogleMaps()
   const bounds = new googleMaps.LatLngBounds()
@@ -2212,6 +2230,10 @@ function fitAllPlaces() {
 }
 
 function centerOnDestination() {
+  if (offlineVisible.value && offlineMapInstance && tripCenter) {
+    (offlineMapInstance as any).flyTo({ center: [tripCenter.lng, tripCenter.lat], zoom: 12 })
+    return
+  }
   map?.panTo(tripCenter); map?.setZoom(12)
 }
 
