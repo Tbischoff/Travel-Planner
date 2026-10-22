@@ -95,6 +95,93 @@ async function importTripBackup(event: Event) {
   } finally { backupImporting.value = false }
 }
 
+
+const offlineBusy = ref(false)
+const offlineStatus = ref('')
+const offlineError = ref('')
+const offlineReady = ref(false)
+async function offlineDb() {
+  return await new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open('travel-planner-v3-maps', 1)
+    request.onupgradeneeded = () => request.result.createObjectStore('packages')
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+}
+async function offlinePackage(id: string, blob?: Blob | null) {
+  const db = await offlineDb()
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const tx = db.transaction('packages', blob === undefined ? 'readonly' : 'readwrite')
+      const store = tx.objectStore('packages')
+      const request = blob === undefined ? store.get(id) : blob === null ? store.delete(id) : store.put(blob, id)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+  } finally { db.close() }
+}
+watch(() => trips.currentTrip?.id, async id => {
+  offlineReady.value = false
+  if (id) try { offlineReady.value = !!(await offlinePackage(id)) } catch { /* storage unavailable */ }
+}, { immediate: true })
+async function removeOfflinePackage() {
+  const id = trips.currentTrip?.id
+  if (!id) return
+  offlineBusy.value = true
+  offlineError.value = ''
+  try {
+    await offlinePackage(id, null)
+    offlineReady.value = false
+    offlineStatus.value = 'Kartenpaket entfernt.'
+  } catch (e) { offlineError.value = e instanceof Error ? e.message : 'Entfernen fehlgeschlagen.' }
+  finally { offlineBusy.value = false }
+}
+async function prepareOfflinePackage() {
+  const trip = trips.currentTrip
+  if (!trip || offlineBusy.value) return
+  offlineError.value = ''
+  if (!navigator.onLine) { offlineError.value = 'Internetverbindung erforderlich.'; return }
+  const coords = [...places.value, ...activities.value]
+    .map(p => ({ lat: Number(p.latitude), lon: Number(p.longitude) }))
+    .filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180)
+  if (!coords.length) { offlineError.value = 'Bitte zuerst einen Ort hinzufügen.'; return }
+  const latitudes = coords.map(p => p.lat), longitudes = coords.map(p => p.lon)
+  const minLat = Math.min(...latitudes), maxLat = Math.max(...latitudes)
+  const minLon = Math.min(...longitudes), maxLon = Math.max(...longitudes)
+  offlineBusy.value = true
+  try {
+    offlineStatus.value = 'Kartenauftrag wird gestartet …'
+    const { data, error } = await supabase.functions.invoke('prepare-offline-map', { body: {
+      trip_id: trip.id, destination: trip.destination || trip.name,
+      min_lat: Math.max(-90, minLat - Math.max(.02, (maxLat - minLat) * .18)),
+      max_lat: Math.min(90, maxLat + Math.max(.02, (maxLat - minLat) * .18)),
+      min_lon: Math.max(-180, minLon - Math.max(.025, (maxLon - minLon) * .18)),
+      max_lon: Math.min(180, maxLon + Math.max(.025, (maxLon - minLon) * .18)),
+      max_zoom: 15
+    } })
+    if (error) throw error
+    if (!data?.job_id) throw new Error(data?.error || 'Kein Kartenauftrag zurückgegeben.')
+    let mapPath = ''
+    const started = Date.now()
+    while (Date.now() - started < 25 * 60 * 1000) {
+      const result = await supabase.from('offline_map_jobs').select('status,map_url,error_message').eq('id', data.job_id).single()
+      if (result.error) throw result.error
+      if (result.data?.status === 'failed') throw new Error(result.data.error_message || 'Kartenerstellung fehlgeschlagen.')
+      if (result.data?.status === 'ready') { mapPath = result.data.map_url || ''; break }
+      offlineStatus.value = result.data?.status === 'processing' ? 'Offline-Karte wird erstellt …' : 'Kartenauftrag wartet …'
+      await new Promise(resolve => window.setTimeout(resolve, 1500))
+    }
+    if (!mapPath) throw new Error('Kein Kartenpaket verfügbar oder Zeitlimit überschritten.')
+    offlineStatus.value = 'Kartenpaket wird heruntergeladen …'
+    const result = await supabase.storage.from('offline-maps').download(mapPath)
+    if (result.error || !result.data) throw result.error || new Error('Download fehlgeschlagen.')
+    await offlinePackage(trip.id, result.data)
+    offlineReady.value = true
+    offlineStatus.value = 'Kartenpaket gespeichert (' + (result.data.size / 1048576).toFixed(1) + ' MB).'
+  } catch (e) { offlineError.value = e instanceof Error ? e.message : 'Kartenerstellung fehlgeschlagen.' }
+  finally { offlineBusy.value = false }
+}
+
 const backupExporting = ref(false)
 const backupExportError = ref('')
 const backupExportMessage = ref('')
