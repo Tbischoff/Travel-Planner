@@ -848,6 +848,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
     }).filter(point => point.every(Number.isFinite))
   })).filter(segment => segment.coordinates.length > 1)
   if (!savedSegments.length) {
+    offlineStatus.value = 'Die Online-Route enthält keine speicherbaren Wegpunkte. Offline-Routenpaket fehlt.'
     console.warn('Offline-Routenspeicherung: Google Routes lieferte keine verwendbaren Wegpunkte.')
     return
   }
@@ -868,7 +869,10 @@ function renderOfflineRoute(map: any) {
   const rows = loadOfflineRoutes(id)
   const selected = rows.find(row => row.day === selectedDay.value && row.mode === routeMode.value)
     || rows.find(row => row.day === selectedDay.value)
-  if (!selected) { offlineStatus.value = 'Offline-Karte aktiv. Für diesen Tag wurde noch keine Route online gespeichert.'; return }
+  if (!selected) {
+    offlineStatus.value = 'Keine gespeicherte Route für ' + selectedDay.value + '. Vor dem Flugmodus die Route für diesen Tag online anzeigen.'
+    return
+  }
   for (const [index, segment] of selected.segments.entries()) {
     const sourceId = 'offline-route-' + index
     map.addSource(sourceId, { type: 'geojson', data: {
@@ -2762,10 +2766,13 @@ onMounted(async () => {
     handleOfflineConnectivity()
     // Prepare a package once per device/trip; manual refresh remains in Werkzeuge.
     if (navigator.onLine && !offlineReady.value) {
-      try {
-        offlineReady.value = !!(await offlinePackage(trips.currentTrip.id))
-        if (!offlineReady.value) void prepareOfflinePackage()
-      } catch { /* Offline storage may be unavailable on this device */ }
+      const currentTripId = trips.currentTrip?.id
+      if (currentTripId) {
+        try {
+          offlineReady.value = !!(await offlinePackage(currentTripId))
+          if (!offlineReady.value) void prepareOfflinePackage()
+        } catch { /* Offline storage may be unavailable on this device */ }
+      }
     }
     void loadTripWeather()
     await refreshActivityMarkers()
