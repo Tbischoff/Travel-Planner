@@ -134,7 +134,11 @@ async function showOfflineMap() {
         ] }
     })
     offlineMapInstance = map
-    map.on('click', () => closePlacePopup())
+    map.on('click', (event: { originalEvent?: Event }) => {
+      const target = event.originalEvent?.target
+      if (target instanceof Element && target.closest('.maplibregl-marker, .offline-map-pin')) return
+      closePlacePopup()
+    })
     map.on('load', () => {
       for (const p of [...places.value, ...activities.value]) {
         const lat = Number(p.latitude), lng = Number(p.longitude)
@@ -144,7 +148,10 @@ async function showOfflineMap() {
         pin.className = 'offline-map-pin'
         pin.textContent = '📍'
         pin.title = p.name
-        pin.addEventListener('click', () => {
+        pin.setAttribute('aria-label', 'Details zu ' + p.name + ' anzeigen')
+        pin.addEventListener('pointerdown', event => event.stopPropagation())
+        pin.addEventListener('click', (event: MouseEvent) => {
+          event.stopPropagation()
           if (activities.value.includes(p as Activity)) {
             closePlacePopup()
             activeActivity.value = p as Activity
