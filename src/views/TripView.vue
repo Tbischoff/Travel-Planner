@@ -858,6 +858,71 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
     localStorage.setItem(offlineRouteStorageKey(id), JSON.stringify(rows))
   } catch { /* Storage full or disabled: online route remains usable */ }
 }
+const offlineRoutesBusy = ref(false)
+const offlineRoutesProgress = ref('')
+const offlineRouteDayStatus = computed(() => {
+  const tripId = trips.currentTrip?.id
+  const saved = tripId ? loadOfflineRoutes(tripId) : []
+  return tripDays.value.map(day => {
+    const stops = [
+      ...places.value.filter(place => place.category !== 'hotel' && place.planned_day === day.day_date)
+        .map(place => ({ lat: place.latitude, lng: place.longitude })),
+      ...activities.value.filter(activity => activity.trip_day_id === day.id)
+        .map(activity => ({ lat: activity.latitude, lng: activity.longitude }))
+    ]
+    const count = stops.filter(stop => stop.lat != null && stop.lng != null).length
+    const ready = saved.some(row => row.day === day.day_date && row.mode === 'walking' && row.segments.some(segment => segment.coordinates.length > 1))
+    return { date: day.day_date, count, ready }
+  })
+})
+async function prepareOfflineDayRoutes() {
+  const tripId = trips.currentTrip?.id
+  if (!tripId || offlineRoutesBusy.value) return
+  if (!navigator.onLine) { offlineRoutesProgress.value = 'Für die Routenvorbereitung ist eine Internetverbindung erforderlich.'; return }
+  offlineRoutesBusy.value = true
+  let savedCount = 0, skipped = 0, failed = 0
+  try {
+    await loadGoogleMaps()
+    const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
+    if (!library.Route) throw new Error('Google Routes ist nicht verfügbar.')
+    for (const day of tripDays.value) {
+      const stops: { lat: number; lng: number; order: number }[] = [
+        ...places.value.filter(place => place.category !== 'hotel' && place.planned_day === day.day_date)
+          .map(place => ({ lat: Number(place.latitude), lng: Number(place.longitude), order: place.planned_order ?? 999999 })),
+        ...activities.value.filter(activity => activity.trip_day_id === day.id)
+          .map(activity => ({ lat: Number(activity.latitude), lng: Number(activity.longitude), order: activity.planned_order ?? 999999 }))
+      ].filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+        .sort((a, b) => a.order - b.order)
+      if (stops.length < 2 || stops.length > 24) { skipped++; continue }
+      offlineRoutesProgress.value = 'Fußroute für ' + day.day_date + ' wird vorbereitet …'
+      try {
+        const { routes } = await library.Route.computeRoutes({
+          origin: { lat: stops[0]!.lat, lng: stops[0]!.lng },
+          destination: { lat: stops[stops.length - 1]!.lat, lng: stops[stops.length - 1]!.lng },
+          travelMode: 'WALKING',
+          intermediates: stops.slice(1, -1).map(point => ({ location: { lat: point.lat, lng: point.lng } })),
+          fields: ['path', 'distanceMeters', 'durationMillis']
+        })
+        const path = (routes?.[0]?.path || []).map(point => {
+          const p = point as unknown as { lat: number | (() => number); lng: number | (() => number) }
+          return [Number(typeof p.lng === 'function' ? p.lng() : p.lng), Number(typeof p.lat === 'function' ? p.lat() : p.lat)] as [number, number]
+        }).filter(point => point.every(Number.isFinite))
+        if (path.length < 2) throw new Error('Keine Routengeometrie erhalten')
+        const rows = loadOfflineRoutes(tripId).filter(row => row.day !== day.day_date || row.mode !== 'walking')
+        rows.push({ day: day.day_date, mode: 'walking', savedAt: new Date().toISOString(), segments: [{ mode: 'walking', coordinates: path }] })
+        localStorage.setItem(offlineRouteStorageKey(tripId), JSON.stringify(rows))
+        savedCount++
+      } catch (error) {
+        failed++
+        console.warn('Offline-Fußroute ' + day.day_date, error)
+      }
+    }
+    offlineRoutesProgress.value = savedCount + ' Fußroute(n) gespeichert, ' + skipped + ' ohne berechenbare Route, ' + failed + ' fehlgeschlagen.'
+    if (offlineVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance)
+  } catch (error) {
+    offlineRoutesProgress.value = error instanceof Error ? error.message : 'Routenvorbereitung fehlgeschlagen.'
+  } finally { offlineRoutesBusy.value = false }
+}
 function renderOfflineRoute(map: any) {
   if (!map.getStyle?.()) return
   const previous = map.getStyle().layers?.filter((layer: { id: string }) => layer.id.startsWith('offline-route-')) || []
@@ -2997,6 +3062,9 @@ onUnmounted(() => {
             <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Bei fehlender Internetverbindung wird die gespeicherte Karte automatisch angezeigt.</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy" @click="prepareOfflinePackage">{{ offlineBusy ? 'Offline-Karte wird vorbereitet …' : offlineReady ? 'Offline-Karte aktualisieren' : 'Offline-Karte vorbereiten' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
+            <button type="button" class="place-sort-button" :disabled="offlineRoutesBusy || offlineBusy" @click="prepareOfflineDayRoutes">{{ offlineRoutesBusy ? 'Fußrouten werden vorbereitet …' : 'Offline-Fußrouten vorbereiten / aktualisieren' }}</button>
+            <p v-if="offlineRoutesProgress" role="status">{{ offlineRoutesProgress }}</p>
+            <div v-for="day in offlineRouteDayStatus" :key="day.date" class="muted">{{ day.ready ? '✅' : day.count < 2 ? '⚪' : '○' }} {{ day.date }} – {{ day.ready ? 'Fußroute gespeichert' : day.count < 2 ? 'Weniger als zwei Stopps' : 'Fußroute nicht vorbereitet' }}</div>
             <p v-if="offlineStatus" role="status">{{ offlineStatus }}</p>
             <p v-if="offlineError" class="trip-error" role="alert">{{ offlineError }}</p>
           </section>
