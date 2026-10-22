@@ -113,16 +113,17 @@ async function showOfflineMap() {
     await nextTick()
     if (!offlineMapHost.value) throw new Error('Offline-Kartenfläche fehlt.')
     offlineMapInstance?.remove()
-    const archive = new w.pmtiles.PMTiles(new w.pmtiles.FileSource(new File([file], 'offline.pmtiles')))
+    const fileSource = new w.pmtiles.FileSource(new File([file], 'offline.pmtiles'))
+    const archive = new w.pmtiles.PMTiles(fileSource)
     const protocol = new w.pmtiles.Protocol()
     w.maplibregl.addProtocol('pmtiles', protocol.tile)
-    const source = protocol.add(archive)
+    protocol.add(archive)
     const points = [...places.value, ...activities.value].map(p => [Number(p.longitude), Number(p.latitude)])
       .filter(p => Number.isFinite(p[0]) && Number.isFinite(p[1]))
     const center = points.length ? points[0] : [0, 0]
     const map = new w.maplibregl.Map({
       container: offlineMapHost.value, center, zoom: 12,
-      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + source.getKey() } },
+      style: { version: 8, sources: { basemap: { type: 'vector', url: 'pmtiles://' + fileSource.getKey() } },
         layers: [
           { id: 'background', type: 'background', paint: { 'background-color': '#eef1ed' } },
           { id: 'water', type: 'fill', source: 'basemap', 'source-layer': 'water', paint: { 'fill-color': '#b9d9e8' } },
@@ -152,6 +153,11 @@ async function showOfflineMap() {
     offlineError.value = e instanceof Error ? e.message : 'Offline-Karte konnte nicht geöffnet werden.'
   }
 }
+function handleOfflineConnectivity() {
+  if (!navigator.onLine && offlineReady.value) void showOfflineMap()
+  else if (navigator.onLine && offlineVisible.value) hideOfflineMap()
+}
+watch(offlineReady, () => { handleOfflineConnectivity() })
 function hideOfflineMap() {
   offlineVisible.value = false
   offlineMapInstance?.remove()
@@ -2604,6 +2610,8 @@ watch(selectedDay, async () => {
 
 
 onMounted(async () => {
+  window.addEventListener('online', handleOfflineConnectivity)
+  window.addEventListener('offline', handleOfflineConnectivity)
   openingClockTimer = setInterval(() => { openingClockTick.value++; refreshMarkerAppearances() }, 60_000)
   requestUserLocation()
   try {
@@ -2614,6 +2622,7 @@ onMounted(async () => {
     await loadTryItems()
     await nextTick()
     await renderMap()
+    handleOfflineConnectivity()
     void loadTripWeather()
     await refreshActivityMarkers()
     realtimeChannel = supabase.channel('v3-trip-places-' + trips.currentTrip.id)
@@ -2626,6 +2635,9 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onUnmounted(() => {
+  window.removeEventListener('online', handleOfflineConnectivity)
+  window.removeEventListener('offline', handleOfflineConnectivity)
+  hideOfflineMap()
   stopNavigationTracking()
   clearNavigationPositionMarker()
   hideWalkingRoute()
@@ -2809,9 +2821,8 @@ onUnmounted(() => {
 
           <section class="backup-export-panel">
             <strong>🗺️ Offline-Karte</strong>
-            <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Die Offline-Kartenanzeige folgt separat.</p>
+            <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Bei fehlender Internetverbindung wird die gespeicherte Karte automatisch angezeigt.</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy" @click="prepareOfflinePackage">{{ offlineBusy ? 'Offline-Karte wird vorbereitet …' : offlineReady ? 'Offline-Karte aktualisieren' : 'Offline-Karte vorbereiten' }}</button>
-            <button v-if="offlineReady" type="button" class="place-sort-button" @click="offlineVisible ? hideOfflineMap() : showOfflineMap()">{{ offlineVisible ? 'Offline-Karte schließen' : 'Offline-Karte anzeigen' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
             <p v-if="offlineStatus" role="status">{{ offlineStatus }}</p>
             <p v-if="offlineError" class="trip-error" role="alert">{{ offlineError }}</p>
