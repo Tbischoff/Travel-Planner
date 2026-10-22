@@ -2746,6 +2746,14 @@ onUnmounted(() => {
         <template v-if="activeTab === 'tools'">
 
           <section class="backup-export-panel">
+            <strong>🗺️ Offline-Karte</strong>
+            <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Die Offline-Kartenanzeige folgt separat.</p>
+            <button type="button" class="place-sort-button" :disabled="offlineBusy" @click="prepareOfflinePackage">{{ offlineBusy ? 'Offline-Karte wird vorbereitet …' : offlineReady ? 'Offline-Karte aktualisieren' : 'Offline-Karte vorbereiten' }}</button>
+            <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
+            <p v-if="offlineStatus" role="status">{{ offlineStatus }}</p>
+            <p v-if="offlineError" class="trip-error" role="alert">{{ offlineError }}</p>
+          </section>
+          <section class="backup-export-panel">
             <strong>💾 Datensicherung</strong>
             <p class="muted">Exportiert die aktuelle Reise einschließlich Orte, Tagesplanung, Aktivitäten und Probierliste als JSON-Datei.</p>
             <button type="button" class="place-sort-button" :disabled="backupExporting" @click="exportTripBackup">{{ backupExporting ? 'Backup wird erstellt …' : 'Backup exportieren' }}</button>
