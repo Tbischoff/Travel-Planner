@@ -143,8 +143,21 @@ async function showOfflineMap() {
         pin.className = 'offline-map-pin'
         pin.textContent = '📍'
         pin.title = p.name
-        new w.maplibregl.Marker({ element: pin }).setLngLat([lng, lat])
-          .setPopup(new w.maplibregl.Popup({ offset: 18 }).setText(p.name)).addTo(map)
+        pin.addEventListener('click', () => {
+          if ('trip_day_id' in p) {
+            activePlace.value = null
+            activeActivity.value = p as Activity
+          } else {
+            const place = p as TripPlace
+            activeActivity.value = null
+            activePlace.value = place
+            selectedPlaceId.value = place.id
+            popupDay.value = place.planned_day || ''
+            popupStart.value = place.start_time?.slice(0, 5) || ''
+            popupEnd.value = place.end_time?.slice(0, 5) || ''
+          }
+        })
+        new w.maplibregl.Marker({ element: pin }).setLngLat([lng, lat]).addTo(map)
       }
       map.resize()
     })
@@ -2847,7 +2860,7 @@ onUnmounted(() => {
         </div>
         <div ref="mapHost" class="trip-map" :class="{ 'offline-map-hidden': offlineVisible }" aria-label="Karte der Reise"></div>
         <div v-if="offlineVisible" ref="offlineMapHost" class="trip-map offline-map-layer" aria-label="Gespeicherte Offline-Karte"></div>
-        <button v-if="offlineVisible" type="button" class="offline-map-exit" @click="hideOfflineMap">Online-Karte anzeigen</button>
+        
         <section v-if="navigationState !== 'idle'" class="navigation-map-overlay navigation-map-overlay--v2" aria-label="Aktive Navigation" role="region">
           <div class="navigation-map-overlay__topline">
             <div><small>Navigation · Stopp {{ navigationTargetIndex + 1 }}/{{ dayStops.length }}</small><strong>{{ navigationTarget?.name || 'Nächster Stopp' }}</strong></div>
@@ -3285,7 +3298,7 @@ onUnmounted(() => {
 
 <style scoped>
 .offline-map-hidden{visibility:hidden}
-.offline-map-layer{position:absolute;inset:0;z-index:3}
+.offline-map-layer{position:absolute;inset:0;z-index:3}\n.map-panel:has(.offline-map-layer) .place-popup{z-index:10}
 .offline-map-exit{position:absolute;top:12px;right:12px;z-index:5;border-radius:8px;padding:9px 12px;background:white;border:1px solid #cad6d2;cursor:pointer}
 :deep(.offline-map-pin){background:transparent;border:0;font-size:23px;cursor:pointer}
 </style>
