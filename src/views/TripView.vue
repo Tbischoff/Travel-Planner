@@ -155,6 +155,7 @@ async function showOfflineMap() {
       closePlacePopup()
     })
     map.on('load', () => {
+      try { renderOfflineRoute(map) } catch (error) { console.warn('Offline-Route konnte nicht angezeigt werden', error) }
       // Add labels after the base style is loaded so an unsupported layer cannot blank the basemap.
       try {
         map.addLayer({
@@ -824,6 +825,51 @@ function transitIcon(type?: string): string {
   return '🚇'
 }
 
+
+type OfflineRouteSegment = { mode: 'walking' | 'transit'; coordinates: [number, number][] }
+type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[] }
+function offlineRouteStorageKey(tripId: string) { return 'travel-planner-v3-offline-routes:' + tripId }
+function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
+  try {
+    const rows: unknown = JSON.parse(localStorage.getItem(offlineRouteStorageKey(tripId)) || '[]')
+    return Array.isArray(rows) ? rows as OfflineRouteEntry[] : []
+  } catch { return [] }
+}
+function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) {
+  const id = trips.currentTrip?.id
+  if (!id || selectedDay.value === 'unplanned') return
+  const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
+    mode: metrics[index]?.mode === 'transit' ? 'transit' : 'walking',
+    coordinates: (segment.path || []).map(point => [Number(point.lng), Number(point.lat)] as [number, number])
+      .filter(point => point.every(Number.isFinite))
+  })).filter(segment => segment.coordinates.length > 1)
+  if (!savedSegments.length) return
+  try {
+    const rows = loadOfflineRoutes(id).filter(row => row.day !== selectedDay.value || row.mode !== routeMode.value)
+    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments })
+    localStorage.setItem(offlineRouteStorageKey(id), JSON.stringify(rows))
+  } catch { /* Storage full or disabled: online route remains usable */ }
+}
+function renderOfflineRoute(map: any) {
+  const id = trips.currentTrip?.id
+  if (!id) return
+  const rows = loadOfflineRoutes(id)
+  const selected = rows.find(row => row.day === selectedDay.value && row.mode === routeMode.value)
+    || rows.find(row => row.day === selectedDay.value)
+  if (!selected) { offlineStatus.value = 'Offline-Karte aktiv. Für diesen Tag wurde noch keine Route online gespeichert.'; return }
+  for (const [index, segment] of selected.segments.entries()) {
+    const sourceId = 'offline-route-' + index
+    map.addSource(sourceId, { type: 'geojson', data: {
+      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: segment.coordinates }
+    } })
+    map.addLayer({ id: sourceId, type: 'line', source: sourceId,
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': segment.mode === 'transit' ? '#2563eb' : '#2f625d', 'line-width': 5, 'line-opacity': .95 }
+    })
+  }
+  offlineStatus.value = 'Gespeicherte Route vom ' + new Date(selected.savedAt).toLocaleString('de-DE') + ' angezeigt.'
+}
+
 let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
 let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
@@ -1031,6 +1077,7 @@ async function showWalkingRoute() {
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
     const summary = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
     cachedRoute = { key, segments, metrics, connections, summary }
+    saveOfflineRoute(segments, metrics)
     transitLastUpdated.value = new Date()
     renderRoute(segments, metrics, connections, summary)
   } catch (cause) {
