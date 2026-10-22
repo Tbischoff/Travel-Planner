@@ -839,7 +839,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   const id = trips.currentTrip?.id
   if (!id || selectedDay.value === 'unplanned') return
   const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
-    mode: metrics[index]?.mode === 'transit' ? 'transit' : 'walking',
+    mode: (metrics[index]?.mode === 'transit' ? 'transit' : 'walking') as OfflineRouteSegment['mode'],
     coordinates: (segment.path || []).map(point => [Number(point.lng), Number(point.lat)] as [number, number])
       .filter(point => point.every(Number.isFinite))
   })).filter(segment => segment.coordinates.length > 1)
