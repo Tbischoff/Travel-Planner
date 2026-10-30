@@ -727,6 +727,31 @@ function dayScheduleTimestamp(clock: string | null | undefined): number | null {
   const date = new Date(year, month - 1, day, hour, minute)
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date.getTime() : null
 }
+// Offline forecasts use saved per-leg durations where available; older walking
+// packages receive a conservative straight-line estimate, never live transit data.
+const forecastLegMetrics = computed<RouteLegMetric[]>(() => {
+  if (!offlineVisible.value) return transitMetrics.value
+  const id = trips.currentTrip?.id
+  if (!id) return []
+  const saved = loadOfflineRoutes(id).find(row => row.day === selectedDay.value && row.mode === routeMode.value)
+  if (!saved) return []
+  if (saved.metrics?.length === dayStops.value.length - 1) return saved.metrics
+  if (routeMode.value !== 'walking') return []
+  const stops = dayStops.value.map(stopCoordinates)
+  const legs: RouteLegMetric[] = []
+  for (let index = 0; index < stops.length - 1; index++) {
+    const a = stops[index], b = stops[index + 1]
+    if (!a || !b) return []
+    const rad = Math.PI / 180
+    const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2
+    const meters = 6371000 * 2 * Math.asin(Math.min(1, Math.sqrt(h))) * 1.3
+    legs.push({ mode: 'walking', distanceMeters: meters, durationMillis: Math.ceil(meters / 1.25 / 60000) * 60000 })
+  }
+  return legs
+})
+const offlineForecastEstimated = computed(() => offlineVisible.value && routeMode.value === 'walking' &&
+  !loadOfflineRoutes(trips.currentTrip?.id || '').find(row => row.day === selectedDay.value && row.mode === routeMode.value)?.metrics?.length)
 const todaySafetyMinutes = ref(10)
 type DayLegBuffer = { kind: 'conflict' | 'tight' | 'ok' | 'unknown'; buffer: number | null; text: string; recommendation?: string }
 const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
@@ -737,7 +762,7 @@ const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
     if (!from || !to) continue
     const departure = dayScheduleTimestamp(from.end_time)
     const deadline = dayScheduleTimestamp(to.start_time)
-    const leg = transitMetrics.value[index]
+    const leg = forecastLegMetrics.value[index]
     if (departure === null || deadline === null || !leg) {
       result[index] = { kind: 'unknown', buffer: null, text: 'Zeitpuffer nicht berechenbar · Zeitangaben oder Route fehlen' }
       continue
@@ -773,7 +798,7 @@ const todayFeasibility = computed(() => {
     if (!from || !to) continue
     const departure = dayScheduleTimestamp(from.end_time)
     const deadline = dayScheduleTimestamp(to.start_time)
-    const leg = transitMetrics.value[index]
+    const leg = forecastLegMetrics.value[index]
     if (departure === null || deadline === null || !leg) { unknown++; continue }
     const buffer = Math.floor((deadline - departure - leg.durationMillis) / 60000)
     checked++
@@ -844,7 +869,7 @@ function transitIcon(type?: string): string {
 
 
 type OfflineRouteSegment = { mode: 'walking' | 'transit'; coordinates: [number, number][] }
-type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[] }
+type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[] }
 function offlineRouteStorageKey(tripId: string) { return 'travel-planner-v3-offline-routes:' + tripId }
 function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
   try {
@@ -871,13 +896,12 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   }
   try {
     const rows = loadOfflineRoutes(id).filter(row => row.day !== selectedDay.value || row.mode !== routeMode.value)
-    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments })
+    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments, metrics })
     localStorage.setItem(offlineRouteStorageKey(id), JSON.stringify(rows))
     offlineRoutesRevision.value++
   } catch { /* Storage full or disabled: online route remains usable */ }
 }
 const offlineRouteNotice = ref('')
-const offlineRouteSteps = ref<string[]>([])
 const offlineRoutesRevision = ref(0)
 const offlineRoutesBusy = ref(false)
 const offlineRoutesProgress = ref('')
@@ -954,7 +978,6 @@ function renderOfflineRoute(map: any) {
   const sources = Object.keys(map.getStyle().sources || {}).filter(key => key.startsWith('offline-route-'))
   for (const source of sources) map.removeSource(source)
   offlineRouteNotice.value = ''
-  offlineRouteSteps.value = []
   if (!routeVisible.value) return
   const id = trips.currentTrip?.id
   if (!id) return
@@ -964,7 +987,6 @@ function renderOfflineRoute(map: any) {
     offlineRouteNotice.value = 'Für ' + (routeMode.value === 'auto' ? 'Kombi' : routeMode.value === 'transit' ? 'ÖPNV' : 'Fuß') + ' ist an diesem Tag keine Offline-Route gespeichert. Bitte diese Route vorher online berechnen.'
     return
   }
-  offlineRouteSteps.value = dayStops.value.map((stop, index) => (index + 1) + '. ' + stop.name)
   for (const [index, segment] of selected.segments.entries()) {
     const sourceId = 'offline-route-' + index
     map.addSource(sourceId, { type: 'geojson', data: {
@@ -2994,7 +3016,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><div v-if="offlineVisible && routeVisible && offlineRouteSteps.length" class="today-offline-route-steps"><strong>Gespeicherte Stoppreihenfolge</strong><ol><li v-for="step in offlineRouteSteps" :key="step">{{ step }}</li></ol><small>Offline sind nur die Stopps gespeichert, keine detaillierten Abbiege- oder ÖPNV-Anweisungen.</small></div><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <section v-if="activeTab === 'today' && todayIsTripDay" class="today-navigation-v3" aria-label="Tagesnavigation">
           <strong>🧭 Tagesnavigation</strong>
           <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
@@ -3021,7 +3043,7 @@ onUnmounted(() => {
             <span>{{ todayFeasibility.detail }}</span>
             <label class="today-feasibility__reserve">Sicherheitsreserve je Übergang <select v-model.number="todaySafetyMinutes" aria-label="Sicherheitsreserve pro Übergang"><option :value="0">0 Min.</option><option :value="5">5 Min.</option><option :value="10">10 Min.</option><option :value="15">15 Min.</option><option :value="20">20 Min.</option></select></label>
             <span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min. · Durchschnitt: {{ todayFeasibility.averageBuffer }} Min.</span>
-            <small>Berechnung aus geplanten Zeiten und Routenfahrzeiten. Die Reserve ist ein frei gewählter Zuschlag für Unvorhergesehenes, keine Live-Verspätungsprognose. Fehlende Zeitangaben bleiben ungeprüft.</small>
+            <small v-if="offlineVisible">Offline-Prognose: {{ offlineForecastEstimated ? 'Geschätzte Fußwegzeiten (Luftlinie mit Umwegfaktor), keine exakten Routingzeiten.' : 'Gespeicherte Fahrzeiten, keine Live-Verkehrsdaten.' }}</small><small>Berechnung aus geplanten Zeiten und Routenfahrzeiten. Die Reserve ist ein frei gewählter Zuschlag für Unvorhergesehenes, keine Live-Verspätungsprognose. Fehlende Zeitangaben bleiben ungeprüft.</small>
           </section>
           <p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p>
           <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
