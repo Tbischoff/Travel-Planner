@@ -876,6 +876,8 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
     offlineRoutesRevision.value++
   } catch { /* Storage full or disabled: online route remains usable */ }
 }
+const offlineRouteNotice = ref('')
+const offlineRouteSteps = ref<string[]>([])
 const offlineRoutesRevision = ref(0)
 const offlineRoutesBusy = ref(false)
 const offlineRoutesProgress = ref('')
@@ -951,16 +953,18 @@ function renderOfflineRoute(map: any) {
   for (const layer of previous) map.removeLayer(layer.id)
   const sources = Object.keys(map.getStyle().sources || {}).filter(key => key.startsWith('offline-route-'))
   for (const source of sources) map.removeSource(source)
+  offlineRouteNotice.value = ''
+  offlineRouteSteps.value = []
   if (!routeVisible.value) return
   const id = trips.currentTrip?.id
   if (!id) return
   const rows = loadOfflineRoutes(id)
   const selected = rows.find(row => row.day === selectedDay.value && row.mode === routeMode.value)
-    || rows.find(row => row.day === selectedDay.value)
   if (!selected) {
-    offlineStatus.value = 'Keine gespeicherte Route für ' + selectedDay.value + '. Vor dem Flugmodus die Route für diesen Tag online anzeigen.'
+    offlineRouteNotice.value = 'Für ' + (routeMode.value === 'auto' ? 'Kombi' : routeMode.value === 'transit' ? 'ÖPNV' : 'Fuß') + ' ist an diesem Tag keine Offline-Route gespeichert. Bitte diese Route vorher online berechnen.'
     return
   }
+  offlineRouteSteps.value = dayStops.value.map((stop, index) => (index + 1) + '. ' + stop.name)
   for (const [index, segment] of selected.segments.entries()) {
     const sourceId = 'offline-route-' + index
     map.addSource(sourceId, { type: 'geojson', data: {
@@ -970,6 +974,12 @@ function renderOfflineRoute(map: any) {
       layout: { 'line-join': 'round', 'line-cap': 'round' },
       paint: { 'line-color': segment.mode === 'transit' ? '#2563eb' : '#2f625d', 'line-width': 5, 'line-opacity': .95 }
     })
+  }
+  const points = selected.segments.flatMap(segment => segment.coordinates)
+  if (points.length > 1) {
+    const lngs = points.map(point => point[0])
+    const lats = points.map(point => point[1])
+    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 65, maxZoom: 16, duration: 650 })
   }
   offlineStatus.value = 'Gespeicherte Route vom ' + new Date(selected.savedAt).toLocaleString('de-DE') + ' angezeigt.'
 }
@@ -2984,7 +2994,7 @@ onUnmounted(() => {
           </select>
         </div>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="routeSummary" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><div v-if="offlineVisible && routeVisible && offlineRouteSteps.length" class="today-offline-route-steps"><strong>Gespeicherte Stoppreihenfolge</strong><ol><li v-for="step in offlineRouteSteps" :key="step">{{ step }}</li></ol><small>Offline sind nur die Stopps gespeichert, keine detaillierten Abbiege- oder ÖPNV-Anweisungen.</small></div><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
         <section v-if="activeTab === 'today' && todayIsTripDay" class="today-navigation-v3" aria-label="Tagesnavigation">
           <strong>🧭 Tagesnavigation</strong>
           <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
