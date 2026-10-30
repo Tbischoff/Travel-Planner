@@ -869,7 +869,7 @@ function transitIcon(type?: string): string {
 
 
 type OfflineRouteSegment = { mode: 'walking' | 'transit'; coordinates: [number, number][] }
-type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[] }
+type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[]; connections?: TransitConnection[] }
 function offlineRouteStorageKey(tripId: string) { return 'travel-planner-v3-offline-routes:' + tripId }
 function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
   try {
@@ -877,7 +877,27 @@ function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
     return Array.isArray(rows) ? rows as OfflineRouteEntry[] : []
   } catch { return [] }
 }
-function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) {
+function extractOfflineTransitConnections(segments: ComputedRoute[], stopNames: string[]): TransitConnection[] {
+  return segments.flatMap((segment, section) => (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
+    const details = step.transitDetails
+    if (!details) return []
+    const line = details.transitLine
+    return [{
+      section: section + 1,
+      fromStop: stopNames[section] || 'Start',
+      toStop: stopNames[section + 1] || 'Ziel',
+      line: line?.shortName || line?.name || 'ÖPNV',
+      icon: transitIcon(line?.vehicle?.type),
+      headsign: details.headsign || '',
+      from: details.departureStop?.name || '',
+      to: details.arrivalStop?.name || '',
+      departure: transitClock(details.departureTime),
+      arrival: transitClock(details.arrivalTime),
+      stops: details.stopCount || 0
+    }]
+  })))
+}
+function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], connections: TransitConnection[] = []) {
   const id = trips.currentTrip?.id
   if (!id || selectedDay.value === 'unplanned') return
   const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
@@ -896,7 +916,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[]) 
   }
   try {
     const rows = loadOfflineRoutes(id).filter(row => row.day !== selectedDay.value || row.mode !== routeMode.value)
-    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments, metrics })
+    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments, metrics, connections })
     localStorage.setItem(offlineRouteStorageKey(id), JSON.stringify(rows))
     offlineRoutesRevision.value++
   } catch { /* Storage full or disabled: online route remains usable */ }
@@ -952,6 +972,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
         try {
           const segments: OfflineRouteSegment[] = []
           const metrics: RouteLegMetric[] = []
+          const connections: TransitConnection[] = []
           for (let index = 0; index < stops.length - 1; index++) {
             const from = stops[index]!, to = stops[index + 1]!
             const compute = async (travelMode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
@@ -959,7 +980,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
                 origin: { lat: from.lat, lng: from.lng },
                 destination: { lat: to.lat, lng: to.lng },
                 travelMode,
-                fields: ['path', 'distanceMeters', 'durationMillis']
+                fields: travelMode === 'TRANSIT' ? ['path', 'distanceMeters', 'durationMillis', 'legs'] : ['path', 'distanceMeters', 'durationMillis']
               }
               if (travelMode === 'TRANSIT') {
                 request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
@@ -991,10 +1012,11 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
             }).filter(point => point.every(Number.isFinite))
             if (coordinates.length < 2) throw new Error('Keine Routengeometrie für Abschnitt ' + (index + 1))
             segments.push({ mode: useTransit ? 'transit' : 'walking', coordinates })
+            if (useTransit) connections.push(...extractOfflineTransitConnections([chosen], ['Stopp ' + (index + 1), 'Stopp ' + (index + 2)]).map(connection => ({ ...connection, section: index + 1 })))
             metrics.push({ mode: useTransit ? 'transit' : 'walking', distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0 })
           }
           const rows = loadOfflineRoutes(tripId).filter(row => row.day !== day.day_date || row.mode !== mode)
-          rows.push({ day: day.day_date, mode, savedAt: new Date().toISOString(), segments, metrics })
+          rows.push({ day: day.day_date, mode, savedAt: new Date().toISOString(), segments, metrics, connections })
           localStorage.setItem(offlineRouteStorageKey(tripId), JSON.stringify(rows))
           offlineRoutesRevision.value++
           savedCount++
@@ -1017,15 +1039,19 @@ function renderOfflineRoute(map: any) {
   const sources = Object.keys(map.getStyle().sources || {}).filter(key => key.startsWith('offline-route-'))
   for (const source of sources) map.removeSource(source)
   offlineRouteNotice.value = ''
-  if (!routeVisible.value) return
+  if (!routeVisible.value) { if (offlineVisible.value) { transitConnections.value = []; transitMetrics.value = [] }; return }
   const id = trips.currentTrip?.id
   if (!id) return
   const rows = loadOfflineRoutes(id)
   const selected = rows.find(row => row.day === selectedDay.value && row.mode === routeMode.value)
   if (!selected) {
+    transitConnections.value = []
+    transitMetrics.value = []
     offlineRouteNotice.value = 'Für ' + (routeMode.value === 'auto' ? 'Kombi' : routeMode.value === 'transit' ? 'ÖPNV' : 'Fuß') + ' ist an diesem Tag keine Offline-Route gespeichert. Bitte diese Route vorher online berechnen.'
     return
   }
+  transitConnections.value = selected.connections || []
+  transitMetrics.value = selected.metrics || []
   for (const [index, segment] of selected.segments.entries()) {
     const sourceId = 'offline-route-' + index
     map.addSource(sourceId, { type: 'geojson', data: {
@@ -1156,7 +1182,7 @@ async function showWalkingRoute() {
   clearRoutePolylines()
   const key = routeCacheKey()
   if (cachedRoute?.key === key) {
-    saveOfflineRoute(cachedRoute.segments, cachedRoute.metrics)
+    saveOfflineRoute(cachedRoute.segments, cachedRoute.metrics, cachedRoute.connections)
     renderRoute(cachedRoute.segments, cachedRoute.metrics, cachedRoute.connections, cachedRoute.summary)
     routeBusy.value = false
     return
@@ -1265,7 +1291,7 @@ async function showWalkingRoute() {
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
     const summary = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
     cachedRoute = { key, segments, metrics, connections, summary }
-    saveOfflineRoute(segments, metrics)
+    saveOfflineRoute(segments, metrics, connections)
     transitLastUpdated.value = new Date()
     renderRoute(segments, metrics, connections, summary)
   } catch (cause) {
@@ -3096,15 +3122,15 @@ onUnmounted(() => {
               <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
               <small v-if="todayLegBuffers[index].recommendation" class="today-leg-buffer__recommendation">{{ todayLegBuffers[index].recommendation }}</small>
             </div>
-            <div v-if="index < routeAgendaStops.length - 1 && transitMetrics[index]" class="today-leg">
-              <div v-if="transitMetrics[index]?.mode === 'walking'" class="today-leg__summary">
+            <div v-if="index < routeAgendaStops.length - 1 && (offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])" class="today-leg">
+              <div v-if="(offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])?.mode === 'walking'" class="today-leg__summary">
                 <span class="today-leg__icon">🚶</span>
-                <span class="today-leg__body"><strong>{{ legDuration(transitMetrics[index].durationMillis) }}</strong><small>{{ legDistance(transitMetrics[index].distanceMeters) }} · Fußweg zum nächsten Stopp</small></span>
+                <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · Fußweg zum nächsten Stopp</small></span>
               </div>
               <details v-else class="today-leg__details">
                 <summary class="today-leg__summary">
                   <span class="today-leg__icon">🚇</span>
-                  <span class="today-leg__body"><strong>{{ legDuration(transitMetrics[index].durationMillis) }}</strong><small>{{ legDistance(transitMetrics[index].distanceMeters) }} · ÖPNV zum nächsten Stopp</small></span>
+                  <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · ÖPNV zum nächsten Stopp</small></span>
                   <span class="today-leg__expand">Details <span aria-hidden="true">⌄</span></span>
                 </summary>
                 <div class="today-leg__connections"><p v-if="transitChangeWarnings[index + 1]" class="today-transit-warning" role="status">{{ transitChangeWarnings[index + 1] }}</p>
@@ -3113,7 +3139,7 @@ onUnmounted(() => {
                     <small v-if="connection.departure || connection.arrival">{{ connection.departure || '–' }}–{{ connection.arrival || '–' }} Uhr<span v-if="connection.stops"> · {{ connection.stops }} Haltestellen</span></small>
                     <small>📍 {{ connection.from || 'Einstieg' }} → {{ connection.to || 'Ausstieg' }}</small>
                   </div>
-                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine Linien- oder Haltestellendetails verfügbar.</p><a :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
+                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine gespeicherten Linien- oder Haltestellendetails verfügbar.</p><a v-if="!offlineVisible" :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
                 </div>
               </details>
             </div>
