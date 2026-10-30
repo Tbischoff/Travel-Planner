@@ -2721,6 +2721,26 @@ function scheduleRealtimeRefresh() {
   realtimeRefreshTimer = setTimeout(() => { realtimeRefreshTimer = null; void refreshRemotePlaces() }, 450)
 }
 
+const visitedUpdating = ref<string[]>([])
+async function toggleTodayVisited(place: TripPlace) {
+  const trip = trips.currentTrip
+  if (!trip || visitedUpdating.value.includes(place.id)) return
+  const previous = Boolean(place.visited)
+  place.visited = !previous
+  visitedUpdating.value = [...visitedUpdating.value, place.id]
+  try {
+    const day = tripDays.value.find(item => item.day_date === place.planned_day)
+    await updateTripPlacePlanning(trip.id, place, day?.id || null, place.planned_order, place.start_time, place.end_time, place.visited)
+    refreshMarkerAppearances()
+  } catch (error) {
+    place.visited = previous
+    refreshMarkerAppearances()
+    console.error('Besucht-Status konnte nicht gespeichert werden', error)
+  } finally {
+    visitedUpdating.value = visitedUpdating.value.filter(id => id !== place.id)
+  }
+}
+
 async function toggleVisited() {
   const place = activePlace.value; const trip = trips.currentTrip
   if (!place || !trip) return
@@ -3116,7 +3136,7 @@ onUnmounted(() => {
               <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
               <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="stopWeather(entry.stop)" class="stop-weather">{{ stopWeather(entry.stop)?.icon }} {{ stopWeather(entry.stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(entry.stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(entry.stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(entry.stop)?.wind ?? '–' }} km/h</span></small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Späteste Abfahrt am vorherigen Stopp: {{ new Date((dayScheduleTimestamp(entry.stop.start_time) || 0) - transitMetrics[index - 1].durationMillis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr · tatsächliche Ankunft noch offen</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
               <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
-              <span v-if="entry.stop?.place?.visited" class="badge">Besucht</span>
+              <button v-if="entry.stop?.place" type="button" class="today-visited-toggle" :class="{ 'today-visited-toggle--active': entry.stop.place.visited }" :disabled="visitedUpdating.includes(entry.stop.place.id)" :aria-pressed="Boolean(entry.stop.place.visited)" :aria-label="entry.stop.place.visited ? entry.name + ' als nicht besucht markieren' : entry.name + ' als besucht markieren'" @click.stop="toggleTodayVisited(entry.stop.place)">{{ entry.stop.place.visited ? '✓ Besucht' : '○ Besucht?' }}</button>
             </div>
             <div v-if="todayLegBuffers[index]" class="today-leg-buffer" :class="'today-leg-buffer--' + todayLegBuffers[index].kind" role="status">
               <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
@@ -3657,4 +3677,10 @@ onUnmounted(() => {
 .offline-map-layer{position:absolute;inset:0;z-index:3}\n.map-panel:has(.offline-map-layer) .place-popup{z-index:10}
 .offline-map-exit{position:absolute;top:12px;right:12px;z-index:5;border-radius:8px;padding:9px 12px;background:white;border:1px solid #cad6d2;cursor:pointer}
 :deep(.offline-map-pin){background:transparent;border:0;font-size:23px;cursor:pointer}
+</style>
+
+<style scoped>
+.today-visited-toggle{flex-shrink:0;align-self:center;border:1px solid #aabdb6;border-radius:999px;padding:7px 10px;background:#fff;color:#335f52;font:inherit;font-size:.78rem;font-weight:650;cursor:pointer;min-height:36px;white-space:nowrap}
+.today-visited-toggle--active{background:#e0f2e9;border-color:#4d9778;color:#216345}
+.today-visited-toggle:disabled{opacity:.5;cursor:wait}
 </style>
