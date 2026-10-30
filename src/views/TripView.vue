@@ -932,40 +932,73 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
     const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
     if (!library.Route) throw new Error('Google Routes ist nicht verfügbar.')
     for (const day of tripDays.value) {
-      if (onlyMissing && loadOfflineRoutes(tripId).some(row => row.day === day.day_date && row.mode === 'walking' && row.segments.some(segment => segment.coordinates.length > 1))) continue
-      const stops: { lat: number; lng: number; order: number }[] = [
+      const stops = [
         ...places.value.filter(place => place.category !== 'hotel' && place.planned_day === day.day_date)
-          .map(place => ({ lat: Number(place.latitude), lng: Number(place.longitude), order: place.planned_order ?? 999999 })),
+          .map(place => ({ lat: Number(place.latitude), lng: Number(place.longitude), order: place.planned_order ?? 999999, start: place.start_time, end: place.end_time })),
         ...activities.value.filter(activity => activity.trip_day_id === day.id)
-          .map(activity => ({ lat: Number(activity.latitude), lng: Number(activity.longitude), order: activity.planned_order ?? 999999 }))
+          .map(activity => ({ lat: Number(activity.latitude), lng: Number(activity.longitude), order: activity.planned_order ?? 999999, start: activity.start_time, end: activity.end_time }))
       ].filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng))
         .sort((a, b) => a.order - b.order)
-      if (stops.length < 2 || stops.length > 24) { skipped++; continue }
-      offlineRoutesProgress.value = 'Fußroute für ' + day.day_date + ' wird vorbereitet …'
-      try {
-        const { routes } = await library.Route.computeRoutes({
-          origin: { lat: stops[0]!.lat, lng: stops[0]!.lng },
-          destination: { lat: stops[stops.length - 1]!.lat, lng: stops[stops.length - 1]!.lng },
-          travelMode: 'WALKING',
-          intermediates: stops.slice(1, -1).map(point => ({ location: { lat: point.lat, lng: point.lng } })),
-          fields: ['path', 'distanceMeters', 'durationMillis']
-        })
-        const path = (routes?.[0]?.path || []).map(point => {
-          const p = point as unknown as { lat: number | (() => number); lng: number | (() => number) }
-          return [Number(typeof p.lng === 'function' ? p.lng() : p.lng), Number(typeof p.lat === 'function' ? p.lat() : p.lat)] as [number, number]
-        }).filter(point => point.every(Number.isFinite))
-        if (path.length < 2) throw new Error('Keine Routengeometrie erhalten')
-        const rows = loadOfflineRoutes(tripId).filter(row => row.day !== day.day_date || row.mode !== 'walking')
-        rows.push({ day: day.day_date, mode: 'walking', savedAt: new Date().toISOString(), segments: [{ mode: 'walking', coordinates: path }] })
-        localStorage.setItem(offlineRouteStorageKey(tripId), JSON.stringify(rows))
-        offlineRoutesRevision.value++
-        savedCount++
-      } catch (error) {
-        failed++
-        console.warn('Offline-Fußroute ' + day.day_date, error)
+      if (stops.length < 2 || stops.length > 24) { skipped += 3; continue }
+      for (const mode of ['walking', 'auto', 'transit'] as const) {
+        if (onlyMissing && loadOfflineRoutes(tripId).some(row => row.day === day.day_date && row.mode === mode && row.metrics?.length === stops.length - 1)) continue
+        offlineRoutesProgress.value = (mode === 'walking' ? 'Fuß' : mode === 'auto' ? 'Kombi' : 'ÖPNV') + '-Route für ' + day.day_date + ' wird vorbereitet …'
+        try {
+          const segments: OfflineRouteSegment[] = []
+          const metrics: RouteLegMetric[] = []
+          for (let index = 0; index < stops.length - 1; index++) {
+            const from = stops[index]!, to = stops[index + 1]!
+            const compute = async (travelMode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
+              const request: Record<string, unknown> = {
+                origin: { lat: from.lat, lng: from.lng },
+                destination: { lat: to.lat, lng: to.lng },
+                travelMode,
+                fields: ['path', 'distanceMeters', 'durationMillis']
+              }
+              if (travelMode === 'TRANSIT') {
+                request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
+                const clock = to.start || to.end || from.end || from.start
+                if (clock && /^\\d{1,2}:\\d{2}/.test(clock)) {
+                  const planned = new Date(day.day_date + 'T' + clock.slice(0, 5) + ':00')
+                  if (Number.isFinite(planned.getTime()) && planned.getTime() > Date.now()) {
+                    if (to.start || to.end) request.arrivalTime = planned
+                    else request.departureTime = planned
+                  } else request.departureTime = new Date()
+                } else request.departureTime = new Date()
+              }
+              const result = await library.Route!.computeRoutes(request)
+              return result.routes?.[0] || null
+            }
+            let walking: ComputedRoute | null = null, transit: ComputedRoute | null = null
+            if (mode !== 'transit') {
+              try { walking = await compute('WALKING') } catch (error) { if (mode === 'walking') throw error }
+            }
+            if (mode !== 'walking') {
+              try { transit = await compute('TRANSIT') } catch (error) { if (mode === 'transit') throw error }
+            }
+            const useTransit = mode === 'transit' || (mode === 'auto' && !!transit && (!walking || (transit.durationMillis ?? Infinity) + 300000 < (walking.durationMillis ?? Infinity)))
+            const chosen = useTransit ? transit : walking
+            if (!chosen) throw new Error('Keine Verbindung für Abschnitt ' + (index + 1))
+            const coordinates = (chosen.path || []).map(point => {
+              const p = point as unknown as { lat: number | (() => number); lng: number | (() => number) }
+              return [Number(typeof p.lng === 'function' ? p.lng() : p.lng), Number(typeof p.lat === 'function' ? p.lat() : p.lat)] as [number, number]
+            }).filter(point => point.every(Number.isFinite))
+            if (coordinates.length < 2) throw new Error('Keine Routengeometrie für Abschnitt ' + (index + 1))
+            segments.push({ mode: useTransit ? 'transit' : 'walking', coordinates })
+            metrics.push({ mode: useTransit ? 'transit' : 'walking', distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0 })
+          }
+          const rows = loadOfflineRoutes(tripId).filter(row => row.day !== day.day_date || row.mode !== mode)
+          rows.push({ day: day.day_date, mode, savedAt: new Date().toISOString(), segments, metrics })
+          localStorage.setItem(offlineRouteStorageKey(tripId), JSON.stringify(rows))
+          offlineRoutesRevision.value++
+          savedCount++
+        } catch (error) {
+          failed++
+          console.warn('Offline-Route ' + mode + ' ' + day.day_date, error)
+        }
       }
     }
-    offlineRoutesProgress.value = savedCount + ' Fußroute(n) gespeichert, ' + skipped + ' ohne berechenbare Route, ' + failed + ' fehlgeschlagen.'
+    offlineRoutesProgress.value = savedCount + ' Routenpaket(e) gespeichert, ' + skipped + ' übersprungen, ' + failed + ' fehlgeschlagen.'
     if (offlineVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance)
   } catch (error) {
     offlineRoutesProgress.value = error instanceof Error ? error.message : 'Routenvorbereitung fehlgeschlagen.'
