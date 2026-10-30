@@ -321,8 +321,8 @@ async function updateOfflineData() {
   if (offlineError.value) return
   await prepareOfflineDayRoutes()
   offlineStatus.value = offlineRoutesProgress.value
-  const count = offlineRouteDayStatus.value.filter(day => day.ready).length
-  if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Fußroute(n) gespeichert')
+  const count = offlineRouteModeCounts.value
+  if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Fuß ' + count.walking + ', Kombi ' + count.auto + ', ÖPNV ' + count.transit + ' Routen gespeichert')
 }
 
 const backupExporting = ref(false)
@@ -905,6 +905,12 @@ const offlineRouteNotice = ref('')
 const offlineRoutesRevision = ref(0)
 const offlineRoutesBusy = ref(false)
 const offlineRoutesProgress = ref('')
+const offlineRouteModeCounts = computed(() => {
+  void offlineRoutesRevision.value
+  const rows = trips.currentTrip?.id ? loadOfflineRoutes(trips.currentTrip.id) : []
+  const count = (mode: string) => rows.filter(row => row.mode === mode && row.segments.some(segment => segment.coordinates.length > 1)).length
+  return { walking: count('walking'), auto: count('auto'), transit: count('transit') }
+})
 const offlineRouteDayStatus = computed(() => {
   void offlineRoutesRevision.value
   const tripId = trips.currentTrip?.id
@@ -3158,7 +3164,7 @@ onUnmounted(() => {
           <section class="backup-export-panel">
             <strong>🗺️ Offline-Karte</strong>
             <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Bei fehlender Internetverbindung wird die gespeicherte Karte automatisch angezeigt.</p>
-            <p class="muted">{{ offlineReady ? '✓ Offline-Karte verfügbar' : '○ Offline-Karte noch nicht gespeichert' }} · {{ offlineRouteDayStatus.filter(day => day.ready).length }} von {{ offlineRouteDayStatus.filter(day => day.count >= 2).length }} Fußrouten gespeichert</p>
+            <p class="muted">{{ offlineReady ? '✓ Offline-Karte verfügbar' : '○ Offline-Karte noch nicht gespeichert' }} · Gespeicherte Routen: Fuß {{ offlineRouteModeCounts.walking }}, Kombi {{ offlineRouteModeCounts.auto }}, ÖPNV {{ offlineRouteModeCounts.transit }}</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy || offlineRoutesBusy" @click="updateOfflineData">{{ offlineBusy || offlineRoutesBusy ? 'Offline-Daten werden vorbereitet …' : offlineReady ? 'Offline-Daten aktualisieren' : 'Offline-Daten vorbereiten' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
             <p v-if="offlineBusy || offlineRoutesBusy" role="status">{{ offlineRoutesBusy ? offlineRoutesProgress : offlineStatus }}</p>
