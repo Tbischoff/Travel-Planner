@@ -1,3 +1,7 @@
+## v2.5.4 – Einheitliche automatische Wappensuche (01.11.2026)
+- Die fest hinterlegte Sonderzuordnung für Durbach wurde entfernt.
+- Stadtwappen werden ausschließlich über Wikipedia und Wikidata (P94) ermittelt; die Landesflagge bleibt der Fallback.
+
 ## v2.5.3 – Kartenleiste und Durbach-Wappen (01.11.2026)
 - Mobile Kartenleiste kompakter gestaltet, alte Trennlinien entfernt und „Alle“ als eigenständiges Dropdown hervorgehoben.
 - Das auf Wikimedia Commons nachgewiesene Durbacher Wappen wird über seinen geprüften Dateinamen geladen.
