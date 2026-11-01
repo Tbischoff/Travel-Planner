@@ -6677,6 +6677,10 @@ function haversineDistanceMeters(a, b) {
   return 2 * earthRadius * Math.asin(Math.sqrt(h));
 }
 
+function plausibleWalkingDistance(distanceMeters) {
+  return Number.isFinite(distanceMeters) && distanceMeters >= 0 && distanceMeters <= 5000;
+}
+
 function estimatedWalkingMinutes(distanceMeters) {
   // Nur kompakte Agenda-Schätzung; die echte Route nutzt weiterhin Google Routes.
   return Math.max(1, Math.round(distanceMeters / 80));
@@ -7488,7 +7492,9 @@ function freeTimeSuggestion(dayId, stops, preview = false) {
   if (!nextFixed) return null;
 
   const nextStart = minutesFromClock(nextFixed.plannedStartTime);
-  const directWalk = estimatedWalkingMinutes(haversineDistanceMeters(userPosition, nextFixed.position));
+  const directDistance = haversineDistanceMeters(userPosition, nextFixed.position);
+  if (!plausibleWalkingDistance(directDistance)) return { mode: 'transit-needed', nextFixed, directWalk: null, usableMinutes: null, leaveLabel: null };
+  const directWalk = estimatedWalkingMinutes(directDistance);
   const buffer = 15;
   const usableMinutes = nextStart - now - directWalk - buffer;
   const leaveAt = nextStart - directWalk - buffer;
@@ -7526,6 +7532,9 @@ function freeTimeCardHtml(dayId, stops, preview) {
   const free = freeTimeSuggestion(dayId, stops, preview);
   if (!free) return "";
   const until = minutesFromClock(free.nextFixed.plannedStartTime) - getTripClockMinutes();
+  if (free.mode === 'transit-needed') {
+    return `<div class="free-time-card leave"><div class="free-time-kicker">⏱️ Nächster fester Punkt</div><strong>${escapeHtml(free.nextFixed.name)}</strong><div class="free-time-main">Noch ca. ${Math.max(0, until)} Min. · 🚇 ÖPNV-Verbindung prüfen</div><div class="free-time-advice">Eine verlässliche Abfahrtszeit ist ohne berechnete ÖPNV-Verbindung nicht verfügbar.</div></div>`;
+  }
   if (free.mode === "leave" || !free.suggestion) {
     return `<div class="free-time-card leave"><div class="free-time-kicker">⏱️ Nächster fester Punkt</div><strong>${escapeHtml(free.nextFixed.name)}</strong><div class="free-time-main">Noch ca. ${Math.max(0, until)} Min. · 🚶 etwa ${free.directWalk} Min. Weg</div><div class="free-time-advice">Aufbruch spätestens gegen <strong>${escapeHtml(free.leaveLabel)} Uhr</strong> empfohlen (inkl. 15 Min. Reserve).</div></div>`;
   }
@@ -7618,7 +7627,7 @@ function renderTodayView() {
   const whatNowDistance = nextStop && userPosition
     ? haversineDistanceMeters(userPosition, nextStop.position)
     : null;
-  const whatNowMinutes = whatNowDistance != null ? estimatedWalkingMinutes(whatNowDistance) : null;
+  const whatNowMinutes = plausibleWalkingDistance(whatNowDistance) ? estimatedWalkingMinutes(whatNowDistance) : null;
   const whatNowTime = nextStop ? [nextStop.plannedStartTime, nextStop.plannedEndTime].filter(Boolean).join("–") : "";
   const whatNowIcon = nextStop?.type === "activity"
     ? "🎟️"
@@ -7644,7 +7653,7 @@ function renderTodayView() {
       ${whatNow.status ? `<div class="what-now-status ${escapeHtml(whatNow.tone)}">${escapeHtml(whatNow.status)}</div>` : ""}
       <button class="today-what-now-main" type="button" data-what-now-focus>
         <span class="today-next-icon">${whatNowIcon}</span>
-        <span><strong>${escapeHtml(nextStop.name)}</strong><small>${escapeHtml(whatNowMeta)}${whatNowDistance != null ? ` · 📍 ${escapeHtml(formatDistance(whatNowDistance))}` : ""}${whatNowMinutes != null ? ` · 🚶 ca. ${whatNowMinutes} Min.` : ""}</small><span class="today-status-row">${whatNowOpeningHtml}${whatNowWeatherHtml}</span></span>
+        <span><strong>${escapeHtml(nextStop.name)}</strong><small>${escapeHtml(whatNowMeta)}${whatNowDistance != null ? ` · 📍 ${escapeHtml(formatDistance(whatNowDistance / 1000))}` : ""}${whatNowMinutes != null ? ` · 🚶 ca. ${whatNowMinutes} Min.` : whatNowDistance != null && !plausibleWalkingDistance(whatNowDistance) ? ' · 🚇 ÖPNV-Verbindung prüfen' : ''}</small><span class="today-status-row">${whatNowOpeningHtml}${whatNowWeatherHtml}</span></span>
         <span class="today-chevron">›</span>
       </button>
       <div class="today-what-now-actions">
