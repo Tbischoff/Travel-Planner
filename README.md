@@ -1,3 +1,10 @@
+## v2.6.0 – Wappensuche direkt über Wikidata (01.11.2026)
+- Wikipedia-Abfrage entfernt; Wikidata ist die primäre Quelle für Ortswappen (P94).
+- Mehrere gleichnamige Wikidata-Einträge werden verglichen und soweit verfügbar anhand des Landes (P17) eingegrenzt.
+- Commons liefert die Wappen-Vorschau; erfolgreiche Bildadressen werden pro Reiseziel und Land zwischengespeichert.
+- Fehlermeldungen in der Browserkonsole; Landesflagge bleibt als Fallback.
+- CSS-Version in HTML und Service Worker korrigiert, damit mobile Anpassungen nicht an einer alten URL hängen.
+
 ## v2.5.7 – Wappenbild als Commons-Vorschau und passendes Alle-Symbol (01.11.2026)
 - Wikidata P94 wird weiterhin für alle Reiseziele automatisch abgefragt; keine Orts-Sonderregeln.
 - Das Wappen wird über die Commons-Bildinformationen als gerenderte Vorschau geladen, nicht mehr als SVG-Weiterleitung.
