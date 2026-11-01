@@ -4502,3 +4502,14 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 
 /* v2.0.0 · Allgemeine Sichtbarkeitsklasse */
 .is-hidden { display:none !important; }
+
+/* v2.5.0: accessible compact map dropdown and on-demand README */
+.map-all-wrap { position:relative; display:flex; align-items:center; flex:0 0 auto; }
+.map-toolbar .map-all-wrap .map-fit-button { display:flex; align-items:center; gap:5px; width:auto; padding:7px 10px; white-space:nowrap; }
+.map-all-menu { position:absolute; top:calc(100% + 10px); right:0; z-index:100; min-width:215px; padding:7px; border-radius:14px; background:#fff; box-shadow:0 12px 32px rgba(20,35,33,.24); }
+.map-all-menu[hidden] { display:none !important; }
+.map-all-menu button { display:block; width:100%; padding:11px 12px; border:0; border-radius:9px; text-align:left; font:inherit; font-weight:650; color:#244e49; background:transparent; cursor:pointer; }
+.map-all-menu button:hover, .map-all-menu button:focus-visible { background:#e7f4ef; }
+@media(max-width:820px) { .map-toolbar .map-all-wrap .map-fit-button { width:auto; min-width:56px; padding:7px 8px; } .map-toolbar .map-all-wrap .map-fit-label { display:inline; } .map-all-menu { right:0; } }
+.readme-details summary { cursor:pointer; font-weight:750; color:#244e49; }
+.readme-content { white-space:pre-wrap; overflow-wrap:anywhere; max-height:55vh; overflow-y:auto; margin-top:12px; padding:12px; border-radius:10px; background:rgba(47,98,93,.06); font:12px/1.55 ui-monospace,monospace; }
