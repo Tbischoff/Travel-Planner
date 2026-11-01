@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.3";
+const APP_VERSION = "v2.6.4";
 
 
 function syncVersionLabels() {
@@ -1944,7 +1944,9 @@ async function findDestinationCrest(destination, country) {
     action: "query", prop: "imageinfo", iiprop: "url", iiurlwidth: "96", titles: "File:" + filename
   });
   const file = Object.values(info.query?.pages || {})[0];
-  return file?.imageinfo?.[0]?.thumburl || file?.imageinfo?.[0]?.url || null;
+  const image = file?.imageinfo?.[0];
+  if (!image?.thumburl && !image?.url) console.warn("Commons ohne Bildadresse:", filename, info);
+  return image?.thumburl || image?.url || null;
 }
 async function updateDestinationCrest(destination, fallback, token, country) {
   const key = destinationCrestKey(destination, country);
@@ -8978,7 +8980,12 @@ function initDestinationCrestTest() {
       });
       const page = Object.values(info.query?.pages || {})[0];
       const imageUrl = page?.imageinfo?.[0]?.thumburl || page?.imageinfo?.[0]?.url;
-      if (!imageUrl) { line("Commons", "Keine Bildadresse zurückgegeben (Datei fehlt oder API-Fehler)."); return; }
+      if (!imageUrl) {
+        line("Commons-Seiten", JSON.stringify(info.query?.pages || {}).slice(0, 900));
+        line("Commons-Warnungen", JSON.stringify(info.warnings || {}).slice(0, 350));
+        line("Commons", "Keine Bildadresse zurückgegeben. Bitte die obigen Details senden.");
+        return;
+      }
       line("Commons", "Bildadresse gefunden");
       const image = document.createElement("img");
       image.alt = "Gefundenes Wappen für " + destination;
@@ -9003,7 +9010,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.3", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.4", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
