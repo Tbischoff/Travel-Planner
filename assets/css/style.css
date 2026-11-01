@@ -4527,3 +4527,21 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .map-toolbar #destinationBtn [data-map-destination] { overflow:hidden; text-overflow:ellipsis; }
   .map-toolbar .map-all-wrap { min-width:0; }
 }
+
+/* v2.5.1: Four toolbar items must occupy four explicit grid columns. */
+@media (max-width:820px) {
+  .map-toolbar {
+    display:grid;
+    grid-template-columns:35px minmax(0,1fr) auto auto;
+    width:calc(100vw - 16px);
+    max-width:calc(100vw - 16px);
+    gap:3px;
+    overflow:visible;
+  }
+  .map-toolbar > #switchTripMapButton { grid-column:1; }
+  .map-toolbar > #destinationBtn { grid-column:2; max-width:none; min-width:0; }
+  .map-toolbar > #addPlaceBtn { grid-column:3; }
+  .map-toolbar > .map-all-wrap { grid-column:4; min-width:0; }
+  .map-toolbar .map-all-wrap .map-fit-button { min-width:57px; }
+  .map-all-menu { z-index:9999; }
+}
