@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.4.4";
+const APP_VERSION = "v2.4.5";
 
 
 function syncVersionLabels() {
@@ -6773,7 +6773,7 @@ function safeTransitDepartureRequest(to, from) {
   const arrival = plannedTransitTimeForStop(to);
   const departure = plannedTransitTimeForStop(from);
   // A planned arrival is only usable if it is in the future.
-  if (arrival && new Date(arrival).getTime() > now + 60000) return { arrivalTime: arrival };
+  if (from?.type !== "current" && arrival && new Date(arrival).getTime() > now + 60000) return { arrivalTime: arrival };
   if (departure && new Date(departure).getTime() > now) return { departureTime: departure };
   return { departureTime: new Date(now + 60000) };
 }
@@ -6898,6 +6898,7 @@ function mobilityLegHtml(from, to, walkingLeg) {
   const key=`${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
   const cached=transitLegCache.get(key);
   const transitMinutes=cached?.durationMillis ? Math.round(cached.durationMillis/60000) : null;
+  const transitError=cached?.error ? `<div class="transit-step" role="status">⚠️ ${escapeHtml(cached.error)} · Erneut aktualisieren.</div>` : "";
   const updatedText=cached?.updatedAt ? `<small>Zuletzt abgefragt: ${escapeHtml(formatTransitClock(cached.updatedAt))} Uhr · ${navigationActive ? "Aktualisierung während Navigation alle 2 Min." : "manuell aktualisierbar"}</small>` : "";
   const warning=cached?.changeWarning ? `<div class="transit-step" role="status">⚠️ ${escapeHtml(cached.changeWarning)} Bitte Verbindung prüfen.</div>` : "";
   const recommendedTransit=mode==="transit" || (mode==="auto" && transitMinutes && transitMinutes+5<walkingLeg.minutes);
@@ -6915,7 +6916,7 @@ function mobilityLegHtml(from, to, walkingLeg) {
   const transitText=transitMinutes ? `🚇 ca. ${transitMinutes} Min.` : "🚇 ÖPNV";
   const primary=recommendedTransit?transitText:walkText;
   const secondary=recommendedTransit?walkText:transitText;
-  return `<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${warning}${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}${updatedText}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
+  return `<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${transitError}${warning}${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}${updatedText}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
 }
 
 async function loadTransitLegsForDay(dayId) {
@@ -6927,7 +6928,8 @@ async function loadTransitLegsForDay(dayId) {
   const needsRefresh = stops.slice(0, -1).some((from, i) => {
     const to = stops[i + 1];
     const key = `${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
-    return !transitLegCache.has(key);
+    const cached = transitLegCache.get(key);
+    return !transitLegCache.has(key) || (cached?.error && Date.now() >= cached.retryAfter);
   });
   if (!needsRefresh) return;
   let changed=false;
@@ -6937,7 +6939,8 @@ async function loadTransitLegsForDay(dayId) {
     for(let i=0;i<stops.length-1;i++){
       const from=stops[i],to=stops[i+1];
       const key=`${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
-      if(transitLegCache.has(key)) continue;
+      const cachedLeg = transitLegCache.get(key);
+      if(transitLegCache.has(key) && (!cachedLeg?.error || Date.now() < cachedLeg.retryAfter)) continue;
       try{
         const request={
           origin:from.position,
@@ -6965,7 +6968,7 @@ async function loadTransitLegsForDay(dayId) {
       }catch(error){
         console.warn("ÖPNV-Verbindung:",from.name,"→",to.name,error);
         const previous=transitPreviousConnections.get(key);
-        transitLegCache.set(key,null);
+        transitLegCache.set(key,{error:String(error?.message || "Verbindungsabfrage fehlgeschlagen"),updatedAt:Date.now(),retryAfter:Date.now()+30000});
         transitPreviousConnections.delete(key);
       }
     }
