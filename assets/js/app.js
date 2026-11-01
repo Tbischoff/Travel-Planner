@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.7";
+const APP_VERSION = "v2.6.8";
 
 
 function syncVersionLabels() {
@@ -8992,6 +8992,7 @@ function initDestinationCrestTest() {
         return;
       }
       line("Commons", "Bildadresse gefunden");
+      line("Commons-Bildadresse", imageUrl);
       line("Bildabruf", "über Cloudflare /api/crest-image");
       const image = document.createElement("img");
       image.alt = "Gefundenes Wappen für " + destination;
@@ -9009,7 +9010,7 @@ function initDestinationCrestTest() {
         }
       };
       output.appendChild(image);
-      image.src = imageUrl;
+      image.src = crestImageProxyUrl(imageUrl);
     } catch (error) {
       line("API-Fehler", error?.message || String(error));
       console.error("Wappen-Diagnose fehlgeschlagen", error);
@@ -9026,7 +9027,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.7", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.8", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
