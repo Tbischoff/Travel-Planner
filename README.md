@@ -1,3 +1,8 @@
+## v2.5.6 – Mobile Kartenleiste kompakt (01.11.2026)
+- Kartenleiste orientiert sich wieder an der tatsächlichen Breite ihrer vier Bedienelemente statt die gesamte Bildschirmbreite einzunehmen.
+- Alte Grid-Vorgaben überschrieben, die unnötig große Abstände erzeugten.
+- Alle-Dropdown, Wappensuche und README bleiben erhalten.
+
 ## v2.5.5 – Wappenabfrage robuster (01.11.2026)
 - Die Wikipedia-/Wikidata-Suche hat jetzt einen zusätzlichen allgemeinen Wikidata-Suchweg, wenn der Wikipedia-Aufruf scheitert.
 - Wappen werden weiterhin ohne fest hinterlegte Ortsnamen aus Wikidata P94 geladen.
