@@ -101,7 +101,28 @@ async function importTripBackup(event: Event) {
 const offlineReady = ref(false)
 const offlineVisible = ref(false)
 const offlineMapHost = ref<HTMLElement | null>(null)
-let offlineMapInstance: { remove: () => void; resize: () => void } | null = null
+type OfflineMap = {
+  remove: () => void; resize: () => void; getZoom: () => number
+  flyTo: (options: Record<string, unknown>) => void
+  fitBounds: (bounds: [[number, number], [number, number]], options: Record<string, unknown>) => void
+  getStyle: () => { layers?: { id: string }[]; sources?: Record<string, unknown> }
+  removeLayer: (id: string) => void; removeSource: (id: string) => void
+  addSource: (id: string, source: Record<string, unknown>) => void
+  addLayer: (layer: Record<string, unknown>) => void
+}
+type OfflineMapLibraries = {
+  maplibregl?: {
+    Map: new (options: Record<string, unknown>) => OfflineMap & { on: (event: string, handler: (event: { originalEvent?: Event }) => void) => void }
+    addProtocol: (name: string, handler: (...args: never[]) => unknown) => void
+    __tripGlyphProtocolInstalled?: boolean
+  }
+  pmtiles?: {
+    FileSource: new (file: File) => { getKey: () => string }
+    PMTiles: new (source: unknown) => unknown
+    Protocol: new () => { tile: (...args: never[]) => unknown; add: (archive: unknown) => void }
+  }
+}
+let offlineMapInstance: OfflineMap | null = null
 async function showOfflineMap() {
   const id = trips.currentTrip?.id
   if (!id) return
@@ -109,7 +130,7 @@ async function showOfflineMap() {
   try {
     const file = await offlinePackage(id)
     if (!(file instanceof Blob)) throw new Error('Kein Kartenpaket auf diesem Gerät vorhanden.')
-    const w = window as unknown as { maplibregl?: any; pmtiles?: any }
+    const w = window as unknown as OfflineMapLibraries
     if (!w.maplibregl || !w.pmtiles?.PMTiles || !w.pmtiles?.FileSource) throw new Error('Kartenbibliotheken sind nicht geladen. Bitte zunächst online öffnen.')
     offlineVisible.value = true
     await nextTick()
@@ -1032,7 +1053,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
     offlineRoutesProgress.value = error instanceof Error ? error.message : 'Routenvorbereitung fehlgeschlagen.'
   } finally { offlineRoutesBusy.value = false }
 }
-function renderOfflineRoute(map: any) {
+function renderOfflineRoute(map: OfflineMap) {
   if (!map.getStyle?.()) return
   const previous = map.getStyle().layers?.filter((layer: { id: string }) => layer.id.startsWith('offline-route-')) || []
   for (const layer of previous) map.removeLayer(layer.id)
@@ -1350,7 +1371,7 @@ async function focusActivity(activity: Activity) {
   }
   activityPosition.value = lat != null && lng != null ? { lat: Number(lat), lng: Number(lng) } : null
   if (activityPosition.value && offlineVisible.value && offlineMapInstance) {
-    (offlineMapInstance as any).flyTo({ center: [activityPosition.value.lng, activityPosition.value.lat], zoom: Math.max((offlineMapInstance as any).getZoom(), 16) })
+    offlineMapInstance.flyTo({ center: [activityPosition.value.lng, activityPosition.value.lat], zoom: Math.max(offlineMapInstance.getZoom(), 16) })
   } else if (activityPosition.value && map) {
     map.panTo(activityPosition.value)
     map.setZoom(Math.max(map.getZoom() || 0, 16))
@@ -1946,7 +1967,6 @@ async function updateNavigationRouteV3(force = false) {
     const fetchMode = async (mode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
       const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
       if (mode === 'TRANSIT') {
-        const plannedArrival = plannedTransitTime(navigationTarget.value?.start_time)
         // Live navigation starts at the current position: prefer the next reachable departure.
         request.departureTime = new Date(Date.now() + 60000)
       }
@@ -2254,7 +2274,7 @@ function requestUserLocation(center = false) {
       if (center || initialLocationPending) {
         if (navigationState.value === 'idle') {
           if (offlineVisible.value && offlineMapInstance) {
-            const offlineMap = offlineMapInstance as any
+            const offlineMap = offlineMapInstance
             offlineMap.flyTo({ center: [position.lng, position.lat], zoom: Math.max(offlineMap.getZoom(), 14) })
             initialLocationPending = false
           } else if (map) {
@@ -2413,7 +2433,7 @@ function fitAllPlaces() {
       .filter(p => p.latitude != null && p.longitude != null)
       .map(p => [Number(p.longitude), Number(p.latitude)] as [number, number])
       .filter(p => p.every(Number.isFinite))
-    const offlineMap = offlineMapInstance as any
+    const offlineMap = offlineMapInstance
     if (coords.length > 1) {
       const lngs = coords.map(p => p[0]), lats = coords.map(p => p[1])
       offlineMap.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 56, maxZoom: 16 })
@@ -2433,7 +2453,7 @@ function fitAllPlaces() {
 
 function centerOnDestination() {
   if (offlineVisible.value && offlineMapInstance && tripCenter) {
-    (offlineMapInstance as any).flyTo({ center: [tripCenter.lng, tripCenter.lat], zoom: 12 })
+    offlineMapInstance.flyTo({ center: [tripCenter.lng, tripCenter.lat], zoom: 12 })
     return
   }
   map?.panTo(tripCenter); map?.setZoom(12)
@@ -2641,7 +2661,7 @@ function openPlace(place: TripPlace, focus = false) {
   if (place.latitude != null && place.longitude != null) {
     const lat = Number(place.latitude), lng = Number(place.longitude)
     if (offlineVisible.value && offlineMapInstance) {
-      (offlineMapInstance as any).flyTo({ center: [lng, lat], zoom: Math.max((offlineMapInstance as any).getZoom(), 16) })
+      offlineMapInstance.flyTo({ center: [lng, lat], zoom: Math.max(offlineMapInstance.getZoom(), 16) })
     } else {
       map.panTo({ lat, lng })
       if (focus) map.setZoom(Math.max(map.getZoom() || 0, 16))
