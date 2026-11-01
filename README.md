@@ -1,3 +1,8 @@
+## v2.6.8 – Wappen-Bildadresse und Proxy-Diagnose (01.11.2026)
+- Wappen-Diagnose zeigt die Commons-Bildadresse.
+- Diagnosevorschau lädt wie die Kartenleiste über /api/crest-image.
+- Bei abgelehnten Bildquellen zeigt der Proxy Host und Pfad.
+
 ## v2.6.7 – Bildproxy-Fehler sichtbar (01.11.2026)
 - Die Wappen-Diagnose zeigt nach einem fehlgeschlagenen Bildabruf den HTTP-Status, Content-Type und den Fehlertext von /api/crest-image.
 - Noch keine Änderung der eigentlichen Bildquelle oder Zuordnung.
