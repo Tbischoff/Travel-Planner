@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.1";
+const APP_VERSION = "v2.6.2";
 
 
 function syncVersionLabels() {
@@ -1899,12 +1899,15 @@ function countryCodeToFlag(code) {
 const destinationCrestCache = new Map();
 let destinationCrestRequestToken = 0;
 async function queryWikimediaApi(host, params) {
-  const url = new URL("https://" + host + "/w/api.php");
-  Object.entries({ format: "json", origin: "*", ...params }).forEach(([key, value]) => url.searchParams.set(key, String(value)));
-  const response = await fetch(url.toString(), { mode: "cors" });
-  if (!response.ok) throw new Error(host + ": HTTP " + response.status);
-  const data = await response.json();
-  if (data.error) throw new Error(host + ": " + (data.error.info || data.error.code));
+  // Same-origin Cloudflare Pages Function avoids browser-to-Wikimedia CORS restrictions.
+  const url = new URL("/api/wikimedia", window.location.origin);
+  url.searchParams.set("host", host);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
+  const response = await fetch(url.toString(), { cache: "no-store" });
+  let data;
+  try { data = await response.json(); }
+  catch { throw new Error("Wappen-Proxy: ungültige Antwort (HTTP " + response.status + ")"); }
+  if (!response.ok || data.error) throw new Error(data.error?.info || data.error || "Wappen-Proxy HTTP " + response.status);
   return data;
 }
 function destinationCrestKey(destination, country) {
@@ -9000,7 +9003,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.1", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.2", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
