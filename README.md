@@ -1,3 +1,9 @@
+## v2.5.5 – Wappenabfrage robuster (01.11.2026)
+- Die Wikipedia-/Wikidata-Suche hat jetzt einen zusätzlichen allgemeinen Wikidata-Suchweg, wenn der Wikipedia-Aufruf scheitert.
+- Wappen werden weiterhin ohne fest hinterlegte Ortsnamen aus Wikidata P94 geladen.
+- Fehler werden in der Browser-Konsole protokolliert; die Landesflagge bleibt Fallback.
+- CSS-Datei wird mit aktueller Version neu geladen.
+
 ## v2.5.4 – Einheitliche automatische Wappensuche (01.11.2026)
 - Die fest hinterlegte Sonderzuordnung für Durbach wurde entfernt.
 - Stadtwappen werden ausschließlich über Wikipedia und Wikidata (P94) ermittelt; die Landesflagge bleibt der Fallback.
