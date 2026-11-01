@@ -1,3 +1,8 @@
+## v2.6.2 – Wappen-API über Cloudflare Pages Function (01.11.2026)
+- Neue serverseitige Route /api/wikimedia mit festen Wikimedia-Hosts und API-Aktionen.
+- Wappenanzeige und Wappen-Diagnose nutzen denselben Same-Origin-Proxy; API-Fehler werden sichtbar weitergegeben.
+- Cache für API-Antworten deaktiviert, um Diagnosen zu erleichtern.
+
 ## v2.6.1 – Wappen-Diagnose im Tab Mehr (01.11.2026)
 - Neuer Button „Wappen testen“ für das aktuelle Reiseziel.
 - Zeigt Wikidata-Treffer, Länderzuordnung (P17), Wappendatei (P94), Commons-Ergebnis und das geladene Bild.
