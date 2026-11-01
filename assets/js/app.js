@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.5.6";
+const APP_VERSION = "v2.5.7";
 
 
 function syncVersionLabels() {
@@ -1939,13 +1939,22 @@ async function updateDestinationCrest(destination, fallback, token) {
         });
         const filename = result.entities?.[entityId]?.claims?.P94?.[0]?.mainsnak?.datavalue?.value;
         if (typeof filename === "string" && filename) {
-          // Commons Special:FilePath resolves Wikimedia's original coat-of-arms file.
-          imageUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(filename);
+          // Use a Commons-generated raster thumbnail rather than redirecting to an SVG.
+          // This also works on browsers that do not display remote SVG images reliably.
+          const fileInfo = await queryWikimediaApi("commons.wikimedia.org", {
+            action: "query", prop: "imageinfo", iiprop: "url", iiurlwidth: "96",
+            titles: "File:" + filename
+          });
+          const filePage = Object.values(fileInfo.query?.pages || {})[0];
+          imageUrl = filePage?.imageinfo?.[0]?.thumburl || filePage?.imageinfo?.[0]?.url || null;
         }
       }
       if (imageUrl) destinationCrestCache.set(key, imageUrl);
     }
-    if (!imageUrl || token !== destinationCrestRequestToken) return;
+    if (!imageUrl || token !== destinationCrestRequestToken) {
+      if (!imageUrl) console.info("Kein Wappen gefunden:", destination);
+      return;
+    }
     const image = new Image();
     image.alt = "";
     image.className = "map-destination-crest";
