@@ -143,6 +143,7 @@ let activeRouteDay = null;
 let RouteClass = null;
 let routeLoading = false;
 let activeRouteSummary = null;
+let todayTransitSegments = null;
 let navigationWatchId = null;
 let navigationActive = false;
 let navigationRoute = null;
@@ -3578,6 +3579,7 @@ function clearRenderedRoute() {
   }
 
   activeRouteSummary = null;
+  todayTransitSegments = null;
 }
 
 function formatRouteDistance(distanceMeters) {
@@ -4794,6 +4796,10 @@ async function showDayRoute(dayId = selectedDayFilter) {
     if(mode==="auto"){
       setStatus(`✨ Automatische Route für ${day.label} wird berechnet – Fußweg und ÖPNV werden je Abschnitt verglichen …`);
       const segments=await computeAutomaticDaySegments(routeStops);
+      todayTransitSegments = { dayId, createdAt: Date.now(), segments: segments.map((segment, i) => ({
+        from: routeStops[i], to: routeStops[i + 1], mode: segment.mode,
+        minutes: Math.round((Number(segment.route?.durationMillis) || 0) / 60000)
+      })) };
       const bounds=new google.maps.LatLngBounds();
       let totalDistance=0,totalDuration=0,walkCount=0,transitCount=0;
       for(const segment of segments){
@@ -4818,6 +4824,10 @@ async function showDayRoute(dayId = selectedDayFilter) {
     } else if(mode==="transit"){
       setStatus(`ÖPNV-Route für ${day.label} wird berechnet …`);
       const routes=await computeTransitDaySegments(routeStops);
+      todayTransitSegments = { dayId, createdAt: Date.now(), segments: routes.map((route, i) => ({
+        from: routeStops[i], to: routeStops[i + 1], mode: "transit",
+        minutes: Math.round((Number(route.durationMillis) || 0) / 60000)
+      })) };
       const bounds=new google.maps.LatLngBounds();
       let totalDistance=0,totalDuration=0;
       routes.forEach(route=>{
@@ -4853,6 +4863,7 @@ async function showDayRoute(dayId = selectedDayFilter) {
   } finally {
     routeLoading = false;
     updateRouteControls();
+    renderTodayView();
   }
 }
 
@@ -7451,6 +7462,25 @@ function nearbyPlacesForToday(dayId, limit = 3) {
     .slice(0, limit);
 }
 
+// Nur passende, frisch berechnete Abschnitte ab dem aktuellen Standort verwenden.
+function todayTransitForStop(dayId, stop) {
+  if (!stop?.position || !userPosition || !todayTransitSegments ||
+      todayTransitSegments.dayId !== dayId || Date.now() - todayTransitSegments.createdAt > 20 * 60000) return null;
+  const first = todayTransitSegments.segments.find(segment =>
+    segment.mode === "transit" && segment.from?.type === "current" &&
+    segment.to?.id === stop.id &&
+    haversineDistanceMeters(userPosition, segment.from.position) < 250
+  );
+  return first && Number.isFinite(first.minutes) && first.minutes > 0 ? first : null;
+}
+
+function todayTravelHint(dayId, stop, distanceMeters) {
+  if (plausibleWalkingDistance(distanceMeters))
+    return `🚶 ca. ${estimatedWalkingMinutes(distanceMeters)} Min.`;
+  const transit = todayTransitForStop(dayId, stop);
+  return transit ? `🚇 ca. ${transit.minutes} Min. · Abfahrt prüfen` : "🚇 ÖPNV-Verbindung prüfen";
+}
+
 function nearbyTodayCardHtml(dayId) {
   if (!userPosition) {
     return `<div class="today-nearby-card">
@@ -7462,11 +7492,11 @@ function nearbyTodayCardHtml(dayId) {
 
   const nearby = nearbyPlacesForToday(dayId);
   const rows = nearby.map(({ place, distanceKm, opening }) => {
-    const minutes = estimatedWalkingMinutes(distanceKm * 1000);
+    const hint = todayTravelHint(dayId, { id: place.id, position: normalizeLatLng({ lat: place.lat, lng: place.lng }) }, distanceKm * 1000);
     const planned = (state.places[place.id] || {}).plannedDay === dayId;
     return `<button class="today-nearby-row" type="button" data-nearby-place="${escapeHtml(place.id)}">
       <span class="today-nearby-icon">${CATEGORY_ICONS[place.category] || "📍"}</span>
-      <span class="today-nearby-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(categoryLabel(place.category))}${planned ? " · heute geplant" : " · spontan"} · 📍 ${escapeHtml(formatDistance(distanceKm))} · 🚶 ca. ${minutes} Min.</small><span class="today-nearby-opening ${escapeHtml(opening.kind)}" title="${escapeHtml(opening.detail)}">${escapeHtml(opening.label)}</span></span>
+      <span class="today-nearby-copy"><strong>${escapeHtml(place.name)}</strong><small>${escapeHtml(categoryLabel(place.category))}${planned ? " · heute geplant" : " · spontan"} · 📍 ${escapeHtml(formatDistance(distanceKm))} · ${escapeHtml(hint)}</small><span class="today-nearby-opening ${escapeHtml(opening.kind)}" title="${escapeHtml(opening.detail)}">${escapeHtml(opening.label)}</span></span>
       <span class="today-chevron">›</span>
     </button>`;
   }).join("");
@@ -7493,7 +7523,10 @@ function freeTimeSuggestion(dayId, stops, preview = false) {
 
   const nextStart = minutesFromClock(nextFixed.plannedStartTime);
   const directDistance = haversineDistanceMeters(userPosition, nextFixed.position);
-  if (!plausibleWalkingDistance(directDistance)) return { mode: 'transit-needed', nextFixed, directWalk: null, usableMinutes: null, leaveLabel: null };
+  if (!plausibleWalkingDistance(directDistance)) {
+    const transit = todayTransitForStop(dayId, nextFixed);
+    return { mode: 'transit-needed', nextFixed, transit, directWalk: null, usableMinutes: null, leaveLabel: null };
+  }
   const directWalk = estimatedWalkingMinutes(directDistance);
   const buffer = 15;
   const usableMinutes = nextStart - now - directWalk - buffer;
@@ -7533,7 +7566,7 @@ function freeTimeCardHtml(dayId, stops, preview) {
   if (!free) return "";
   const until = minutesFromClock(free.nextFixed.plannedStartTime) - getTripClockMinutes();
   if (free.mode === 'transit-needed') {
-    return `<div class="free-time-card leave"><div class="free-time-kicker">⏱️ Nächster fester Punkt</div><strong>${escapeHtml(free.nextFixed.name)}</strong><div class="free-time-main">Noch ca. ${Math.max(0, until)} Min. · 🚇 ÖPNV-Verbindung prüfen</div><div class="free-time-advice">Eine verlässliche Abfahrtszeit ist ohne berechnete ÖPNV-Verbindung nicht verfügbar.</div></div>`;
+    return `<div class="free-time-card leave"><div class="free-time-kicker">⏱️ Nächster fester Punkt</div><strong>${escapeHtml(free.nextFixed.name)}</strong><div class="free-time-main">Noch ca. ${Math.max(0, until)} Min. · ${free.transit ? `🚇 ca. ${free.transit.minutes} Min.` : "🚇 ÖPNV-Verbindung prüfen"}</div><div class="free-time-advice">${free.transit ? "Fahrtdauer berechnet; konkrete Abfahrt und Puffer bitte in der Verbindung prüfen." : "Eine verlässliche Abfahrtszeit ist ohne passende ÖPNV-Verbindung nicht verfügbar."}</div></div>`;
   }
   if (free.mode === "leave" || !free.suggestion) {
     return `<div class="free-time-card leave"><div class="free-time-kicker">⏱️ Nächster fester Punkt</div><strong>${escapeHtml(free.nextFixed.name)}</strong><div class="free-time-main">Noch ca. ${Math.max(0, until)} Min. · 🚶 etwa ${free.directWalk} Min. Weg</div><div class="free-time-advice">Aufbruch spätestens gegen <strong>${escapeHtml(free.leaveLabel)} Uhr</strong> empfohlen (inkl. 15 Min. Reserve).</div></div>`;
@@ -7627,7 +7660,7 @@ function renderTodayView() {
   const whatNowDistance = nextStop && userPosition
     ? haversineDistanceMeters(userPosition, nextStop.position)
     : null;
-  const whatNowMinutes = plausibleWalkingDistance(whatNowDistance) ? estimatedWalkingMinutes(whatNowDistance) : null;
+  const whatNowHint = whatNowDistance != null ? todayTravelHint(day.id, nextStop, whatNowDistance) : "";
   const whatNowTime = nextStop ? [nextStop.plannedStartTime, nextStop.plannedEndTime].filter(Boolean).join("–") : "";
   const whatNowIcon = nextStop?.type === "activity"
     ? "🎟️"
@@ -7653,7 +7686,7 @@ function renderTodayView() {
       ${whatNow.status ? `<div class="what-now-status ${escapeHtml(whatNow.tone)}">${escapeHtml(whatNow.status)}</div>` : ""}
       <button class="today-what-now-main" type="button" data-what-now-focus>
         <span class="today-next-icon">${whatNowIcon}</span>
-        <span><strong>${escapeHtml(nextStop.name)}</strong><small>${escapeHtml(whatNowMeta)}${whatNowDistance != null ? ` · 📍 ${escapeHtml(formatDistance(whatNowDistance / 1000))}` : ""}${whatNowMinutes != null ? ` · 🚶 ca. ${whatNowMinutes} Min.` : whatNowDistance != null && !plausibleWalkingDistance(whatNowDistance) ? ' · 🚇 ÖPNV-Verbindung prüfen' : ''}</small><span class="today-status-row">${whatNowOpeningHtml}${whatNowWeatherHtml}</span></span>
+        <span><strong>${escapeHtml(nextStop.name)}</strong><small>${escapeHtml(whatNowMeta)}${whatNowDistance != null ? ` · 📍 ${escapeHtml(formatDistance(whatNowDistance / 1000))}` : ""}${whatNowHint ? ` · ${escapeHtml(whatNowHint)}` : ""}</small><span class="today-status-row">${whatNowOpeningHtml}${whatNowWeatherHtml}</span></span>
         <span class="today-chevron">›</span>
       </button>
       <div class="today-what-now-actions">
