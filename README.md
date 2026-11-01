@@ -1,3 +1,8 @@
+## v2.6.1 – Wappen-Diagnose im Tab Mehr (01.11.2026)
+- Neuer Button „Wappen testen“ für das aktuelle Reiseziel.
+- Zeigt Wikidata-Treffer, Länderzuordnung (P17), Wappendatei (P94), Commons-Ergebnis und das geladene Bild.
+- Fehlermeldungen direkt in der App statt ausschließlich in der Konsole.
+
 ## v2.6.0 – Wappensuche direkt über Wikidata (01.11.2026)
 - Wikipedia-Abfrage entfernt; Wikidata ist die primäre Quelle für Ortswappen (P94).
 - Mehrere gleichnamige Wikidata-Einträge werden verglichen und soweit verfügbar anhand des Landes (P17) eingegrenzt.
