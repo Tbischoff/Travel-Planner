@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.9";
+const APP_VERSION = "v2.7.0";
 
 
 function syncVersionLabels() {
@@ -1915,6 +1915,38 @@ function crestImageProxyUrl(imageUrl) {
   url.searchParams.set("url", imageUrl);
   return url.toString();
 }
+const OFFLINE_CREST_CACHE = "travel-planner-offline-crests-v1";
+function offlineCrestStorageKey(tripId) { return tripScopedStorageKey("offlineCrestV1", tripId); }
+function readOfflineCrest(tripId = currentTripId) {
+  const key = offlineCrestStorageKey(tripId);
+  if (!key) return null;
+  try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; }
+}
+async function prepareOfflineCrest() {
+  const destination = currentTrip?.destination?.trim();
+  const key = offlineCrestStorageKey(currentTripId);
+  if (!destination || !key) return;
+  const country = tripDestinationCountryCode;
+  const imageUrl = await findDestinationCrest(destination, country);
+  if (!imageUrl) { localStorage.removeItem(key); return; }
+  const proxyUrl = crestImageProxyUrl(imageUrl);
+  const response = await fetch(proxyUrl, { cache: "reload" });
+  if (!response.ok || !(response.headers.get("content-type") || "").startsWith("image/")) throw new Error("Wappen konnte nicht offline gespeichert werden.");
+  const cache = await caches.open(OFFLINE_CREST_CACHE);
+  const old = readOfflineCrest();
+  await cache.put(proxyUrl, response.clone());
+  localStorage.setItem(key, JSON.stringify({ destination, country, imageUrl }));
+  if (old?.imageUrl && old.imageUrl !== imageUrl) await cache.delete(crestImageProxyUrl(old.imageUrl));
+}
+async function removeOfflineCrest(tripId = currentTripId) {
+  const record = readOfflineCrest(tripId);
+  if (record?.imageUrl) {
+    const cache = await caches.open(OFFLINE_CREST_CACHE);
+    await cache.delete(crestImageProxyUrl(record.imageUrl));
+  }
+  const key = offlineCrestStorageKey(tripId);
+  if (key) localStorage.removeItem(key);
+}
 function destinationCrestKey(destination, country) {
   return destination.trim().toLocaleLowerCase("de-DE") + "|" + (country || "");
 }
@@ -1956,7 +1988,8 @@ async function findDestinationCrest(destination, country) {
 async function updateDestinationCrest(destination, fallback, token, country) {
   const key = destinationCrestKey(destination, country);
   try {
-    let imageUrl = destinationCrestCache.get(key);
+    const offlineRecord = readOfflineCrest();
+    let imageUrl = offlineRecord?.destination === destination && offlineRecord?.country === country ? offlineRecord.imageUrl : destinationCrestCache.get(key);
     if (!imageUrl) {
       imageUrl = await findDestinationCrest(destination, country);
       if (imageUrl) destinationCrestCache.set(key, imageUrl);
@@ -1989,7 +2022,7 @@ function updateMapDestinationButton() {
   document.querySelectorAll("[data-map-destination]").forEach(el => { el.textContent = destination; });
   document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = fallback; });
   document.querySelectorAll("[data-map-destination-title]").forEach(el => { el.setAttribute("title", `Karte auf ${destination} zentrieren`); });
-  if (navigator.onLine && destination !== "Reiseziel") void updateDestinationCrest(destination, fallback, token, tripDestinationCountryCode);
+  if (destination !== "Reiseziel") void updateDestinationCrest(destination, fallback, token, tripDestinationCountryCode);
 }
 
 function centerMapOnTripDestination() {
@@ -4635,6 +4668,7 @@ function updateOfflinePrepareButton() {
 async function removeAllOfflineData() {
   if (!currentTripId) return;
   await deleteOfflineMapPackage(currentTripId);
+  await removeOfflineCrest(currentTripId);
   [offlineMapPreparedKey(currentTripId), offlineTripStorageKey(currentTripId),
    offlineWeatherStorageKey(currentTripId), offlineRoutesStorageKey(currentTripId)]
     .filter(Boolean).forEach(key => localStorage.removeItem(key));
@@ -4680,6 +4714,8 @@ async function prepareAllOfflineData() {
     setStatus("Offline-Schriftarten werden vorbereitet …");
     await prepareOfflineMapGlyphs();
     await buildOfflineMapPackage();
+    setStatus("Reiseziel-Wappen wird offline gespeichert …");
+    try { await prepareOfflineCrest(); } catch (error) { console.warn("Offline-Wappen nicht verfügbar:", error); }
     await prepareOfflineRoutes();
     saveOfflineTripSnapshot();
     renderOfflineRouteStatus();
@@ -8931,93 +8967,6 @@ function initMapAllMenu() {
   document.addEventListener("keydown", event => { if (event.key === "Escape") close(); });
 }
 
-function initDestinationCrestTest() {
-  const button = document.getElementById("testDestinationCrestBtn");
-  const output = document.getElementById("crestTestResult");
-  if (!button || !output) return;
-  button.addEventListener("click", async () => {
-    const destination = currentTrip?.destination?.trim();
-    const country = tripDestinationCountryCode || "unbekannt";
-    output.hidden = false;
-    output.replaceChildren();
-    const line = (label, value) => {
-      const item = document.createElement("p");
-      const strong = document.createElement("strong");
-      strong.textContent = label + ": ";
-      item.append(strong, document.createTextNode(String(value)));
-      output.appendChild(item);
-    };
-    if (!destination) { line("Fehler", "Keine Reise mit Reiseziel ausgewählt."); return; }
-    button.disabled = true;
-    line("Reiseziel", destination);
-    line("Land", country);
-    try {
-      line("Schritt 1", "Wikidata-Suche läuft …");
-      const search = await queryWikimediaApi("www.wikidata.org", {
-        action: "wbsearchentities", search: destination, language: "de", uselang: "de", type: "item", limit: "20"
-      });
-      const matches = (search.search || []).filter(item =>
-        String(item.label || "").localeCompare(destination, "de", { sensitivity: "base" }) === 0
-      );
-      line("Wikidata-Treffer", (search.search || []).length + ", davon " + matches.length + " mit genau passendem Namen");
-      if (!matches.length) { line("Ergebnis", "Keine exakte Ortsübereinstimmung. Hier endet die Suche."); return; }
-      line("Wikidata-IDs", matches.map(item => item.id + " (" + (item.description || "ohne Beschreibung") + ")").join("; "));
-      const entities = await queryWikimediaApi("www.wikidata.org", {
-        action: "wbgetentities", ids: matches.map(item => item.id).join("|"), props: "claims|labels|descriptions"
-      });
-      const countryQids = { DE: "Q183", AT: "Q40", CH: "Q39", FR: "Q142", IT: "Q38", GB: "Q145", HU: "Q28", ES: "Q29", PL: "Q36", NL: "Q55", BE: "Q31", CZ: "Q213", LU: "Q32" };
-      const expected = countryQids[country];
-      const choices = matches.map(item => {
-        const claims = entities.entities?.[item.id]?.claims || {};
-        const countries = (claims.P17 || []).map(x => x.mainsnak?.datavalue?.value?.id).filter(Boolean);
-        const files = (claims.P94 || []).map(x => x.mainsnak?.datavalue?.value).filter(x => typeof x === "string" && x);
-        const mismatch = !!expected && countries.length > 0 && !countries.includes(expected);
-        const locality = /gemeinde|stadt|dorf|ortschaft|municipality|city|town|village|commune|district|borough/i.test(item.description || "");
-        return { id: item.id, countries, files, mismatch, score: (expected && countries.includes(expected) ? 100 : 0) + (locality ? 10 : 0) };
-      });
-      choices.forEach(x => line(x.id, "P17: " + (x.countries.join(", ") || "fehlt") + "; P94: " + (x.files.join(", ") || "fehlt") + (x.mismatch ? "; Land passt nicht" : "")));
-      const selected = choices.filter(x => !x.mismatch && x.files.length).sort((a,b) => b.score-a.score)[0];
-      if (!selected) { line("Ergebnis", "Kein Wappen mit passender Länderzuordnung gefunden."); return; }
-      line("Ausgewählter Eintrag", selected.id);
-      line("Wappendatei", selected.files[0]);
-      const info = await queryWikimediaApi("commons.wikimedia.org", {
-        action: "query", prop: "imageinfo", iiprop: "url", iiurlwidth: "96", titles: "File:" + selected.files[0]
-      });
-      const page = Object.values(info.query?.pages || {})[0];
-      const imageUrl = page?.imageinfo?.[0]?.thumburl || page?.imageinfo?.[0]?.url;
-      if (!imageUrl) {
-        line("Commons-Seiten", JSON.stringify(info.query?.pages || {}).slice(0, 900));
-        line("Commons-Warnungen", JSON.stringify(info.warnings || {}).slice(0, 350));
-        line("Commons", "Keine Bildadresse zurückgegeben. Bitte die obigen Details senden.");
-        return;
-      }
-      line("Commons", "Bildadresse gefunden");
-      line("Commons-Bildadresse", imageUrl);
-      line("Bildabruf", "über Cloudflare /api/crest-image");
-      const image = document.createElement("img");
-      image.alt = "Gefundenes Wappen für " + destination;
-      image.className = "crest-test-preview";
-      image.onload = () => line("Bildtest", "Bild erfolgreich geladen. Falls oben weiter die Flagge erscheint, liegt der Fehler bei der Kartenanzeige.");
-      image.onerror = async () => {
-        line("Bildtest", "Bild konnte nicht geladen werden.");
-        try {
-          const proxyResponse = await fetch(crestImageProxyUrl(imageUrl), { cache: "no-store" });
-          line("Bildproxy HTTP", proxyResponse.status + " " + proxyResponse.statusText);
-          line("Bildproxy Content-Type", proxyResponse.headers.get("content-type") || "fehlt");
-          if (!proxyResponse.ok) line("Bildproxy Fehler", (await proxyResponse.text()).slice(0, 500));
-        } catch (error) {
-          line("Bildproxy Netzwerkfehler", error?.message || String(error));
-        }
-      };
-      output.appendChild(image);
-      image.src = crestImageProxyUrl(imageUrl);
-    } catch (error) {
-      line("API-Fehler", error?.message || String(error));
-      console.error("Wappen-Diagnose fehlgeschlagen", error);
-    } finally { button.disabled = false; }
-  });
-}
-
 function initReadmePanel() {
   const details = document.getElementById("readmeDetails");
   const content = document.getElementById("readmeContent");
@@ -9027,7 +8976,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.9", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.7.0", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
@@ -9398,7 +9347,6 @@ function wireControls() {
   document.getElementById("unvisitedOnly").addEventListener("change", applyFilters);
   initMapAllMenu();
   initReadmePanel();
-  initDestinationCrestTest();
   document.getElementById("locateBtn").addEventListener("click", requestUserLocation);
   document.getElementById("distanceSortBtn")?.addEventListener("click", toggleDistanceSort);
   document.getElementById("mobileDistanceSortBtn")?.addEventListener("click", toggleDistanceSort);
