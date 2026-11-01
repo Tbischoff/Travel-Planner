@@ -1,3 +1,7 @@
+## v2.6.7 – Bildproxy-Fehler sichtbar (01.11.2026)
+- Die Wappen-Diagnose zeigt nach einem fehlgeschlagenen Bildabruf den HTTP-Status, Content-Type und den Fehlertext von /api/crest-image.
+- Noch keine Änderung der eigentlichen Bildquelle oder Zuordnung.
+
 ## v2.6.6 – Wappenbilder über Cloudflare laden (01.11.2026)
 - Bild-URLs von Commons werden über /api/crest-image auf derselben Domain geladen.
 - Der Bildproxy akzeptiert nur Wikimedia-Bildhosts und Bildpfade.
