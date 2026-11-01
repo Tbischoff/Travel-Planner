@@ -676,7 +676,7 @@ type RoutesPolyline = { setMap: (map: MapInstance | null) => void }
 type TransitDetails = { transitLine?: { shortName?: string; name?: string; vehicle?: { type?: string } }; headsign?: string; departureStop?: { name?: string }; arrivalStop?: { name?: string }; departureTime?: Date | string; arrivalTime?: Date | string; stopCount?: number }
 type TransitStep = { transitDetails?: TransitDetails; distanceMeters?: number; instructions?: string; navigationInstruction?: { instructions?: string } }
 type TransitLeg = { steps?: TransitStep[] }
-type TransitConnection = { section: number; fromStop: string; toStop: string; line: string; icon: string; headsign: string; from: string; to: string; departure: string; arrival: string; stops: number }
+type TransitConnection = { departureEpoch?: number; section: number; fromStop: string; toStop: string; line: string; icon: string; headsign: string; from: string; to: string; departure: string; arrival: string; stops: number }
 type ComputedRoute = { legs?: TransitLeg[]; path?: RoutePoint[]; distanceMeters?: number; durationMillis?: number; createPolylines: (options: { polylineOptions: Record<string, unknown> }) => RoutesPolyline[] }
 type RoutesClass = { computeRoutes: (request: Record<string, unknown>) => Promise<{ routes?: ComputedRoute[] }> }
 const routeStart = ref<'location' | 'first' | 'hotel'>('first')
@@ -1078,6 +1078,16 @@ function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTr
 function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines(); if (offlineVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance) }
 function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = ''; transitLastUpdated.value = null; transitChangeWarnings.value = {}; transitRefreshNotice.value = '' }
 function getCachedRoute() { return cachedRoute }
+function expiredTransitRoute(route: ComputedRoute): boolean {
+  const departures = (route.legs || []).flatMap(leg => leg.steps || [])
+    .map(step => step.transitDetails?.departureTime)
+    .filter((time): time is Date | string => Boolean(time))
+    .map(time => new Date(time).getTime()).filter(Number.isFinite)
+  return departures.length > 0 && Math.min(...departures) < Date.now() - 60000
+}
+function currentTransitConnections(connections: TransitConnection[]): TransitConnection[] {
+  return connections.filter(connection => !connection.departureEpoch || connection.departureEpoch >= Date.now() - 60000)
+}
 function transitSignature(connections: TransitConnection[], section: number): string { return JSON.stringify(connections.filter(connection => connection.section === section).map(connection => [connection.line, connection.headsign, connection.from, connection.to, connection.departure, connection.arrival])) }
 function transitMapsUrl(index: number): string {
   const from = routeAgendaStops.value[index]?.stop
@@ -1099,12 +1109,12 @@ async function refreshTransitConnections() {
     await showWalkingRoute()
     if (routeError.value || !cachedRoute) {
       cachedRoute = snapshot
-      transitConnections.value = snapshot.connections
+      transitConnections.value = currentTransitConnections(snapshot.connections)
       transitMetrics.value = snapshot.metrics
       routeSummary.value = snapshot.summary
-      transitRefreshNotice.value = 'Aktualisierung fehlgeschlagen. Die bisherigen Verbindungen werden weiterhin angezeigt.'
+      transitRefreshNotice.value = 'Aktualisierung fehlgeschlagen. Alte Verbindungen werden nicht als aktuell angezeigt. Bitte erneut versuchen.'
       routeError.value = ''
-      renderRoute(snapshot.segments, snapshot.metrics, snapshot.connections, snapshot.summary)
+      renderRoute(snapshot.segments, snapshot.metrics, currentTransitConnections(snapshot.connections), snapshot.summary)
       return
     }
     const refreshed = getCachedRoute()
@@ -1261,6 +1271,7 @@ async function showWalkingRoute() {
       const useTransit = mode === 'transit' || (mode === 'auto' && !!transit && (!walking || transitMinutes + 5 < walkMinutes))
       const chosen = useTransit ? transit : walking
       if (!chosen) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ' + (mode === 'walking' ? 'Fußroute' : mode === 'transit' ? 'ÖPNV-Verbindung' : 'Route') + ' gefunden.')
+      if (useTransit && expiredTransitRoute(chosen)) throw new Error('Die ermittelte ÖPNV-Verbindung ist bereits abgefahren. Bitte aktualisieren.')
       segments.push(chosen)
       metrics.push({ distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: useTransit ? 'transit' : 'walking' })
     }
@@ -1282,6 +1293,7 @@ async function showWalkingRoute() {
             from: details.departureStop?.name || '',
             to: details.arrivalStop?.name || '',
             departure: transitClock(details.departureTime),
+            departureEpoch: details.departureTime ? new Date(details.departureTime).getTime() : undefined,
             arrival: transitClock(details.arrivalTime),
             stops: details.stopCount || 0,
           }]
