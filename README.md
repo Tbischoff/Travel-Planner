@@ -1,3 +1,7 @@
+## v2.6.9 – Wikimedia-Thumbnail-Host freigeben (01.11.2026)
+- Bildproxy erlaubt jetzt auch thumb.wikimedia.org für Bildpfade unter /wikipedia/.
+- Behebt die in v2.6.8 nachgewiesene HTTP-400-Ablehnung der Commons-PNG-Vorschau.
+
 ## v2.6.8 – Wappen-Bildadresse und Proxy-Diagnose (01.11.2026)
 - Wappen-Diagnose zeigt die Commons-Bildadresse.
 - Diagnosevorschau lädt wie die Kartenleiste über /api/crest-image.
