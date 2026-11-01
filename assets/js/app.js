@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.8";
+const APP_VERSION = "v2.6.9";
 
 
 function syncVersionLabels() {
@@ -9027,7 +9027,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.8", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.9", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
