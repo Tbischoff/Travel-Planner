@@ -16,7 +16,7 @@ export async function onRequestGet({ request }) {
   }
   const endpoint = "https://" + host + "/w/api.php?" + params.toString();
   try {
-    const upstream = await fetch(endpoint, { headers: { "Accept": "application/json" }, redirect: "follow" });
+    const upstream = await fetch(endpoint, { headers: { "Accept": "application/json", "User-Agent": "TravelPlanner/2.6.3 (https://trip-planner-smart.pages.dev; Wikimedia coat-of-arms lookup)" }, redirect: "follow" });
     const body = await upstream.text();
     if (!upstream.ok) {
       return new Response(JSON.stringify({ error: "Wikimedia HTTP " + upstream.status, detail: body.slice(0, 300) }), { status: 502, headers });
