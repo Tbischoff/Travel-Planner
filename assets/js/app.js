@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.5.2";
+const APP_VERSION = "v2.5.3";
 
 
 function syncVersionLabels() {
@@ -1897,14 +1897,21 @@ function countryCodeToFlag(code) {
 }
 
 const destinationCrestCache = new Map();
+const verifiedDestinationCrests = new Map([
+  ["durbach", "DEU Durbach COA.svg"]
+]);
 async function updateDestinationCrest(destination, fallback, token) {
   const target = document.querySelectorAll("[data-map-destination-flag]");
   const cacheKey = destination.toLocaleLowerCase("de-DE");
   try {
     let imageUrl = destinationCrestCache.get(cacheKey);
+    if (imageUrl === undefined && verifiedDestinationCrests.has(cacheKey)) {
+      imageUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(verifiedDestinationCrests.get(cacheKey)) + "?width=96";
+      destinationCrestCache.set(cacheKey, imageUrl);
+    }
     if (imageUrl === undefined) {
       // Wikidata P94 is the official coat-of-arms image, not a guessed image URL.
-      const page = await fetch("https://de.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageprops&titles=" + encodeURIComponent(destination));
+      const page = await fetch("https://de.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageprops&redirects=1&titles=" + encodeURIComponent(destination));
       if (!page.ok) throw new Error("Wikipedia nicht erreichbar");
       const pages = Object.values((await page.json()).query?.pages || {});
       const entityId = pages[0]?.pageprops?.wikibase_item;
