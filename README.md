@@ -1,3 +1,10 @@
+## v2.7.0 – Wappen offline vorbereiten und Diagnose entfernen (01.11.2026)
+- Die erfolgreiche Wappen-Diagnose wurde aus Mehr entfernt.
+- Die reguläre Offline-Vorbereitung speichert das Wappenbild und die zugehörige Commons-Adresse reisbezogen.
+- Ein eigener Cache bewahrt vorbereitete Wappen über App-Updates hinweg; die Kartenleiste nutzt den gespeicherten Eintrag auch offline.
+- Beim Entfernen der Offline-Daten wird das Wappen dieser Reise ebenfalls entfernt.
+- Für v3 vorgemerkt: gleiche Wappensuche und Offline-Integration nach Migration der Funktionen.
+
 ## v2.6.9 – Wikimedia-Thumbnail-Host freigeben (01.11.2026)
 - Bildproxy erlaubt jetzt auch thumb.wikimedia.org für Bildpfade unter /wikipedia/.
 - Behebt die in v2.6.8 nachgewiesene HTTP-400-Ablehnung der Commons-PNG-Vorschau.
