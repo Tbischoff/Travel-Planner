@@ -4517,3 +4517,13 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 /* v2.5.0: destination coat of arms */
 .map-destination-crest { display:inline-block; width:20px; height:23px; object-fit:contain; vertical-align:middle; }
 .map-toolbar .map-toolbar-flag { display:inline-flex; align-items:center; justify-content:center; min-width:20px; }
+
+/* Keep the complete toolbar usable on narrow phones instead of clipping 'Alle'. */
+@media(max-width:520px) {
+  .map-toolbar { max-width:calc(100vw - 16px); }
+  .map-toolbar .map-switch-trip-label { display:none !important; }
+  .map-toolbar .map-switch-trip-button { width:35px !important; min-width:35px; padding:6px !important; }
+  .map-toolbar #destinationBtn { min-width:0; max-width:145px; overflow:hidden; text-overflow:ellipsis; }
+  .map-toolbar #destinationBtn [data-map-destination] { overflow:hidden; text-overflow:ellipsis; }
+  .map-toolbar .map-all-wrap { min-width:0; }
+}
