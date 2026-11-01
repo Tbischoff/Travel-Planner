@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.5";
+const APP_VERSION = "v2.6.6";
 
 
 function syncVersionLabels() {
@@ -1910,6 +1910,11 @@ async function queryWikimediaApi(host, params) {
   if (!response.ok || data.error) throw new Error((data.error?.info || data.error || "Wappen-Proxy HTTP " + response.status) + (data.detail ? " – " + data.detail.slice(0, 240) : ""));
   return data;
 }
+function crestImageProxyUrl(imageUrl) {
+  const url = new URL("/api/crest-image", window.location.origin);
+  url.searchParams.set("url", imageUrl);
+  return url.toString();
+}
 function destinationCrestKey(destination, country) {
   return destination.trim().toLocaleLowerCase("de-DE") + "|" + (country || "");
 }
@@ -1972,7 +1977,7 @@ async function updateDestinationCrest(destination, fallback, token, country) {
       if (token === destinationCrestRequestToken) document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = fallback; });
       console.warn("Wappenbild nicht ladbar:", imageUrl);
     };
-    image.src = imageUrl;
+    image.src = crestImageProxyUrl(imageUrl);
   } catch (error) {
     console.warn("Wikidata-Wappensuche fehlgeschlagen:", destination, country, error);
   }
@@ -8987,6 +8992,7 @@ function initDestinationCrestTest() {
         return;
       }
       line("Commons", "Bildadresse gefunden");
+      line("Bildabruf", "über Cloudflare /api/crest-image");
       const image = document.createElement("img");
       image.alt = "Gefundenes Wappen für " + destination;
       image.className = "crest-test-preview";
@@ -9010,7 +9016,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.5", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.6", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
