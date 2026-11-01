@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.4.2";
+const APP_VERSION = "v2.4.3";
 
 
 function syncVersionLabels() {
@@ -4692,9 +4692,7 @@ async function computeTransitDaySegments(routeStops) {
     };
     const arrival=plannedTransitTimeForStop(to);
     const departure=plannedTransitTimeForStop(from);
-    if(arrival) request.arrivalTime=arrival;
-    else if(departure) request.departureTime=departure;
-    else request.departureTime=new Date();
+    Object.assign(request, safeTransitDepartureRequest(to, from));
     const {routes}=await Route.computeRoutes(request);
     if(!routes?.[0]) throw new Error(`Keine ÖPNV-Verbindung „${from.name}“ → „${to.name}“ gefunden.`);
     segments.push(routes[0]);
@@ -6766,6 +6764,20 @@ function formatTransitClock(value) {
   return new Intl.DateTimeFormat("de-DE",options).format(date);
 }
 
+function transitConnectionExpired(steps) {
+  const departures = (steps || []).map(step => Date.parse(step.departureDate)).filter(Number.isFinite);
+  return departures.length > 0 && Math.min(...departures) < Date.now() - 60000;
+}
+function safeTransitDepartureRequest(to, from) {
+  const now = Date.now();
+  const arrival = plannedTransitTimeForStop(to);
+  const departure = plannedTransitTimeForStop(from);
+  // A planned arrival is only usable if it is in the future.
+  if (arrival && new Date(arrival).getTime() > now + 60000) return { arrivalTime: arrival };
+  if (departure && new Date(departure).getTime() > now) return { departureTime: departure };
+  return { departureTime: new Date(now + 60000) };
+}
+
 function transitStepSummary(step) {
   const details=step?.transitDetails;
   if (!details) return null;
@@ -6929,12 +6941,11 @@ async function loadTransitLegsForDay(dayId) {
         };
         const arrivalCandidate=plannedTransitTimeForStop(to);
         const departureCandidate=plannedTransitTimeForStop(from);
-        if(arrivalCandidate) request.arrivalTime=arrivalCandidate;
-        else if(departureCandidate) request.departureTime=departureCandidate;
-        else request.departureTime=new Date();
+        Object.assign(request, safeTransitDepartureRequest(to, from));
         const {routes}=await Route.computeRoutes(request);
         const route=routes?.[0]||null;
         const transitSteps=await dbEnrichTransitSteps((route?.legs||[]).flatMap(leg=>leg.steps||[]).map(transitStepSummary).filter(Boolean));
+        if (transitConnectionExpired(transitSteps)) throw new Error("Die ermittelte Verbindung ist bereits abgefahren.");
         const previous=transitPreviousConnections.get(key);
         const previousSignature=transitConnectionSignature(previous?.transitSteps);
         const nextSignature=transitConnectionSignature(transitSteps);
@@ -6947,13 +6958,13 @@ async function loadTransitLegsForDay(dayId) {
       }catch(error){
         console.warn("ÖPNV-Verbindung:",from.name,"→",to.name,error);
         const previous=transitPreviousConnections.get(key);
-        transitLegCache.set(key,previous ? {...previous,changeWarning:"Aktualisierung fehlgeschlagen; angezeigte Verbindung ist möglicherweise veraltet."} : null);
+        transitLegCache.set(key,null);
         transitPreviousConnections.delete(key);
       }
     }
   } finally {
     transitLoading = false;
-    if(changed && selectedDayFilter===dayId) renderDayAgenda();
+    if(selectedDayFilter===dayId) renderDayAgenda();
   }
 }
 
