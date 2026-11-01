@@ -1,7 +1,7 @@
 // Cloudflare Pages Function: restrict Wikimedia proxy to the API calls used by the crest lookup.
 const HOSTS = new Set(["www.wikidata.org", "commons.wikimedia.org"]);
 const ACTIONS = new Set(["wbsearchentities", "wbgetentities", "query"]);
-const ALLOWED = new Set(["action", "search", "language", "uselang", "type", "limit", "ids", "props", "titles", "iiprop", "iiurlwidth"]);
+const ALLOWED = new Set(["action", "prop", "search", "language", "uselang", "type", "limit", "ids", "props", "titles", "iiprop", "iiurlwidth"]);
 export async function onRequestGet({ request }) {
   const input = new URL(request.url);
   const host = input.searchParams.get("host");
