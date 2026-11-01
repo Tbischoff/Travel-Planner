@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.4.5";
+const APP_VERSION = "v2.5.0";
 
 
 function syncVersionLabels() {
@@ -8801,6 +8801,64 @@ function applyFilters() {
   updateDayCounts();
 }
 
+function showAllTripPlaces() {
+  selectedDayFilter = "all";
+  document.getElementById("searchInput").value = "";
+  document.getElementById("localOnly").checked = false;
+  document.getElementById("unvisitedOnly").checked = false;
+  document.querySelectorAll("#categoryFilters input[type=checkbox]").forEach(input => { input.checked = true; activeCategories.add(input.value); });
+  updateToggleAllText();
+  applyFilters();
+  fitVisibleMarkers();
+  setStatus("Alle Orte der aktuellen Reise werden angezeigt.");
+}
+
+function resetMapPlaceFilters() {
+  selectedDayFilter = "all";
+  document.getElementById("searchInput").value = "";
+  document.getElementById("localOnly").checked = false;
+  document.getElementById("unvisitedOnly").checked = false;
+  document.querySelectorAll("#categoryFilters input[type=checkbox]").forEach(input => { input.checked = true; activeCategories.add(input.value); });
+  updateToggleAllText();
+  applyFilters();
+  setStatus("Ortsfilter zurückgesetzt.");
+}
+
+function initMapAllMenu() {
+  const trigger = document.getElementById("fitBtn");
+  const menu = document.getElementById("mapAllMenu");
+  if (!trigger || !menu) return;
+  const close = () => { menu.hidden = true; trigger.setAttribute("aria-expanded", "false"); };
+  trigger.addEventListener("click", event => { event.stopPropagation(); menu.hidden = !menu.hidden; trigger.setAttribute("aria-expanded", String(!menu.hidden)); });
+  menu.addEventListener("click", event => {
+    const action = event.target.closest("[data-map-all-action]")?.dataset.mapAllAction;
+    if (!action) return;
+    close();
+    if (action === "show") showAllTripPlaces();
+    if (action === "center") fitVisibleMarkers();
+    if (action === "reset") resetMapPlaceFilters();
+  });
+  document.addEventListener("click", event => { if (!event.target.closest(".map-all-wrap")) close(); });
+  document.addEventListener("keydown", event => { if (event.key === "Escape") close(); });
+}
+
+function initReadmePanel() {
+  const details = document.getElementById("readmeDetails");
+  const content = document.getElementById("readmeContent");
+  if (!details || !content) return;
+  let loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || loaded) return;
+    content.textContent = "README wird geladen …";
+    try {
+      const response = await fetch("./README.md?v=2.5.0", { cache: "no-cache" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      content.textContent = await response.text();
+      loaded = true;
+    } catch (error) { content.textContent = "README konnte nicht geladen werden. Bitte online erneut versuchen."; }
+  });
+}
+
 function fitVisibleMarkers() {
   const visibleIds = new Set(getFilteredPlaces().map(place => place.id));
   const accommodation = getAccommodationPlace();
@@ -9162,7 +9220,8 @@ function wireControls() {
   });
   document.getElementById("localOnly").addEventListener("change", applyFilters);
   document.getElementById("unvisitedOnly").addEventListener("change", applyFilters);
-  document.getElementById("fitBtn").addEventListener("click", fitVisibleMarkers);
+  initMapAllMenu();
+  initReadmePanel();
   document.getElementById("locateBtn").addEventListener("click", requestUserLocation);
   document.getElementById("distanceSortBtn")?.addEventListener("click", toggleDistanceSort);
   document.getElementById("mobileDistanceSortBtn")?.addEventListener("click", toggleDistanceSort);
