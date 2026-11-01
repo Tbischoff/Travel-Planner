@@ -1,3 +1,6 @@
+## v2.6.5 – Commons-Bildinformationen repariert (01.11.2026)
+- Cloudflare-Proxy leitet nun prop=imageinfo an Commons weiter.
+
 ## v2.6.4 – Commons-Antwort in Wappen-Diagnose sichtbar (01.11.2026)
 - Bei fehlender Commons-Bildadresse werden API-Seitendaten und Warnungen direkt in Mehr angezeigt.
 - Die tatsächliche Ursache des fehlenden Bildes kann damit vor weiteren Änderungen ermittelt werden.
