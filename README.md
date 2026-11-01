@@ -1,3 +1,8 @@
+## v2.5.0 – Kartenmenü und Versionsübersicht (01.11.2026)
+- Kartenmenü „Alle“ mit vollständiger Ortsanzeige, Kartenzentrierung und Filterrücksetzung.
+- README im Tab „Mehr“ nur nach Antippen aufklappbar; für Offline-Nutzung vorgeladen.
+- Mobile Kartenleiste mit sichtbar beschrifteter „Alle“-Schaltfläche.
+
 # Travel Planner v2.1.0
 
 Installierbare Reise-PWA zur Verwaltung **mehrerer Reisen**. Der Travel Planner verbindet Reiseauswahl und Mitgliederrollen mit Karten, Orten, Aktivitäten, Tagesplanung, Wetter, Navigation, ÖPNV-Unterstützung, Backups und reisespezifischen Offline-Daten.
