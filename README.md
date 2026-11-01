@@ -1,3 +1,8 @@
+## v2.5.7 – Wappenbild als Commons-Vorschau und passendes Alle-Symbol (01.11.2026)
+- Wikidata P94 wird weiterhin für alle Reiseziele automatisch abgefragt; keine Orts-Sonderregeln.
+- Das Wappen wird über die Commons-Bildinformationen als gerenderte Vorschau geladen, nicht mehr als SVG-Weiterleitung.
+- Der „Alle“-Button verwendet jetzt ein Ortssymbol statt des unpassenden Rastersymbols.
+
 ## v2.5.6 – Mobile Kartenleiste kompakt (01.11.2026)
 - Kartenleiste orientiert sich wieder an der tatsächlichen Breite ihrer vier Bedienelemente statt die gesamte Bildschirmbreite einzunehmen.
 - Alte Grid-Vorgaben überschrieben, die unnötig große Abstände erzeugten.
