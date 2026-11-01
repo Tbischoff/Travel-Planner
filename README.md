@@ -1,3 +1,8 @@
+## v2.5.2 – Mobile Kartenleiste und Cache korrigiert (01.11.2026)
+- Veraltete mobile CSS-Regel behoben, die den „Alle“-Button vollständig ausgeblendet hatte.
+- JavaScript-Dateiversion in HTML und Service Worker korrigiert, damit neue Funktionen und die Wappenabfrage geladen werden.
+- README-Funktion bleibt unverändert.
+
 ## v2.5.0 – Kartenmenü und Versionsübersicht (01.11.2026)
 - Kartenmenü „Alle“ mit vollständiger Ortsanzeige, Kartenzentrierung und Filterrücksetzung.
 - README im Tab „Mehr“ nur nach Antippen aufklappbar; für Offline-Nutzung vorgeladen.
