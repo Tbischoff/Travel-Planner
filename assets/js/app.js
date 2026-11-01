@@ -1896,11 +1896,47 @@ function countryCodeToFlag(code) {
   return String.fromCodePoint(...[...code].map(char => 127397 + char.charCodeAt(0)));
 }
 
+const destinationCrestCache = new Map();
+async function updateDestinationCrest(destination, fallback, token) {
+  const target = document.querySelectorAll("[data-map-destination-flag]");
+  const cacheKey = destination.toLocaleLowerCase("de-DE");
+  try {
+    let imageUrl = destinationCrestCache.get(cacheKey);
+    if (imageUrl === undefined) {
+      // Wikidata P94 is the official coat-of-arms image, not a guessed image URL.
+      const page = await fetch("https://de.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageprops&titles=" + encodeURIComponent(destination));
+      if (!page.ok) throw new Error("Wikipedia nicht erreichbar");
+      const pages = Object.values((await page.json()).query?.pages || {});
+      const entityId = pages[0]?.pageprops?.wikibase_item;
+      imageUrl = null;
+      if (entityId) {
+        const response = await fetch("https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&ids=" + encodeURIComponent(entityId) + "&props=claims");
+        if (response.ok) {
+          const claims = (await response.json()).entities?.[entityId]?.claims?.P94;
+          const filename = claims?.[0]?.mainsnak?.datavalue?.value;
+          if (typeof filename === "string" && filename) imageUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(filename) + "?width=64";
+        }
+      }
+      destinationCrestCache.set(cacheKey, imageUrl);
+    }
+    if (!imageUrl || token !== destinationCrestRequestToken) return;
+    const img = new Image();
+    img.alt = "";
+    img.className = "map-destination-crest";
+    img.onload = () => { if (token === destinationCrestRequestToken) target.forEach(el => { el.replaceChildren(img.cloneNode()); }); };
+    img.onerror = () => { if (token === destinationCrestRequestToken) target.forEach(el => { el.textContent = fallback; }); };
+    img.src = imageUrl;
+  } catch (_) { /* Country flag stays visible if lookup fails or offline. */ }
+}
+let destinationCrestRequestToken = 0;
 function updateMapDestinationButton() {
   const destination = currentTrip?.destination || "Reiseziel";
+  const fallback = countryCodeToFlag(tripDestinationCountryCode);
+  const token = ++destinationCrestRequestToken;
   document.querySelectorAll("[data-map-destination]").forEach(el => { el.textContent = destination; });
-  document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = countryCodeToFlag(tripDestinationCountryCode); });
+  document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = fallback; });
   document.querySelectorAll("[data-map-destination-title]").forEach(el => { el.setAttribute("title", `Karte auf ${destination} zentrieren`); });
+  if (navigator.onLine && destination !== "Reiseziel") void updateDestinationCrest(destination, fallback, token);
 }
 
 function centerMapOnTripDestination() {
