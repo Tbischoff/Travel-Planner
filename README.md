@@ -1,3 +1,7 @@
+## v2.6.4 – Commons-Antwort in Wappen-Diagnose sichtbar (01.11.2026)
+- Bei fehlender Commons-Bildadresse werden API-Seitendaten und Warnungen direkt in Mehr angezeigt.
+- Die tatsächliche Ursache des fehlenden Bildes kann damit vor weiteren Änderungen ermittelt werden.
+
 ## v2.6.3 – Wikimedia 403 Diagnose (01.11.2026)
 - Cloudflare-Wikimedia-Anfragen erhalten einen identifizierbaren User-Agent.
 - Bei HTTP-Fehlern wird die gekürzte Wikimedia-Antwort in der Wappen-Diagnose angezeigt.
