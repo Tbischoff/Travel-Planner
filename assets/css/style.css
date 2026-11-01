@@ -4553,3 +4553,32 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .map-toolbar { grid-template-columns:35px minmax(0,1fr) auto auto; }
   .map-toolbar .map-all-wrap .map-fit-label { display:inline !important; }
 }
+
+/* v2.5.3: compact four-action mobile toolbar, without legacy separators */
+@media(max-width:820px) {
+  .top-actions.map-toolbar {
+    display:grid;
+    grid-template-columns:36px minmax(0,1fr) auto auto;
+    width:calc(100vw - 20px);
+    max-width:calc(100vw - 20px);
+    padding:5px;
+    gap:5px;
+    box-sizing:border-box;
+    border-radius:16px;
+    align-items:center;
+    overflow:visible;
+  }
+  .map-toolbar > #switchTripMapButton,
+  .map-toolbar > #destinationBtn,
+  .map-toolbar > #addPlaceBtn,
+  .map-toolbar > .map-all-wrap { min-width:0; margin:0; }
+  .map-toolbar > #switchTripMapButton { width:36px !important; padding:6px !important; }
+  .map-toolbar > #destinationBtn { width:100%; padding:6px 3px; justify-content:center; }
+  .map-toolbar > #destinationBtn [data-map-destination] { min-width:0; }
+  .map-toolbar > #addPlaceBtn { padding:7px 10px; border-radius:12px; }
+  .map-toolbar > .map-all-wrap #fitBtn { display:inline-flex !important; padding:7px 8px; min-width:66px; border:1px solid #2f625d; border-radius:12px; color:#2f625d; background:#fff; font-weight:750; }
+  .map-toolbar > .map-toolbar-button::before,
+  .map-toolbar > .map-toolbar-button + .map-toolbar-button::before { display:none !important; content:none !important; }
+  .map-toolbar > .map-toolbar-button { border-left:0 !important; }
+  .map-all-menu { right:0; }
+}
