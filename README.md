@@ -1,3 +1,8 @@
+## v2.6.3 – Wikimedia 403 Diagnose (01.11.2026)
+- Cloudflare-Wikimedia-Anfragen erhalten einen identifizierbaren User-Agent.
+- Bei HTTP-Fehlern wird die gekürzte Wikimedia-Antwort in der Wappen-Diagnose angezeigt.
+- HTTP 403 kann auch an der Herkunfts-IP oder weiteren Wikimedia-Regeln liegen; die Änderung ist zunächst ein Diagnoseschritt.
+
 ## v2.6.2 – Wappen-API über Cloudflare Pages Function (01.11.2026)
 - Neue serverseitige Route /api/wikimedia mit festen Wikimedia-Hosts und API-Aktionen.
 - Wappenanzeige und Wappen-Diagnose nutzen denselben Same-Origin-Proxy; API-Fehler werden sichtbar weitergegeben.
