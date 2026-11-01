@@ -4629,7 +4629,3 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .top-actions.map-toolbar > #destinationBtn { border:0 !important; }
 }
 
-/* v2.6.1: mobile crest diagnostic preview */
-.crest-test-result { margin-top:12px; padding:12px; border-radius:12px; background:rgba(47,98,93,.07); overflow-wrap:anywhere; font-size:13px; }
-.crest-test-result p { margin:5px 0; }
-.crest-test-preview { display:block; width:auto; max-width:120px; max-height:140px; object-fit:contain; margin:12px auto; }
