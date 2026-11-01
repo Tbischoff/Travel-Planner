@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.4.3";
+const APP_VERSION = "v2.4.4";
 
 
 function syncVersionLabels() {
@@ -6923,6 +6923,13 @@ async function loadTransitLegsForDay(dayId) {
   if (navigator.onLine===false || getMobilityMode()==="walk") return;
   const stops=getAgendaMobilityStopsForDay(dayId);
   if(stops.length<2) return;
+  // Rendern darf keine weitere Abfrage starten, wenn alle Abschnitte bereits im Cache stehen.
+  const needsRefresh = stops.slice(0, -1).some((from, i) => {
+    const to = stops[i + 1];
+    const key = `${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
+    return !transitLegCache.has(key);
+  });
+  if (!needsRefresh) return;
   let changed=false;
   transitLoading = true;
   try {
