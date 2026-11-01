@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.6.6";
+const APP_VERSION = "v2.6.7";
 
 
 function syncVersionLabels() {
@@ -8997,7 +8997,17 @@ function initDestinationCrestTest() {
       image.alt = "Gefundenes Wappen für " + destination;
       image.className = "crest-test-preview";
       image.onload = () => line("Bildtest", "Bild erfolgreich geladen. Falls oben weiter die Flagge erscheint, liegt der Fehler bei der Kartenanzeige.");
-      image.onerror = () => line("Bildtest", "Bildadresse gefunden, aber das Bild konnte nicht geladen werden.");
+      image.onerror = async () => {
+        line("Bildtest", "Bild konnte nicht geladen werden.");
+        try {
+          const proxyResponse = await fetch(crestImageProxyUrl(imageUrl), { cache: "no-store" });
+          line("Bildproxy HTTP", proxyResponse.status + " " + proxyResponse.statusText);
+          line("Bildproxy Content-Type", proxyResponse.headers.get("content-type") || "fehlt");
+          if (!proxyResponse.ok) line("Bildproxy Fehler", (await proxyResponse.text()).slice(0, 500));
+        } catch (error) {
+          line("Bildproxy Netzwerkfehler", error?.message || String(error));
+        }
+      };
       output.appendChild(image);
       image.src = imageUrl;
     } catch (error) {
@@ -9016,7 +9026,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.6.6", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.6.7", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
