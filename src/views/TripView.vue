@@ -1236,13 +1236,14 @@ async function showWalkingRoute() {
         }
         if (travelMode === 'TRANSIT') {
           request.transitPreference = { allowedTransitModes: ['BUS', 'SUBWAY', 'TRAIN', 'LIGHT_RAIL', 'RAIL'], routingPreference: 'FEWER_TRANSFERS' }
-          // As in v2: prefer arrival at the next planned stop, otherwise departure after the previous stop.
+          // Current GPS origin: always request an upcoming departure, not a scheduled arrival.
           const targetStop = dayStops.value[index + (routeStart.value === 'first' ? 1 : 0)]
           const sourceStop = dayStops.value[index - (routeStart.value === 'first' ? 0 : 1)]
           const arrival = plannedTransitTime(targetStop?.start_time || targetStop?.end_time)
           const departure = plannedTransitTime(sourceStop?.end_time || sourceStop?.start_time)
-          if (arrival) request.arrivalTime = arrival
-          else request.departureTime = departure || new Date()
+          if (routeStart.value === 'location' && index === 0) request.departureTime = new Date(Date.now() + 60000)
+          else if (arrival && arrival.getTime() > Date.now() + 60000) request.arrivalTime = arrival
+          else request.departureTime = departure && departure.getTime() > Date.now() ? departure : new Date(Date.now() + 60000)
         }
         const { routes } = await routesLibrary.Route!.computeRoutes(request)
         return routes?.[0] || null
@@ -1934,8 +1935,8 @@ async function updateNavigationRouteV3(force = false) {
       const request: Record<string, unknown> = { origin, destination, travelMode: mode, fields: ['path', 'distanceMeters', 'durationMillis', 'legs'] }
       if (mode === 'TRANSIT') {
         const plannedArrival = plannedTransitTime(navigationTarget.value?.start_time)
-        if (plannedArrival && plannedArrival.getTime() > Date.now()) request.arrivalTime = plannedArrival
-        else request.departureTime = new Date()
+        // Live navigation starts at the current position: prefer the next reachable departure.
+        request.departureTime = new Date(Date.now() + 60000)
       }
       const result = await library.Route!.computeRoutes(request)
       return result.routes?.[0] || null
