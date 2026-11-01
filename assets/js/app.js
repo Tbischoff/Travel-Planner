@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.5.7";
+const APP_VERSION = "v2.6.0";
 
 
 function syncVersionLabels() {
@@ -1897,80 +1897,81 @@ function countryCodeToFlag(code) {
 }
 
 const destinationCrestCache = new Map();
+let destinationCrestRequestToken = 0;
 async function queryWikimediaApi(host, params) {
   const url = new URL("https://" + host + "/w/api.php");
-  url.searchParams.set("action", params.action);
-  url.searchParams.set("format", "json");
-  url.searchParams.set("origin", "*");
-  Object.entries(params).forEach(([key, value]) => { if (key !== "action") url.searchParams.set(key, value); });
+  Object.entries({ format: "json", origin: "*", ...params }).forEach(([key, value]) => url.searchParams.set(key, String(value)));
   const response = await fetch(url.toString(), { mode: "cors" });
-  if (!response.ok) throw new Error("Wikimedia HTTP " + response.status);
-  return response.json();
+  if (!response.ok) throw new Error(host + ": HTTP " + response.status);
+  const data = await response.json();
+  if (data.error) throw new Error(host + ": " + (data.error.info || data.error.code));
+  return data;
 }
-async function findDestinationWikidataId(destination) {
-  // Search Wikidata directly as a fallback if Wikipedia's API is unavailable.
-  try {
-    const wiki = await queryWikimediaApi("de.wikipedia.org", {
-      action: "query", prop: "pageprops", redirects: "1", titles: destination
-    });
-    const page = Object.values(wiki.query?.pages || {}).find(item => item.pageprops?.wikibase_item);
-    if (page?.pageprops?.wikibase_item) return page.pageprops.wikibase_item;
-  } catch (error) { console.warn("Wikipedia-Wappensuche nicht erreichbar:", error); }
-  const search = await queryWikimediaApi("www.wikidata.org", {
-    action: "wbsearchentities", search: destination, language: "de", uselang: "de", type: "item", limit: "10"
+function destinationCrestKey(destination, country) {
+  return destination.trim().toLocaleLowerCase("de-DE") + "|" + (country || "");
+}
+async function findDestinationCrest(destination, country) {
+  // Wikidata is the primary source. Check several exact-name matches, not only the first hit.
+  const results = await queryWikimediaApi("www.wikidata.org", {
+    action: "wbsearchentities", search: destination, language: "de", uselang: "de", type: "item", limit: "20"
   });
-  const exact = (search.search || []).find(item =>
+  const candidates = (results.search || []).filter(item =>
     String(item.label || "").localeCompare(destination, "de", { sensitivity: "base" }) === 0
-    && /(?:stadt|gemeinde|ort|municipality|city|town|village|deutschland|baden|rheinland)/i.test(item.description || "")
   );
-  return exact?.id || null;
+  if (!candidates.length) return null;
+  const ids = candidates.map(item => item.id).join("|");
+  const entities = await queryWikimediaApi("www.wikidata.org", {
+    action: "wbgetentities", ids, props: "claims|labels|descriptions"
+  });
+  const countryQids = { DE: "Q183", AT: "Q40", CH: "Q39", FR: "Q142", IT: "Q38", GB: "Q145", HU: "Q28", ES: "Q29", PL: "Q36", NL: "Q55", BE: "Q31", CZ: "Q213", LU: "Q32" };
+  const wantedCountry = countryQids[country];
+  const matching = candidates.map(item => {
+    const entity = entities.entities?.[item.id];
+    const claims = entity?.claims || {};
+    const countries = (claims.P17 || []).map(c => c.mainsnak?.datavalue?.value?.id);
+    const filename = (claims.P94 || []).map(c => c.mainsnak?.datavalue?.value).find(v => typeof v === "string" && v);
+    const description = String(item.description || "");
+    const locality = /gemeinde|stadt|dorf|ortschaft|municipality|city|town|village|commune|district|borough/i.test(description);
+    const countryMatch = wantedCountry && countries.includes(wantedCountry);
+    return { filename, score: (countryMatch ? 100 : 0) + (locality ? 10 : 0), countryMismatch: !!wantedCountry && countries.length > 0 && !countryMatch };
+  }).filter(item => item.filename && !item.countryMismatch).sort((x,y) => y.score - x.score);
+  const filename = matching[0]?.filename;
+  if (!filename) return null;
+  const info = await queryWikimediaApi("commons.wikimedia.org", {
+    action: "query", prop: "imageinfo", iiprop: "url", iiurlwidth: "96", titles: "File:" + filename
+  });
+  const file = Object.values(info.query?.pages || {})[0];
+  return file?.imageinfo?.[0]?.thumburl || file?.imageinfo?.[0]?.url || null;
 }
-async function updateDestinationCrest(destination, fallback, token) {
-  const targets = document.querySelectorAll("[data-map-destination-flag]");
-  const key = destination.toLocaleLowerCase("de-DE");
+async function updateDestinationCrest(destination, fallback, token, country) {
+  const key = destinationCrestKey(destination, country);
   try {
     let imageUrl = destinationCrestCache.get(key);
-    if (imageUrl === undefined) {
-      const entityId = await findDestinationWikidataId(destination);
-      imageUrl = null;
-      if (entityId) {
-        const result = await queryWikimediaApi("www.wikidata.org", {
-          action: "wbgetentities", ids: entityId, props: "claims"
-        });
-        const filename = result.entities?.[entityId]?.claims?.P94?.[0]?.mainsnak?.datavalue?.value;
-        if (typeof filename === "string" && filename) {
-          // Use a Commons-generated raster thumbnail rather than redirecting to an SVG.
-          // This also works on browsers that do not display remote SVG images reliably.
-          const fileInfo = await queryWikimediaApi("commons.wikimedia.org", {
-            action: "query", prop: "imageinfo", iiprop: "url", iiurlwidth: "96",
-            titles: "File:" + filename
-          });
-          const filePage = Object.values(fileInfo.query?.pages || {})[0];
-          imageUrl = filePage?.imageinfo?.[0]?.thumburl || filePage?.imageinfo?.[0]?.url || null;
-        }
-      }
+    if (!imageUrl) {
+      imageUrl = await findDestinationCrest(destination, country);
       if (imageUrl) destinationCrestCache.set(key, imageUrl);
     }
     if (!imageUrl || token !== destinationCrestRequestToken) {
-      if (!imageUrl) console.info("Kein Wappen gefunden:", destination);
+      if (!imageUrl) console.info("Kein passendes Wikidata-Wappen:", destination, country);
       return;
     }
     const image = new Image();
     image.alt = "";
     image.className = "map-destination-crest";
     image.onload = () => {
-      if (token === destinationCrestRequestToken) targets.forEach(el => el.replaceChildren(image.cloneNode()));
+      if (token !== destinationCrestRequestToken) return;
+      document.querySelectorAll("[data-map-destination-flag]").forEach(el => el.replaceChildren(image.cloneNode()));
     };
     image.onerror = () => {
       destinationCrestCache.delete(key);
-      if (token === destinationCrestRequestToken) targets.forEach(el => { el.textContent = fallback; });
+      if (token === destinationCrestRequestToken) document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = fallback; });
+      console.warn("Wappenbild nicht ladbar:", imageUrl);
     };
     image.src = imageUrl;
   } catch (error) {
-    console.warn("Wappen konnte nicht geladen werden:", destination, error);
+    console.warn("Wikidata-Wappensuche fehlgeschlagen:", destination, country, error);
   }
 }
-let destinationCrestRequestToken = 0;
 function updateMapDestinationButton() {
   const destination = currentTrip?.destination || "Reiseziel";
   const fallback = countryCodeToFlag(tripDestinationCountryCode);
@@ -1978,7 +1979,7 @@ function updateMapDestinationButton() {
   document.querySelectorAll("[data-map-destination]").forEach(el => { el.textContent = destination; });
   document.querySelectorAll("[data-map-destination-flag]").forEach(el => { el.textContent = fallback; });
   document.querySelectorAll("[data-map-destination-title]").forEach(el => { el.setAttribute("title", `Karte auf ${destination} zentrieren`); });
-  if (navigator.onLine && destination !== "Reiseziel") void updateDestinationCrest(destination, fallback, token);
+  if (navigator.onLine && destination !== "Reiseziel") void updateDestinationCrest(destination, fallback, token, tripDestinationCountryCode);
 }
 
 function centerMapOnTripDestination() {
