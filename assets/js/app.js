@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.5.4";
+const APP_VERSION = "v2.5.5";
 
 
 function syncVersionLabels() {
@@ -1897,36 +1897,69 @@ function countryCodeToFlag(code) {
 }
 
 const destinationCrestCache = new Map();
-async function updateDestinationCrest(destination, fallback, token) {
-  const target = document.querySelectorAll("[data-map-destination-flag]");
-  const cacheKey = destination.toLocaleLowerCase("de-DE");
+async function queryWikimediaApi(host, params) {
+  const url = new URL("https://" + host + "/w/api.php");
+  url.searchParams.set("action", params.action);
+  url.searchParams.set("format", "json");
+  url.searchParams.set("origin", "*");
+  Object.entries(params).forEach(([key, value]) => { if (key !== "action") url.searchParams.set(key, value); });
+  const response = await fetch(url.toString(), { mode: "cors" });
+  if (!response.ok) throw new Error("Wikimedia HTTP " + response.status);
+  return response.json();
+}
+async function findDestinationWikidataId(destination) {
+  // Search Wikidata directly as a fallback if Wikipedia's API is unavailable.
   try {
-    let imageUrl = destinationCrestCache.get(cacheKey);
+    const wiki = await queryWikimediaApi("de.wikipedia.org", {
+      action: "query", prop: "pageprops", redirects: "1", titles: destination
+    });
+    const page = Object.values(wiki.query?.pages || {}).find(item => item.pageprops?.wikibase_item);
+    if (page?.pageprops?.wikibase_item) return page.pageprops.wikibase_item;
+  } catch (error) { console.warn("Wikipedia-Wappensuche nicht erreichbar:", error); }
+  const search = await queryWikimediaApi("www.wikidata.org", {
+    action: "wbsearchentities", search: destination, language: "de", uselang: "de", type: "item", limit: "10"
+  });
+  const exact = (search.search || []).find(item =>
+    String(item.label || "").localeCompare(destination, "de", { sensitivity: "base" }) === 0
+    && /(?:stadt|gemeinde|ort|municipality|city|town|village|deutschland|baden|rheinland)/i.test(item.description || "")
+  );
+  return exact?.id || null;
+}
+async function updateDestinationCrest(destination, fallback, token) {
+  const targets = document.querySelectorAll("[data-map-destination-flag]");
+  const key = destination.toLocaleLowerCase("de-DE");
+  try {
+    let imageUrl = destinationCrestCache.get(key);
     if (imageUrl === undefined) {
-      // Wikidata P94 is the official coat-of-arms image, not a guessed image URL.
-      const page = await fetch("https://de.wikipedia.org/w/api.php?action=query&format=json&origin=*&prop=pageprops&redirects=1&titles=" + encodeURIComponent(destination));
-      if (!page.ok) throw new Error("Wikipedia nicht erreichbar");
-      const pages = Object.values((await page.json()).query?.pages || {});
-      const entityId = pages[0]?.pageprops?.wikibase_item;
+      const entityId = await findDestinationWikidataId(destination);
       imageUrl = null;
       if (entityId) {
-        const response = await fetch("https://www.wikidata.org/w/api.php?action=wbgetentities&format=json&origin=*&ids=" + encodeURIComponent(entityId) + "&props=claims");
-        if (response.ok) {
-          const claims = (await response.json()).entities?.[entityId]?.claims?.P94;
-          const filename = claims?.[0]?.mainsnak?.datavalue?.value;
-          if (typeof filename === "string" && filename) imageUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(filename) + "?width=64";
+        const result = await queryWikimediaApi("www.wikidata.org", {
+          action: "wbgetentities", ids: entityId, props: "claims"
+        });
+        const filename = result.entities?.[entityId]?.claims?.P94?.[0]?.mainsnak?.datavalue?.value;
+        if (typeof filename === "string" && filename) {
+          // Commons Special:FilePath resolves Wikimedia's original coat-of-arms file.
+          imageUrl = "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(filename);
         }
       }
-      destinationCrestCache.set(cacheKey, imageUrl);
+      if (imageUrl) destinationCrestCache.set(key, imageUrl);
     }
     if (!imageUrl || token !== destinationCrestRequestToken) return;
-    const img = new Image();
-    img.alt = "";
-    img.className = "map-destination-crest";
-    img.onload = () => { if (token === destinationCrestRequestToken) target.forEach(el => { el.replaceChildren(img.cloneNode()); }); };
-    img.onerror = () => { if (token === destinationCrestRequestToken) target.forEach(el => { el.textContent = fallback; }); };
-    img.src = imageUrl;
-  } catch (_) { /* Country flag stays visible if lookup fails or offline. */ }
+    const image = new Image();
+    image.alt = "";
+    image.className = "map-destination-crest";
+    image.onload = () => {
+      if (token === destinationCrestRequestToken) targets.forEach(el => el.replaceChildren(image.cloneNode()));
+    };
+    image.onerror = () => {
+      destinationCrestCache.delete(key);
+      if (token === destinationCrestRequestToken) targets.forEach(el => { el.textContent = fallback; });
+    };
+    image.src = imageUrl;
+  } catch (error) {
+    console.warn("Wappen konnte nicht geladen werden:", destination, error);
+  }
 }
 let destinationCrestRequestToken = 0;
 function updateMapDestinationButton() {
