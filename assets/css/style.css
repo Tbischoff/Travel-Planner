@@ -4545,3 +4545,11 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .map-toolbar .map-all-wrap .map-fit-button { min-width:57px; }
   .map-all-menu { z-index:9999; }
 }
+
+/* v2.5.2: override old mobile #fitBtn { display:none } and enable nested menu taps */
+@media(max-width:820px) {
+  .map-toolbar .map-all-wrap #fitBtn { display:inline-flex !important; visibility:visible; opacity:1; }
+  .map-toolbar .map-all-wrap, .map-toolbar .map-all-menu, .map-toolbar .map-all-menu button { pointer-events:auto; }
+  .map-toolbar { grid-template-columns:35px minmax(0,1fr) auto auto; }
+  .map-toolbar .map-all-wrap .map-fit-label { display:inline !important; }
+}
