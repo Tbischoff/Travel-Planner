@@ -1,3 +1,8 @@
+## v2.6.6 – Wappenbilder über Cloudflare laden (01.11.2026)
+- Bild-URLs von Commons werden über /api/crest-image auf derselben Domain geladen.
+- Der Bildproxy akzeptiert nur Wikimedia-Bildhosts und Bildpfade.
+- Wappen-Diagnose testet denselben Bildweg wie die Kartenleiste.
+
 ## v2.6.5 – Commons-Bildinformationen repariert (01.11.2026)
 - Cloudflare-Proxy leitet nun prop=imageinfo an Commons weiter.
 
