@@ -1,3 +1,8 @@
+## v2.5.3 – Kartenleiste und Durbach-Wappen (01.11.2026)
+- Mobile Kartenleiste kompakter gestaltet, alte Trennlinien entfernt und „Alle“ als eigenständiges Dropdown hervorgehoben.
+- Das auf Wikimedia Commons nachgewiesene Durbacher Wappen wird über seinen geprüften Dateinamen geladen.
+- Allgemeine Wappensuche bleibt für andere Reiseziele erhalten; Flagge dient weiterhin als Fallback.
+
 ## v2.5.2 – Mobile Kartenleiste und Cache korrigiert (01.11.2026)
 - Veraltete mobile CSS-Regel behoben, die den „Alle“-Button vollständig ausgeblendet hatte.
 - JavaScript-Dateiversion in HTML und Service Worker korrigiert, damit neue Funktionen und die Wappenabfrage geladen werden.
