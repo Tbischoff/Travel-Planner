@@ -1,11 +1,11 @@
-const APP_VERSION = "v2.6.9";
-const CACHE_NAME = "travel-planner-v2.6.9";
+const APP_VERSION = "v2.7.0";
+const CACHE_NAME = "travel-planner-v2.7.0";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./README.md",
-  "./assets/css/style.css?v=2.6.0",
-  "./assets/js/app.js?v=2.5.7",
+  "./assets/css/style.css?v=2.7.0",
+  "./assets/js/app.js?v=2.7.0",
   "./data/places.js",
   "./assets/icons/favicon.svg",
   "./manifest.webmanifest?v=2.0.0"
@@ -35,7 +35,7 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await Promise.all(keys.filter(key => key !== CACHE_NAME && key !== "travel-planner-offline-crests-v1").map(key => caches.delete(key)));
     await self.clients.claim();
   })());
 });
@@ -44,6 +44,16 @@ self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
+
+  if (url.origin === self.location.origin && url.pathname === "/api/crest-image") {
+    event.respondWith((async () => {
+      const offlineCache = await caches.open("travel-planner-offline-crests-v1");
+      const stored = await offlineCache.match(request);
+      if (stored) return stored;
+      return fetch(request);
+    })());
+    return;
+  }
 
   if (request.mode === "navigate") {
     event.respondWith((async () => {
