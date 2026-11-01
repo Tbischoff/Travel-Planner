@@ -1,5 +1,5 @@
-const APP_VERSION = "v2.6.8";
-const CACHE_NAME = "travel-planner-v2.6.8";
+const APP_VERSION = "v2.6.9";
+const CACHE_NAME = "travel-planner-v2.6.9";
 const APP_SHELL = [
   "./",
   "./index.html",
