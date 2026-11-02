@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.7.0";
+const APP_VERSION = "v2.8.0";
 
 
 function syncVersionLabels() {
@@ -4773,9 +4773,37 @@ async function prepareOfflineRoutes() {
   }
 }
 
+function stopTravelModeStorageKey() { return tripScopedStorageKey("stopTravelModesV2"); }
+function stopTravelMode(stop) {
+  const key = stopTravelModeStorageKey();
+  if (!key || !stop?.id) return "auto";
+  try { return JSON.parse(localStorage.getItem(key) || "{}")[stop.id] || "auto"; }
+  catch { return "auto"; }
+}
+function saveStopTravelMode(stopId, mode) {
+  if (!["auto", "walk", "transit", "car"].includes(mode)) return;
+  const key = stopTravelModeStorageKey();
+  if (!key) return;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(key) || "{}"); } catch {}
+  saved[stopId] = mode;
+  localStorage.setItem(key, JSON.stringify(saved));
+  if (activeRouteDay) clearDayRoute();
+  renderDayAgenda();
+  setStatus("Verkehrsmittel für diesen Stopp gespeichert. Tagesroute bitte neu berechnen.");
+}
+async function computeDrivingSegment(from, to) {
+  const Route = await ensureRoutesLibrary();
+  const { routes } = await Route.computeRoutes({
+    origin: from.position, destination: to.position, travelMode: "DRIVING",
+    fields: ["path", "distanceMeters", "durationMillis"]
+  });
+  if (!routes?.[0]) throw new Error("Keine Autoroute für " + to.name + " gefunden.");
+  return routes[0];
+}
 function dayRouteMode() {
   const mode=getMobilityMode();
-  return mode==="transit" ? "transit" : mode==="auto" ? "auto" : "walking";
+  return mode==="transit" ? "transit" : "auto";
 }
 
 async function computeWalkingSegment(from,to) {
@@ -4788,17 +4816,31 @@ async function computeWalkingSegment(from,to) {
 }
 
 async function computeAutomaticDaySegments(routeStops) {
-  const segments=[];
-  for(let i=0;i<routeStops.length-1;i++){
-    const from=routeStops[i],to=routeStops[i+1];
-    const walking=await computeWalkingSegment(from,to);
-    let transit=null;
-    try { transit=(await computeTransitDaySegments([from,to]))[0]||null; } catch(error) { console.warn("Automatik ÖPNV:",error); }
-    const walkMinutes=walking?.durationMillis ? Math.round(walking.durationMillis/60000) : Infinity;
-    const transitMinutes=transit?.durationMillis ? Math.round(transit.durationMillis/60000) : Infinity;
-    // Transit only wins with a meaningful advantage; otherwise walking is simpler.
-    const useTransit=Number.isFinite(transitMinutes) && (!Number.isFinite(walkMinutes) || transitMinutes+5<walkMinutes);
-    segments.push({route:useTransit?transit:walking,mode:useTransit?"transit":"walking",walkMinutes,transitMinutes});
+  const segments = [];
+  for (let i = 0; i < routeStops.length - 1; i++) {
+    const from = routeStops[i], to = routeStops[i + 1];
+    const selected = stopTravelMode(to);
+    if (selected === "car") {
+      const route = await computeDrivingSegment(from, to);
+      segments.push({ route, mode: "car" });
+      continue;
+    }
+    if (selected === "walk") {
+      segments.push({ route: await computeWalkingSegment(from, to), mode: "walking" });
+      continue;
+    }
+    if (selected === "transit") {
+      segments.push({ route: (await computeTransitDaySegments([from, to]))[0], mode: "transit" });
+      continue;
+    }
+    const walking = await computeWalkingSegment(from, to);
+    let transit = null;
+    try { transit = (await computeTransitDaySegments([from, to]))[0] || null; }
+    catch (error) { console.warn("Automatik ÖPNV:", error); }
+    const walkMinutes = walking?.durationMillis ? Math.round(walking.durationMillis / 60000) : Infinity;
+    const transitMinutes = transit?.durationMillis ? Math.round(transit.durationMillis / 60000) : Infinity;
+    const useTransit = Number.isFinite(transitMinutes) && (!Number.isFinite(walkMinutes) || transitMinutes + 5 < walkMinutes);
+    segments.push({ route: useTransit ? transit : walking, mode: useTransit ? "transit" : "walking", walkMinutes, transitMinutes });
   }
   return segments;
 }
@@ -4924,15 +4966,15 @@ async function showDayRoute(dayId = selectedDayFilter) {
         minutes: Math.round((Number(segment.route?.durationMillis) || 0) / 60000)
       })) };
       const bounds=new google.maps.LatLngBounds();
-      let totalDistance=0,totalDuration=0,walkCount=0,transitCount=0;
+      let totalDistance=0,totalDuration=0,walkCount=0,transitCount=0,carCount=0;
       for(const segment of segments){
         const route=segment.route;
         if(!route) continue;
         totalDistance+=Number(route.distanceMeters)||0;
         totalDuration+=Number(route.durationMillis)||0;
-        if(segment.mode==="transit") transitCount++; else walkCount++;
+        if(segment.mode==="transit") transitCount++; else if(segment.mode==="car") carCount++; else walkCount++;
         const polylines=route.createPolylines({polylineOptions:{
-          strokeColor:segment.mode==="transit"?"#0f766e":"#6b7280",
+          strokeColor:segment.mode==="car"?"#2563eb":segment.mode==="transit"?"#0f766e":"#6b7280",
           strokeOpacity:.95,
           strokeWeight:segment.mode==="transit"?7:5,
           zIndex:segment.mode==="transit"?11:10
@@ -4941,9 +4983,9 @@ async function showDayRoute(dayId = selectedDayFilter) {
         (route.path||[]).forEach(point=>bounds.extend(point));
       }
       activeRouteDay=dayId;
-      activeRouteSummary={distanceMeters:totalDistance,durationMillis:totalDuration,placeCount:routeStops.length,mode:"auto",walkCount,transitCount};
+      activeRouteSummary={distanceMeters:totalDistance,durationMillis:totalDuration,placeCount:routeStops.length,mode:"auto",walkCount,transitCount,carCount};
       if(!bounds.isEmpty()) map.fitBounds(bounds,70);
-      setStatus(`✨ Automatische Route für ${day.label}: ca. ${formatRouteDuration(totalDuration)} · 🚶 ${walkCount} Fußabschnitt(e) · 🚇 ${transitCount} ÖPNV-Abschnitt(e).`);
+      setStatus(`✨ Automatische Route für ${day.label}: ca. ${formatRouteDuration(totalDuration)} · 🚶 ${walkCount} Fußabschnitt(e) · 🚇 ${transitCount} ÖPNV-Abschnitt(e) · 🚗 ${carCount} Auto-Abschnitt(e).`);
     } else if(mode==="transit"){
       setStatus(`ÖPNV-Route für ${day.label} wird berechnet …`);
       const routes=await computeTransitDaySegments(routeStops);
@@ -7016,9 +7058,13 @@ function dbTransitStatusHtml(step) {
 
 function mobilityLegHtml(from, to, walkingLeg) {
   if (!from?.position || !to?.position || !walkingLeg) return "";
-  const mode=getMobilityMode();
+  const selectedMode = stopTravelMode(to);
+  const options = [["auto","✨ Automatisch"],["walk","🚶 Zu Fuß"],["transit","🚇 ÖPNV"],["car","🚗 Auto"]];
+  const modeSelect = `<label class="stop-mode-label">Anreise zu ${escapeHtml(to.name)} <select class="route-start-select" data-stop-travel-mode="${escapeHtml(to.id)}" aria-label="Verkehrsmittel zu ${escapeHtml(to.name)}">${options.map(([value,label]) => `<option value="${value}" ${selectedMode===value?"selected":""}>${label}</option>`).join("")}</select></label>`;
+  const mode = selectedMode === "auto" ? getMobilityMode() : selectedMode;
+  if (mode === "car") return `<div class="agenda-leg mobility-leg"><span>🚗</span><span>Autoroute zu ${escapeHtml(to.name)} – nach Routenberechnung</span>${modeSelect}</div>`;
   const walkText=`🚶 ca. ${formatRouteDistance(walkingLeg.distanceMeters)} · ${walkingLeg.minutes} Min.`;
-  if (mode==="walk") return `<div class="agenda-leg"><span>🚶</span><span>ca. ${escapeHtml(formatRouteDistance(walkingLeg.distanceMeters))} · ${walkingLeg.minutes} Min. zum nächsten Punkt</span></div>`;
+  if (mode==="walk") return `<div class="agenda-leg"><span>🚶</span><span>ca. ${escapeHtml(formatRouteDistance(walkingLeg.distanceMeters))} · ${walkingLeg.minutes} Min. zum nächsten Punkt</span>${modeSelect}</div>`;
 
   const key=`${from.position.lat},${from.position.lng}|${to.position.lat},${to.position.lng}`;
   const cached=transitLegCache.get(key);
@@ -7041,7 +7087,7 @@ function mobilityLegHtml(from, to, walkingLeg) {
   const transitText=transitMinutes ? `🚇 ca. ${transitMinutes} Min.` : "🚇 ÖPNV";
   const primary=recommendedTransit?transitText:walkText;
   const secondary=recommendedTransit?walkText:transitText;
-  return `<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${transitError}${warning}${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}${updatedText}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
+  return `${modeSelect}<details class="agenda-leg mobility-leg ${recommendedTransit?"transit-recommended":""}"><summary><span>${recommendedTransit?"🚇":"🚶"}</span><span><strong>${escapeHtml(primary.replace(/^[🚇🚶] /u,""))}</strong><small>${escapeHtml(secondary)}${recommendedTransit&&transitMinutes?" · ÖPNV empfohlen":""}</small></span><span class="mobility-expand">Details</span></summary><div class="mobility-details">${transitError}${warning}${steps || '<div class="transit-step muted">Linien- und Haltestellendetails sind für diese Verbindung noch nicht verfügbar.</div>'}${updatedText}<a href="${escapeHtml(googleMapsTransitUrl(from,to))}" target="_blank" rel="noopener noreferrer">🚇 Aktuelle Verbindung in Google Maps öffnen</a></div></details>`;
 }
 
 async function loadTransitLegsForDay(dayId) {
@@ -8593,6 +8639,7 @@ function renderDayAgenda() {
   container.innerHTML = `${header}${accommodationHtml}${startTransferHtml}<div class="agenda-timeline">${rows}</div>${endTransferLegHtml}${endTransferHtml}<div class="agenda-estimate-note">🚶 Gehzeiten sind kompakte Schätzungen. 🚇 ÖPNV zeigt online Linien, Haltestellen und Fahrzeiten aus Google Routes; Google Maps liefert die aktuelle Live-Verbindung.</div>`;
   document.getElementById("addActivityAgendaBtn")?.addEventListener("click", () => openActivityDialog());
   document.getElementById("refreshTransitAgendaBtn")?.addEventListener("click", () => refreshTransitForDay(selectedDay.id));
+  container.querySelectorAll("[data-stop-travel-mode]").forEach(select => select.addEventListener("change", event => saveStopTravelMode(event.target.dataset.stopTravelMode, event.target.value)));
   ensureTransitRefreshTimer();
   container.querySelector("[data-accommodation-focus]")?.addEventListener("click", () => {
     const place = getAccommodationPlace();
@@ -8976,7 +9023,7 @@ function initReadmePanel() {
     if (!details.open || loaded) return;
     content.textContent = "README wird geladen …";
     try {
-      const response = await fetch("./README.md?v=2.7.0", { cache: "no-cache" });
+      const response = await fetch("./README.md?v=2.8.0", { cache: "no-cache" });
       if (!response.ok) throw new Error("HTTP " + response.status);
       content.textContent = await response.text();
       loaded = true;
