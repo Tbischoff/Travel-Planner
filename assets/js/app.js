@@ -1,5 +1,5 @@
 
-const APP_VERSION = "v2.8.0";
+const APP_VERSION = "v2.8.1";
 
 
 function syncVersionLabels() {
@@ -4773,6 +4773,10 @@ async function prepareOfflineRoutes() {
   }
 }
 
+const computedDrivingLegs = new Map();
+function drivingLegKey(from, to) {
+  return [from?.position?.lat, from?.position?.lng, to?.position?.lat, to?.position?.lng].join("|");
+}
 function stopTravelModeStorageKey() { return tripScopedStorageKey("stopTravelModesV2"); }
 function stopTravelMode(stop) {
   const key = stopTravelModeStorageKey();
@@ -4790,6 +4794,12 @@ function saveStopTravelMode(stopId, mode) {
   localStorage.setItem(key, JSON.stringify(saved));
   if (activeRouteDay) clearDayRoute();
   renderDayAgenda();
+  if (mode === "car") {
+    const stops = getAgendaMobilityStopsForDay(selectedDayFilter);
+    const i = stops.findIndex(stop => String(stop.id) === String(stopId));
+    if (i > 0 && navigator.onLine !== false) computeDrivingSegment(stops[i-1], stops[i])
+      .then(() => renderDayAgenda()).catch(error => setStatus("Autoroute nicht verfügbar: " + error.message));
+  }
   setStatus("Verkehrsmittel für diesen Stopp gespeichert. Tagesroute bitte neu berechnen.");
 }
 async function computeDrivingSegment(from, to) {
@@ -4799,6 +4809,7 @@ async function computeDrivingSegment(from, to) {
     fields: ["path", "distanceMeters", "durationMillis"]
   });
   if (!routes?.[0]) throw new Error("Keine Autoroute für " + to.name + " gefunden.");
+  computedDrivingLegs.set(drivingLegKey(from, to), { distanceMeters: routes[0].distanceMeters, durationMillis: routes[0].durationMillis });
   return routes[0];
 }
 function dayRouteMode() {
@@ -4983,6 +4994,7 @@ async function showDayRoute(dayId = selectedDayFilter) {
         (route.path||[]).forEach(point=>bounds.extend(point));
       }
       activeRouteDay=dayId;
+      renderDayAgenda();
       activeRouteSummary={distanceMeters:totalDistance,durationMillis:totalDuration,placeCount:routeStops.length,mode:"auto",walkCount,transitCount,carCount};
       if(!bounds.isEmpty()) map.fitBounds(bounds,70);
       setStatus(`✨ Automatische Route für ${day.label}: ca. ${formatRouteDuration(totalDuration)} · 🚶 ${walkCount} Fußabschnitt(e) · 🚇 ${transitCount} ÖPNV-Abschnitt(e) · 🚗 ${carCount} Auto-Abschnitt(e).`);
@@ -7060,9 +7072,13 @@ function mobilityLegHtml(from, to, walkingLeg) {
   if (!from?.position || !to?.position || !walkingLeg) return "";
   const selectedMode = stopTravelMode(to);
   const options = [["auto","✨ Automatisch"],["walk","🚶 Zu Fuß"],["transit","🚇 ÖPNV"],["car","🚗 Auto"]];
-  const modeSelect = `<label class="stop-mode-label">Anreise zu ${escapeHtml(to.name)} <select class="route-start-select" data-stop-travel-mode="${escapeHtml(to.id)}" aria-label="Verkehrsmittel zu ${escapeHtml(to.name)}">${options.map(([value,label]) => `<option value="${value}" ${selectedMode===value?"selected":""}>${label}</option>`).join("")}</select></label>`;
+  const modeSelect = `<label class="stop-mode-label"><span>Verkehrsmittel zum nächsten Stopp</span><select class="route-start-select" data-stop-travel-mode="${escapeHtml(to.id)}" aria-label="Verkehrsmittel zu ${escapeHtml(to.name)}">${options.map(([value,label]) => `<option value="${value}" ${selectedMode===value?"selected":""}>${label}</option>`).join("")}</select></label>`;
   const mode = selectedMode === "auto" ? getMobilityMode() : selectedMode;
-  if (mode === "car") return `<div class="agenda-leg mobility-leg"><span>🚗</span><span>Autoroute zu ${escapeHtml(to.name)} – nach Routenberechnung</span>${modeSelect}</div>`;
+  if (mode === "car") {
+    const driving = computedDrivingLegs.get(drivingLegKey(from, to));
+    const detail = driving ? `${formatRouteDistance(driving.distanceMeters)} · ${formatRouteDuration(driving.durationMillis)}` : "Fahrstrecke wird berechnet …";
+    return `<div class="agenda-leg mobility-leg car-leg"><span>🚗</span><span>Auto: ${escapeHtml(detail)}</span>${modeSelect}</div>`;
+  }
   const walkText=`🚶 ca. ${formatRouteDistance(walkingLeg.distanceMeters)} · ${walkingLeg.minutes} Min.`;
   if (mode==="walk") return `<div class="agenda-leg"><span>🚶</span><span>ca. ${escapeHtml(formatRouteDistance(walkingLeg.distanceMeters))} · ${walkingLeg.minutes} Min. zum nächsten Punkt</span>${modeSelect}</div>`;
 
@@ -8631,9 +8647,11 @@ function renderDayAgenda() {
     const saved = state.places[place.id] || {};
     const time = [stop.plannedStartTime, stop.plannedEndTime].filter(Boolean).join("–");
     const distance = userPosition ? distanceToPlace(place) : null;
+    const priorStop = index > 0 ? stops[index - 1] : (agendaStart || null);
+    const drivingDistance = priorStop && stopTravelMode(stop) === "car" ? computedDrivingLegs.get(drivingLegKey(priorStop, stop)) : null;
     const opening = plannedOpeningStatus(place, selectedDay.id, stop.plannedStartTime);
     const openingHtml = opening ? `<div class="agenda-opening-status ${opening.kind}" title="${escapeHtml(opening.detail)}">${escapeHtml(opening.label)}</div>` : "";
-    return `<div class="agenda-place-wrap" data-agenda-key="place:${escapeHtml(place.id)}"><div class="agenda-timeline-row"><div class="agenda-time-column"><div class="agenda-time ${time ? "" : "agenda-time-open"}">${time ? escapeHtml(time) : "offen"}</div><div class="agenda-timeline-dot ${saved.visited ? "visited" : ""}">${saved.visited ? "✓" : index + 1}</div>${index < stops.length - 1 ? '<div class="agenda-timeline-line"></div>' : ""}</div><div class="agenda-content-column"><div class="agenda-item ${saved.visited ? "agenda-item-visited" : ""}" data-place-id="${place.id}"><button type="button" class="agenda-drag-handle" aria-label="${escapeHtml(place.name)} verschieben">⋮⋮</button><div class="agenda-main"><div class="agenda-title">${CATEGORY_ICONS[place.category] || "•"} ${escapeHtml(place.name)}</div><div class="agenda-meta">${escapeHtml(categoryLabel(place.category))}${distance != null ? ` · 📍 ${escapeHtml(formatDistance(distance))} entfernt` : ""}${saved.visited ? " · ✓ besucht" : ""}</div>${openingHtml}${stopWeatherHtml}</div><button type="button" class="agenda-visited-button ${saved.visited ? "visited" : ""}" data-action="toggle-visited" data-place-id="${place.id}">${saved.visited ? "✓" : "○"}</button></div>${legHtml}</div></div></div>`;
+    return `<div class="agenda-place-wrap" data-agenda-key="place:${escapeHtml(place.id)}"><div class="agenda-timeline-row"><div class="agenda-time-column"><div class="agenda-time ${time ? "" : "agenda-time-open"}">${time ? escapeHtml(time) : "offen"}</div><div class="agenda-timeline-dot ${saved.visited ? "visited" : ""}">${saved.visited ? "✓" : index + 1}</div>${index < stops.length - 1 ? '<div class="agenda-timeline-line"></div>' : ""}</div><div class="agenda-content-column"><div class="agenda-item ${saved.visited ? "agenda-item-visited" : ""}" data-place-id="${place.id}"><button type="button" class="agenda-drag-handle" aria-label="${escapeHtml(place.name)} verschieben">⋮⋮</button><div class="agenda-main"><div class="agenda-title">${CATEGORY_ICONS[place.category] || "•"} ${escapeHtml(place.name)}</div><div class="agenda-meta">${escapeHtml(categoryLabel(place.category))}${distance != null ? ` · 📍 ${escapeHtml(formatDistance(distance))} Luftlinie vom Standort` : ""}${drivingDistance ? ` · 🚗 ${escapeHtml(formatRouteDistance(drivingDistance.distanceMeters))} Fahrstrecke vom vorherigen Stopp` : ""}${saved.visited ? " · ✓ besucht" : ""}</div>${openingHtml}${stopWeatherHtml}</div><button type="button" class="agenda-visited-button ${saved.visited ? "visited" : ""}" data-action="toggle-visited" data-place-id="${place.id}">${saved.visited ? "✓" : "○"}</button></div>${legHtml}</div></div></div>`;
   }).join("");
 
   container.innerHTML = `${header}${accommodationHtml}${startTransferHtml}<div class="agenda-timeline">${rows}</div>${endTransferLegHtml}${endTransferHtml}<div class="agenda-estimate-note">🚶 Gehzeiten sind kompakte Schätzungen. 🚇 ÖPNV zeigt online Linien, Haltestellen und Fahrzeiten aus Google Routes; Google Maps liefert die aktuelle Live-Verbindung.</div>`;
