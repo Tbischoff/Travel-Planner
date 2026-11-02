@@ -4629,3 +4629,12 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
   .top-actions.map-toolbar > #destinationBtn { border:0 !important; }
 }
 
+
+/* v2.8.1: leg-specific transport selection must remain usable on mobile */
+.stop-mode-label { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; width:100%; min-width:0; font-size:13px; line-height:1.4; }
+.stop-mode-label > span { flex:1 1 155px; min-width:0; }
+.stop-mode-label select { flex:0 1 175px; min-width:130px; max-width:100%; width:auto; }
+.agenda-leg.car-leg { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.agenda-leg.car-leg > span:nth-child(2) { flex:1 1 150px; min-width:0; }
+.agenda-leg.car-leg .stop-mode-label { flex:1 0 100%; }
+@media(max-width:600px){.stop-mode-label{align-items:stretch;flex-direction:column}.stop-mode-label select{width:100%;min-width:0;flex:0 0 auto}.agenda-leg.car-leg{min-width:0}}
