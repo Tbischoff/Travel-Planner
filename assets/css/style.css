@@ -4638,3 +4638,11 @@ body[data-trip-role="viewer"] [data-action="delete-place"] {
 .agenda-leg.car-leg > span:nth-child(2) { flex:1 1 150px; min-width:0; }
 .agenda-leg.car-leg .stop-mode-label { flex:1 0 100%; }
 @media(max-width:600px){.stop-mode-label{align-items:stretch;flex-direction:column}.stop-mode-label select{width:100%;min-width:0;flex:0 0 auto}.agenda-leg.car-leg{min-width:0}}
+
+/* v2.8.2: avoid flex-basis reserving vertical space in stacked mobile transport selector */
+@media (max-width:600px) {
+  .stop-mode-label > span { flex:0 0 auto; width:100%; }
+  .stop-mode-label { gap:8px; }
+  .stop-mode-label select { flex:0 0 auto; height:auto; min-height:38px; }
+  .agenda-leg.car-leg .stop-mode-label { flex:0 0 100%; }
+}
