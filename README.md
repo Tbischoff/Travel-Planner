@@ -1,3 +1,9 @@
+## v2.8.0 – Auto als Verkehrsart pro Tagesstopp (02.11.2026)
+- In der Tagesagenda lässt sich die Anreise zum jeweiligen Stopp individuell auf Automatisch, Fuß, ÖPNV oder Auto einstellen.
+- Die automatische Tagesroute berücksichtigt diese Auswahl und berechnet Autoabschnitte mit Google Routes DRIVING.
+- Autoabschnitte erscheinen blau in der Karte; die Auswahl wird lokal pro Reise und Stopp gespeichert.
+- Einschränkungen: Synchronisierung der Verkehrsmittelwahl zwischen Geräten, vollständige Offline-Mischrouten und Parkplatzfunktion folgen in separaten Schritten.
+
 ## v2.7.0 – Wappen offline vorbereiten und Diagnose entfernen (01.11.2026)
 - Die erfolgreiche Wappen-Diagnose wurde aus Mehr entfernt.
 - Die reguläre Offline-Vorbereitung speichert das Wappenbild und die zugehörige Commons-Adresse reisbezogen.
