@@ -1,3 +1,9 @@
+## v2.8.1 – Korrektur der Autorouten-Anzeige
+- Auswahl der Verkehrsart auf Mobilgeräten wieder in voller Breite bedienbar.
+- Autofahrstrecke und Fahrzeit werden nach Google-Routes-Berechnung am Abschnitt angezeigt.
+- Standortentfernung ausdrücklich als Luftlinie gekennzeichnet, damit sie nicht mit der Fahrstrecke verwechselt wird.
+- CSS-/JS-Cacheversionen aktualisiert.
+
 ## v2.8.0 – Auto als Verkehrsart pro Tagesstopp (02.11.2026)
 - In der Tagesagenda lässt sich die Anreise zum jeweiligen Stopp individuell auf Automatisch, Fuß, ÖPNV oder Auto einstellen.
 - Die automatische Tagesroute berücksichtigt diese Auswahl und berechnet Autoabschnitte mit Google Routes DRIVING.
