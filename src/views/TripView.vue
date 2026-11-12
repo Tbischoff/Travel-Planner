@@ -3017,7 +3017,7 @@ onMounted(async () => {
           if (!offlineReady.value) void updateOfflineData()
           else void prepareOfflineDayRoutes(true).then(() => {
             const count = offlineRouteDayStatus.value.filter(day => day.ready).length
-            if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Fußroute(n) gespeichert')
+            if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Routenpaket(e) gespeichert (Fuß, Kombi, ÖPNV)')
           })
         } catch { /* Offline storage may be unavailable on this device */ }
       }
