@@ -3016,8 +3016,8 @@ onMounted(async () => {
           offlineReady.value = !!(await offlinePackage(currentTripId))
           if (!offlineReady.value) void updateOfflineData()
           else void prepareOfflineDayRoutes(true).then(() => {
-            const count = offlineRouteDayStatus.value.filter(day => day.ready).length
-            if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte und ' + count + ' Routenpaket(e) gespeichert (Fuß, Kombi, ÖPNV)')
+            const counts = offlineRouteModeCounts.value
+            if (offlineReady.value) showOfflineToast('Offline-Daten verfügbar · Karte · Fuß ' + counts.walking + ', Kombi ' + counts.auto + ', ÖPNV ' + counts.transit + ' Routen gespeichert')
           })
         } catch { /* Offline storage may be unavailable on this device */ }
       }
