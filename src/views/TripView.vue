@@ -869,13 +869,24 @@ function transitIcon(type?: string): string {
 
 
 type OfflineRouteSegment = { mode: 'walking' | 'transit'; coordinates: [number, number][] }
-type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[]; connections?: TransitConnection[] }
+type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[]; connections?: TransitConnection[]; planSignature?: string }
 function offlineRouteStorageKey(tripId: string) { return 'travel-planner-v3-offline-routes:' + tripId }
 function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
   try {
     const rows: unknown = JSON.parse(localStorage.getItem(offlineRouteStorageKey(tripId)) || '[]')
     return Array.isArray(rows) ? rows as OfflineRouteEntry[] : []
   } catch { return [] }
+}
+function offlinePlanSignature(day: string): string {
+  const dayId = tripDays.value.find(item => item.day_date === day)?.id
+  const stops = [
+    ...places.value.filter(place => place.category !== 'hotel' && place.planned_day === day)
+      .map(place => ({ id: 'place:' + place.id, order: place.planned_order ?? 999999, lat: Number(place.latitude), lng: Number(place.longitude), start: place.start_time, end: place.end_time })),
+    ...activities.value.filter(activity => activity.trip_day_id === dayId)
+      .map(activity => ({ id: 'activity:' + activity.id, order: activity.planned_order ?? 999999, lat: Number(activity.latitude), lng: Number(activity.longitude), start: activity.start_time, end: activity.end_time }))
+  ].filter(stop => Number.isFinite(stop.lat) && Number.isFinite(stop.lng))
+    .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+  return JSON.stringify(stops)
 }
 function extractOfflineTransitConnections(segments: ComputedRoute[], stopNames: string[]): TransitConnection[] {
   return segments.flatMap((segment, section) => (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
@@ -916,7 +927,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], 
   }
   try {
     const rows = loadOfflineRoutes(id).filter(row => row.day !== selectedDay.value || row.mode !== routeMode.value)
-    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), segments: savedSegments, metrics, connections })
+    rows.push({ day: selectedDay.value, mode: routeMode.value, savedAt: new Date().toISOString(), planSignature: offlinePlanSignature(selectedDay.value), segments: savedSegments, metrics, connections })
     localStorage.setItem(offlineRouteStorageKey(id), JSON.stringify(rows))
     offlineRoutesRevision.value++
   } catch { /* Storage full or disabled: online route remains usable */ }
@@ -925,6 +936,12 @@ const offlineRouteNotice = ref('')
 const offlineRoutesRevision = ref(0)
 const offlineRoutesBusy = ref(false)
 const offlineRoutesProgress = ref('')
+const staleOfflineRouteCount = computed(() => {
+  void offlineRoutesRevision.value
+  const id = trips.currentTrip?.id
+  if (!id) return 0
+  return loadOfflineRoutes(id).filter(row => row.planSignature !== offlinePlanSignature(row.day)).length
+})
 const offlineRouteModeCounts = computed(() => {
   void offlineRoutesRevision.value
   const rows = trips.currentTrip?.id ? loadOfflineRoutes(trips.currentTrip.id) : []
@@ -943,7 +960,7 @@ const offlineRouteDayStatus = computed(() => {
         .map(activity => ({ lat: activity.latitude, lng: activity.longitude }))
     ]
     const count = stops.filter(stop => stop.lat != null && stop.lng != null).length
-    const ready = saved.some(row => row.day === day.day_date && row.mode === 'walking' && row.segments.some(segment => segment.coordinates.length > 1))
+    const ready = saved.some(row => row.day === day.day_date && row.mode === 'walking' && row.planSignature === offlinePlanSignature(day.day_date) && row.segments.some(segment => segment.coordinates.length > 1))
     return { date: day.day_date, count, ready }
   })
 })
@@ -967,7 +984,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
         .sort((a, b) => a.order - b.order)
       if (stops.length < 2 || stops.length > 24) { skipped += 3; continue }
       for (const mode of ['walking', 'auto', 'transit'] as const) {
-        if (onlyMissing && loadOfflineRoutes(tripId).some(row => row.day === day.day_date && row.mode === mode && row.metrics?.length === stops.length - 1)) continue
+        if (onlyMissing && loadOfflineRoutes(tripId).some(row => row.day === day.day_date && row.mode === mode && row.planSignature === offlinePlanSignature(day.day_date) && row.metrics?.length === stops.length - 1)) continue
         offlineRoutesProgress.value = (mode === 'walking' ? 'Fuß' : mode === 'auto' ? 'Kombi' : 'ÖPNV') + '-Route für ' + day.day_date + ' wird vorbereitet …'
         try {
           const segments: OfflineRouteSegment[] = []
@@ -1016,7 +1033,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
             metrics.push({ mode: useTransit ? 'transit' : 'walking', distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0 })
           }
           const rows = loadOfflineRoutes(tripId).filter(row => row.day !== day.day_date || row.mode !== mode)
-          rows.push({ day: day.day_date, mode, savedAt: new Date().toISOString(), segments, metrics, connections })
+          rows.push({ day: day.day_date, mode, savedAt: new Date().toISOString(), planSignature: offlinePlanSignature(day.day_date), segments, metrics, connections })
           localStorage.setItem(offlineRouteStorageKey(tripId), JSON.stringify(rows))
           offlineRoutesRevision.value++
           savedCount++
@@ -1044,10 +1061,10 @@ function renderOfflineRoute(map: any) {
   if (!id) return
   const rows = loadOfflineRoutes(id)
   const selected = rows.find(row => row.day === selectedDay.value && row.mode === routeMode.value)
-  if (!selected) {
+  if (!selected || selected.planSignature !== offlinePlanSignature(selectedDay.value)) {
     transitConnections.value = []
     transitMetrics.value = []
-    offlineRouteNotice.value = 'Für ' + (routeMode.value === 'auto' ? 'Kombi' : routeMode.value === 'transit' ? 'ÖPNV' : 'Fuß') + ' ist an diesem Tag keine Offline-Route gespeichert. Bitte diese Route vorher online berechnen.'
+    offlineRouteNotice.value = selected ? 'Die gespeicherte Offline-Route ist nach einer Änderung der Tagesplanung veraltet. Bitte online aktualisieren.' : 'Für ' + (routeMode.value === 'auto' ? 'Kombi' : routeMode.value === 'transit' ? 'ÖPNV' : 'Fuß') + ' ist an diesem Tag keine Offline-Route gespeichert. Bitte diese Route vorher online berechnen.'
     return
   }
   transitConnections.value = selected.connections || []
@@ -1483,6 +1500,7 @@ async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
         stop.planned_order = i + 1
       }
     }
+    offlineRoutesRevision.value++
     refreshMarkerAppearances()
     await refreshActivityMarkers()
   } catch (cause) {
@@ -3233,6 +3251,7 @@ onUnmounted(() => {
             <strong>🗺️ Offline-Karte</strong>
             <p class="muted">Erstellt ein Kartenpaket für die Reise und speichert es auf diesem Gerät. Bei fehlender Internetverbindung wird die gespeicherte Karte automatisch angezeigt.</p>
             <p class="muted">{{ offlineReady ? '✓ Offline-Karte verfügbar' : '○ Offline-Karte noch nicht gespeichert' }} · Gespeicherte Routen: Fuß {{ offlineRouteModeCounts.walking }}, Kombi {{ offlineRouteModeCounts.auto }}, ÖPNV {{ offlineRouteModeCounts.transit }}</p>
+            <p v-if="staleOfflineRouteCount" class="trip-error" role="status">⚠ {{ staleOfflineRouteCount }} gespeicherte Offline-Route(n) sind nach Änderungen der Tagesplanung veraltet. Bitte aktualisieren.</p>
             <button type="button" class="place-sort-button" :disabled="offlineBusy || offlineRoutesBusy" @click="updateOfflineData">{{ offlineBusy || offlineRoutesBusy ? 'Offline-Daten werden vorbereitet …' : offlineReady ? 'Offline-Daten aktualisieren' : 'Offline-Daten vorbereiten' }}</button>
             <button v-if="offlineReady" type="button" class="place-sort-button" :disabled="offlineBusy" @click="removeOfflinePackage">Offline-Karte entfernen</button>
             <p v-if="offlineBusy || offlineRoutesBusy" role="status">{{ offlineRoutesBusy ? offlineRoutesProgress : offlineStatus }}</p>
