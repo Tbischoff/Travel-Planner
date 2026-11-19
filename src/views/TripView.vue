@@ -1416,6 +1416,7 @@ function onStopPointerDown(event: PointerEvent, id: string) {
   const row = handle.closest<HTMLElement>('.day-plan-stop')
   if (!row) return
   event.preventDefault()
+  removeStopPointerListeners()
   clearStopDrag()
   const rect = row.getBoundingClientRect()
   const ghost = row.cloneNode(true) as HTMLElement
@@ -1492,10 +1493,9 @@ async function onStopPointerMove(event: PointerEvent) {
 async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
   const drag = stopDrag
   if (!drag || drag.pointerId !== event.pointerId) return
+  const newOrder = dragOrder.value ? [...dragOrder.value] : null
   removeStopPointerListeners()
   clearStopDrag()
-  const newOrder = dragOrder.value
-  dragOrder.value = null
   if (cancelled || !newOrder || newOrder.every((id, i) => id === drag.original[i])) return
   const trip = trips.currentTrip
   const day = selectedDayRecord.value
