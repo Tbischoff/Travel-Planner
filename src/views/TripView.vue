@@ -942,6 +942,23 @@ const staleOfflineRouteCount = computed(() => {
   if (!id) return 0
   return loadOfflineRoutes(id).filter(row => row.planSignature !== offlinePlanSignature(row.day)).length
 })
+// Recalculate only outdated, already prepared routes after itinerary edits.
+let offlineRefreshTimer: ReturnType<typeof setTimeout> | null = null
+const offlinePlanningState = computed(() => JSON.stringify({
+  trip: trips.currentTrip?.id,
+  days: tripDays.value.map(day => [day.day_date, offlinePlanSignature(day.day_date)])
+}))
+watch(offlinePlanningState, () => {
+  if (offlineRefreshTimer) clearTimeout(offlineRefreshTimer)
+  offlineRefreshTimer = setTimeout(async () => {
+    offlineRefreshTimer = null
+    const id = trips.currentTrip?.id
+    if (!id || !navigator.onLine || offlineBusy.value || offlineRoutesBusy.value) return
+    const rows = loadOfflineRoutes(id)
+    if (!rows.some(row => row.planSignature !== offlinePlanSignature(row.day))) return
+    await prepareOfflineDayRoutes(true)
+  }, 1500)
+})
 const offlineRouteModeCounts = computed(() => {
   void offlineRoutesRevision.value
   const rows = trips.currentTrip?.id ? loadOfflineRoutes(trips.currentTrip.id) : []
