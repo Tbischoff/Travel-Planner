@@ -950,7 +950,7 @@ function transitIcon(type?: string): string {
 }
 
 
-type OfflineRouteSegment = { mode: 'walking' | 'transit'; coordinates: [number, number][] }
+type OfflineRouteSegment = { mode: 'walking' | 'transit' | 'driving'; coordinates: [number, number][] }
 type OfflineRouteEntry = { day: string; mode: string; savedAt: string; segments: OfflineRouteSegment[]; metrics?: RouteLegMetric[]; connections?: TransitConnection[]; planSignature?: string }
 function offlineRouteStorageKey(tripId: string) { return 'travel-planner-v3-offline-routes:' + tripId }
 function loadOfflineRoutes(tripId: string): OfflineRouteEntry[] {
@@ -1355,7 +1355,7 @@ async function showWalkingRoute() {
       if (requestId !== routeRequestId || !routeVisible.value) return
       const from = routePoints[index]!
       const to = routePoints[index + 1]!
-      const compute = async (travelMode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
+      const compute = async (travelMode: 'WALKING' | 'TRANSIT' | 'DRIVING'): Promise<ComputedRoute | null> => {
         const request: Record<string, unknown> = {
           origin: from, destination: to, travelMode,
           fields: travelMode === 'TRANSIT' ? ['path', 'distanceMeters', 'durationMillis', 'legs'] : ['path', 'distanceMeters', 'durationMillis'],
