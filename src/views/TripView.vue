@@ -3241,79 +3241,7 @@ onUnmounted(() => {
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
           </select>
         </div>
-        <p v-if="loading">Orte werden geladen …</p>
-        <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte gefunden.</p>
-        <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
-        </template>
-        <template v-if="activeTab === 'plan' || activeTab === 'today'">
-          <section v-if="selectedDayRecord" class="day-weather" aria-label="Wettervorhersage für den Reisetag">
-            <strong>Wetter am Reisetag</strong>
-            <p v-if="weatherLoading" class="muted">Wetter wird geladen …</p>
-            <p v-else-if="selectedDayWeather" class="day-weather__details"><span aria-hidden="true">{{ selectedDayWeather.icon }}</span> {{ selectedDayWeather.min ?? '–' }}–{{ selectedDayWeather.max ?? '–' }} °C · Regenwahrscheinlichkeit bis {{ selectedDayWeather.rain ?? '–' }} %</p>
-            <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
-          </section>
-
-          <section v-if="activeTab === 'today' && todayIsTripDay" class="today-nearby" aria-label="In meiner Nähe">
-            <div class="today-nearby__heading"><strong>📍 In meiner Nähe</strong><span>Spontane Optionen rund um deinen Standort</span></div>
-            <template v-if="!userLocation">
-              <p class="muted">Aktiviere deinen Standort, um nahe Orte zu entdecken.</p>
-              <button type="button" @click="requestUserLocation()">📍 Standort verwenden</button>
-              <p v-if="locationStatus" class="muted">{{ locationStatus }}</p>
-            </template>
-            <template v-else-if="nearbySuggestions.length">
-              <button v-for="item in nearbySuggestions" :key="item.place.id" type="button" class="today-nearby__item" @click="openNearbySuggestion(item.place)">
-                <span><strong>{{ item.place.name }}</strong><small>{{ item.status === 'open' ? '🟢 Geöffnet' : item.status === 'closed' ? '🔴 Geschlossen' : '⚪ Öffnungszeiten unbekannt' }} · {{ item.place.planned_day ? 'Heute geplant' : 'Spontane Option' }}</small></span>
-                <span>{{ item.distanceKm < 1 ? Math.round(item.distanceKm * 1000) + ' m' : item.distanceKm.toFixed(1).replace('.', ',') + ' km' }}<small>ca. {{ Math.max(1, Math.round(item.distanceKm * 1000 / 80)) }} Min. zu Fuß</small></span>
-              </button>
-            </template>
-            <p v-else class="muted">Keine unbesuchten Orte in der Nähe für diesen Reisetag verfügbar.</p>
-          </section>
-
-          <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
-          <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
-            <option value="unplanned">Noch offen</option>
-            <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
-          </select>
-        </div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-route-controls"><strong>Tagesroute</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
-        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-navigation-v3" aria-label="Tagesnavigation">
-          <strong>🧭 Tagesnavigation</strong>
-          <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
-          <template v-else>
-            <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
-            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ navigationManeuverDistance === null ? '' : legDistance(navigationManeuverDistance) + ' bis zum Manöver · ' }}{{ legDistance(navigationRemainingDistance ?? navigationDistance) }} verbleibend · {{ legDuration(navigationRemainingDuration ?? navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + (navigationRemainingDuration ?? navigationDuration)).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p><div v-if="navigationArrived" class="today-navigation-v3__arrival" role="status"><strong>📍 Ziel erreicht!</strong><p>{{ navigationTarget?.name }} ist erreicht.</p><button type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Navigation abschließen' : 'Weiter zum nächsten Stopp →' }}</button></div>
-          </template>
-          <div class="today-navigation-v3__actions">
-            <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
-            <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pausieren</button>
-            <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Fortsetzen</button>
-            <button v-if="navigationState !== 'idle'" type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">Nächster Stopp →</button>
-            <button v-if="navigationState !== 'idle'" type="button" @click="stopDayNavigationV3">■ Beenden</button>
-          </div>
-          <p v-if="navigationMessage" class="trip-error" role="status">{{ navigationMessage }}</p>
-        </section>
-        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-companion" aria-label="Tagesbegleiter">
-          <div class="today-companion__head"><strong>Was jetzt?</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} Orten besucht</span></div>
-          <template v-if="todayNextStop">
-            <button type="button" class="today-companion__next" @click="focusTodayStop(todayNextStop)">
-              <span>➤</span><span><strong>{{ todayNextStop.name }}</strong><small v-if="todayNextStop.start_time || todayNextStop.end_time">🕒 {{ todayNextStop.start_time || '–' }} – {{ todayNextStop.end_time || '–' }}</small><small v-if="stopWeather(todayNextStop)">{{ stopWeather(todayNextStop)?.icon }} {{ stopWeather(todayNextStop)?.temp }} °C</small></span>
-            </button>
-            <div class="today-companion__actions"><button type="button" @click="focusTodayStop(todayNextStop)">🗺️ Auf Karte</button><button v-if="todayNextStop.place" type="button" :disabled="visitedUpdating.includes(todayNextStop.place.id)" @click="toggleTodayVisited(todayNextStop.place)">✓ Als besucht markieren</button></div>
-          </template>
-          <p v-else class="muted">✓ Alle geplanten Stopps abgeschlossen.</p>
-          <div class="today-companion__timeline">
-            <div v-for="stop in dayStops" :key="stop.id" class="today-companion__item">
-              <button v-if="stop.place" type="button" class="today-companion__check" :disabled="visitedUpdating.includes(stop.place.id)" :aria-label="stop.place.visited ? stop.name + ' als offen markieren' : stop.name + ' als besucht markieren'" @click="toggleTodayVisited(stop.place)">{{ stop.place.visited ? '✓' : '○' }}</button>
-              <span v-else class="today-companion__check" aria-hidden="true">🎟️</span>
-              <button type="button" class="today-companion__stop" @click="focusTodayStop(stop)"><small>{{ stop.start_time || 'offen' }}</small><span :class="{ 'today-companion__visited': stop.place?.visited }">{{ stop.name }}</span></button>
-            </div>
-          </div>
-          <button type="button" class="today-companion__open-plan" @click="openTodayPlan">☷ Tagesplan öffnen</button>
-        </section>
-        <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
-        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
-        <details v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Routenabschnitte anzeigen</summary>
+        <details v-if="selectedDayRecord && activeTab === 'plan'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Streckeninformationen</summary>
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
             <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
@@ -3354,6 +3282,80 @@ onUnmounted(() => {
                   <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine gespeicherten Linien- oder Haltestellendetails verfügbar.</p><a v-if="!offlineVisible" :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
                 </div>
               </details>
+        <p v-if="loading">Orte werden geladen …</p>
+        <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte gefunden.</p>
+        <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
+        </template>
+        <template v-if="activeTab === 'plan' || activeTab === 'today'">
+          <section v-if="selectedDayRecord" class="day-weather" aria-label="Wettervorhersage für den Reisetag">
+            <strong>Wetter am Reisetag</strong>
+            <p v-if="weatherLoading" class="muted">Wetter wird geladen …</p>
+            <p v-else-if="selectedDayWeather" class="day-weather__details"><span aria-hidden="true">{{ selectedDayWeather.icon }}</span> {{ selectedDayWeather.min ?? '–' }}–{{ selectedDayWeather.max ?? '–' }} °C · Regenwahrscheinlichkeit bis {{ selectedDayWeather.rain ?? '–' }} %</p>
+            <p v-else class="muted">{{ weatherError || 'Für diesen Reisetag liegt noch keine Vorhersage vor (maximal 16 Tage im Voraus).' }}</p>
+          </section>
+
+          <section v-if="activeTab === 'today' && todayIsTripDay" class="today-nearby" aria-label="In meiner Nähe">
+            <div class="today-nearby__heading"><strong>📍 In meiner Nähe</strong><span>Spontane Optionen rund um deinen Standort</span></div>
+            <template v-if="!userLocation">
+              <p class="muted">Aktiviere deinen Standort, um nahe Orte zu entdecken.</p>
+              <button type="button" @click="requestUserLocation()">📍 Standort verwenden</button>
+              <p v-if="locationStatus" class="muted">{{ locationStatus }}</p>
+            </template>
+            <template v-else-if="nearbySuggestions.length">
+              <button v-for="item in nearbySuggestions" :key="item.place.id" type="button" class="today-nearby__item" @click="openNearbySuggestion(item.place)">
+                <span><strong>{{ item.place.name }}</strong><small>{{ item.status === 'open' ? '🟢 Geöffnet' : item.status === 'closed' ? '🔴 Geschlossen' : '⚪ Öffnungszeiten unbekannt' }} · {{ item.place.planned_day ? 'Heute geplant' : 'Spontane Option' }}</small></span>
+                <span>{{ item.distanceKm < 1 ? Math.round(item.distanceKm * 1000) + ' m' : item.distanceKm.toFixed(1).replace('.', ',') + ' km' }}<small>ca. {{ Math.max(1, Math.round(item.distanceKm * 1000 / 80)) }} Min. zu Fuß</small></span>
+              </button>
+            </template>
+            <p v-else class="muted">Keine unbesuchten Orte in der Nähe für diesen Reisetag verfügbar.</p>
+          </section>
+
+          <div v-if="activeTab === 'plan'" class="places-panel__toolbar">
+          <select v-model="selectedDay" aria-label="Orte nach Reisetag filtern">
+            <option value="unplanned">Noch offen</option>
+            <option v-for="day in tripDays" :key="day.id" :value="day.day_date">{{ new Date(day.day_date + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) }}</option>
+          </select>
+        </div>
+        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-day-navigation" aria-label="Reisetag wechseln"><button type="button" aria-label="Vorheriger Reisetag" title="Vorheriger Reisetag" :disabled="todayDayIndex <= 0" @click="moveTodayDay(-1)">‹</button><div><strong>Tag {{ todayDayIndex + 1 }} von {{ orderedTripDays.length }}</strong><span>{{ new Date(selectedDay + 'T12:00:00').toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' }) }}</span></div><button type="button" aria-label="Nächster Reisetag" title="Nächster Reisetag" :disabled="todayDayIndex < 0 || todayDayIndex >= orderedTripDays.length - 1" @click="moveTodayDay(1)">›</button></div>
+        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-navigation-v3" aria-label="Tagesnavigation">
+          <strong>🧭 Tagesnavigation</strong>
+          <p v-if="navigationState === 'idle'" class="muted">GPS-Begleitung für die geplanten Stopps. Die Abbiegeführung folgt in einem nächsten Schritt.</p>
+          <template v-else>
+            <p><strong>{{ navigationState === 'paused' ? 'Pausiert' : 'GPS aktiv' }}</strong><span v-if="navigationAccuracy !== null"> · Genauigkeit ca. {{ navigationAccuracy }} m</span></p>
+            <p v-if="navigationTarget">Nächstes Ziel: <strong>{{ navigationTarget.name }}</strong> ({{ navigationTargetIndex + 1 }} von {{ dayStops.length }})</p><p v-if="navigationDistance !== null && navigationDuration !== null">🧭 {{ navigationManeuverDistance === null ? '' : legDistance(navigationManeuverDistance) + ' bis zum Manöver · ' }}{{ legDistance(navigationRemainingDistance ?? navigationDistance) }} verbleibend · {{ legDuration(navigationRemainingDuration ?? navigationDuration) }} · Ankunft ca. {{ new Date(Date.now() + (navigationRemainingDuration ?? navigationDuration)).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</p><p v-if="navigationRouting" class="muted">Route zum nächsten Ziel wird berechnet …</p><div v-if="navigationArrived" class="today-navigation-v3__arrival" role="status"><strong>📍 Ziel erreicht!</strong><p>{{ navigationTarget?.name }} ist erreicht.</p><button type="button" @click="confirmNavigationArrivalV3">{{ navigationTargetIndex >= dayStops.length - 1 ? 'Navigation abschließen' : 'Weiter zum nächsten Stopp →' }}</button></div>
+          </template>
+          <div class="today-navigation-v3__actions">
+            <button v-if="navigationState === 'idle'" type="button" @click="startDayNavigationV3">▶ Navigation starten</button>
+            <button v-if="navigationState === 'active'" type="button" @click="pauseDayNavigationV3">⏸ Pausieren</button>
+            <button v-if="navigationState === 'paused'" type="button" @click="resumeDayNavigationV3">▶ Fortsetzen</button>
+            <button v-if="navigationState !== 'idle'" type="button" :disabled="navigationTargetIndex >= dayStops.length - 1" @click="nextNavigationStopV3">Nächster Stopp →</button>
+            <button v-if="navigationState !== 'idle'" type="button" @click="stopDayNavigationV3">■ Beenden</button>
+          </div>
+          <p v-if="navigationMessage" class="trip-error" role="status">{{ navigationMessage }}</p>
+        </section>
+        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-companion" aria-label="Tagesbegleiter">
+          <div class="today-companion__head"><strong>Was jetzt?</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} Orten besucht</span></div>
+          <template v-if="todayNextStop">
+            <button type="button" class="place-row today-companion__next" @click="focusTodayStop(todayNextStop)">
+              <span class="place-row__content"><span class="place-row__title"><strong>{{ todayNextStop.kind === 'activity' ? '🎟️ ' : '📍 ' }}{{ todayNextStop.name }}</strong></span><small class="place-row__meta" v-if="todayNextStop.start_time || todayNextStop.end_time">🕒 {{ todayNextStop.start_time || '–' }} – {{ todayNextStop.end_time || '–' }}</small><small class="place-row__meta" v-if="stopWeather(todayNextStop)">{{ stopWeather(todayNextStop)?.icon }} {{ stopWeather(todayNextStop)?.temp }} °C</small></span>
+              <span aria-hidden="true">›</span>
+            </button>
+            <div class="today-companion__actions"><button type="button" @click="focusTodayStop(todayNextStop)">🗺️ Auf Karte</button><button v-if="todayNextStop.place" type="button" :disabled="visitedUpdating.includes(todayNextStop.place.id)" @click="toggleTodayVisited(todayNextStop.place)">✓ Als besucht markieren</button></div>
+          </template>
+          <p v-else class="muted">✓ Alle geplanten Stopps abgeschlossen.</p>
+          <div class="today-companion__timeline">
+            <div v-for="stop in dayStops" :key="stop.id" class="today-companion__item">
+              <button v-if="stop.place" type="button" class="today-companion__check" :disabled="visitedUpdating.includes(stop.place.id)" :aria-label="stop.place.visited ? stop.name + ' als offen markieren' : stop.name + ' als besucht markieren'" @click="toggleTodayVisited(stop.place)">{{ stop.place.visited ? '✓' : '○' }}</button>
+              <span v-else class="today-companion__check" aria-hidden="true">🎟️</span>
+              <button type="button" class="today-companion__stop" @click="focusTodayStop(stop)"><small>{{ stop.start_time || 'offen' }}</small><span :class="{ 'today-companion__visited': stop.place?.visited }">{{ stop.name }}</span></button>
+            </div>
+          </div>
+          <button type="button" class="today-companion__open-plan" @click="openTodayPlan">☷ Tagesplan öffnen</button>
+        </section>
+        <div v-if="activeTab === 'plan' && todayIsTripDay" class="today-route-controls"><strong>🗺️ Tagesroute planen</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
+        <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
+        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+
             </div>
           </template>
         </details>
@@ -3890,7 +3892,7 @@ onUnmounted(() => {
 .today-companion{display:grid;gap:13px;margin:12px 0;padding:14px;border:1px solid #d8e3e0;border-radius:14px;background:#fff}
 .today-companion__head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .today-companion__head>span{font-size:12px;color:#64748b}
-.today-companion__next{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid #cbded7;border-radius:12px;background:#f2f9f6;padding:13px;color:inherit}
+.today-companion__next{width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0}
 .today-companion__next>span:last-child{display:grid;gap:4px;min-width:0}
 .today-companion__next small{color:#64748b}
 .today-companion__actions{display:flex;gap:8px;flex-wrap:wrap}
