@@ -1653,6 +1653,10 @@ function moveTodayDay(direction: -1 | 1) {
   const next = orderedTripDays.value[todayDayIndex.value + direction]
   if (next) selectedDay.value = next.day_date
 }
+function openTodayPlan() {
+  lastPlanDay = selectedDay.value
+  openWorkspaceTab('plan')
+}
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
   if (activeTab.value === 'plan' && tab !== 'plan') { removeStopPointerListeners(); clearStopDrag() }
@@ -3289,10 +3293,27 @@ onUnmounted(() => {
           </div>
           <p v-if="navigationMessage" class="trip-error" role="status">{{ navigationMessage }}</p>
         </section>
-        <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
+        <section v-if="activeTab === 'today' && todayIsTripDay" class="today-companion" aria-label="Tagesbegleiter">
+          <div class="today-companion__head"><strong>Was jetzt?</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} Orten besucht</span></div>
+          <template v-if="todayNextStop">
+            <button type="button" class="today-companion__next" @click="focusTodayStop(todayNextStop)">
+              <span>➤</span><span><strong>{{ todayNextStop.name }}</strong><small v-if="todayNextStop.start_time || todayNextStop.end_time">🕒 {{ todayNextStop.start_time || '–' }} – {{ todayNextStop.end_time || '–' }}</small><small v-if="stopWeather(todayNextStop)">{{ stopWeather(todayNextStop)?.icon }} {{ stopWeather(todayNextStop)?.temp }} °C</small></span>
+            </button>
+            <div class="today-companion__actions"><button type="button" @click="focusTodayStop(todayNextStop)">🗺️ Auf Karte</button><button v-if="todayNextStop.place" type="button" :disabled="visitedUpdating.includes(todayNextStop.place.id)" @click="toggleTodayVisited(todayNextStop.place)">✓ Als besucht markieren</button></div>
+          </template>
+          <p v-else class="muted">✓ Alle geplanten Stopps abgeschlossen.</p>
+          <div class="today-companion__timeline">
+            <div v-for="stop in dayStops" :key="stop.id" class="today-companion__item">
+              <button v-if="stop.place" type="button" class="today-companion__check" :disabled="visitedUpdating.includes(stop.place.id)" :aria-label="stop.place.visited ? stop.name + ' als offen markieren' : stop.name + ' als besucht markieren'" @click="toggleTodayVisited(stop.place)">{{ stop.place.visited ? '✓' : '○' }}</button>
+              <span v-else class="today-companion__check" aria-hidden="true">🎟️</span>
+              <button type="button" class="today-companion__stop" @click="focusTodayStop(stop)"><small>{{ stop.start_time || 'offen' }}</small><span :class="{ 'today-companion__visited': stop.place?.visited }">{{ stop.name }}</span></button>
+            </div>
+          </div>
+          <button type="button" class="today-companion__open-plan" @click="openTodayPlan">☷ Tagesplan öffnen</button>
+        </section>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
-        <div v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview">
+        <details v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Routenabschnitte anzeigen</summary>
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
             <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
@@ -3335,7 +3356,7 @@ onUnmounted(() => {
               </details>
             </div>
           </template>
-        </div>
+        </details>
 
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="activeTab === 'today' && !selectedDayRecord" class="muted">Für diese Reise sind noch keine Reisetage angelegt.</p>
@@ -3863,4 +3884,24 @@ onUnmounted(() => {
 .day-plan-stop__mobility select{display:block;width:100%;max-width:100%;box-sizing:border-box;border:1px solid #d4dce0;border-radius:11px;background:#fff;color:#334155;font:inherit;font-size:14px;padding:11px 12px;cursor:pointer;min-height:44px}
 .day-plan-stop__mobility select:disabled{opacity:.65}
 @media(max-width:600px){.day-plan-stop__mobility{padding-left:42px}}
+</style>
+
+<style scoped>
+.today-companion{display:grid;gap:13px;margin:12px 0;padding:14px;border:1px solid #d8e3e0;border-radius:14px;background:#fff}
+.today-companion__head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.today-companion__head>span{font-size:12px;color:#64748b}
+.today-companion__next{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid #cbded7;border-radius:12px;background:#f2f9f6;padding:13px;color:inherit}
+.today-companion__next>span:last-child{display:grid;gap:4px;min-width:0}
+.today-companion__next small{color:#64748b}
+.today-companion__actions{display:flex;gap:8px;flex-wrap:wrap}
+.today-companion__actions button{flex:1;min-width:0}
+.today-companion__timeline{display:grid;gap:5px}
+.today-companion__item{display:flex;align-items:center;gap:8px;min-width:0}
+.today-companion__check{flex:0 0 40px;min-height:40px;border-radius:10px}
+.today-companion__stop{display:flex;align-items:center;gap:10px;flex:1;min-width:0;text-align:left;background:transparent;border:0;color:inherit;padding:8px 0}
+.today-companion__stop small{flex:0 0 48px;color:#64748b}
+.today-companion__stop span{overflow-wrap:anywhere}
+.today-companion__visited{text-decoration:line-through;opacity:.6}
+.today-companion__open-plan{width:100%}
+.today-route-details>summary{cursor:pointer;font-weight:600;padding:5px 0}
 </style>
