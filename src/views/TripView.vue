@@ -705,6 +705,8 @@ function setStopTravelMode(stopId: string, mode: StopTravelMode) {
   const id = trips.currentTrip?.id
   if (!id || !trips.canEditContent) return
   stopTravelModes.value = { ...stopTravelModes.value, [stopId]: mode }
+  clearRouteCache()
+  if (routeVisible.value) { if (navigator.onLine && !offlineVisible.value) void showWalkingRoute(); else if (offlineMapInstance) renderOfflineRoute(offlineMapInstance) }
   try { localStorage.setItem(stopModeStorageKey(id),JSON.stringify(stopTravelModes.value)) }
   catch { dayPlanError.value = 'Verkehrsmittel konnte nicht lokal gespeichert werden.' }
 }
@@ -771,7 +773,7 @@ const transitChangeWarnings = ref<Record<number, string>>({})
 const routeError = ref('')
 const routeSummary = ref('')
 const transitConnections = ref<TransitConnection[]>([])
-type RouteLegMetric = { distanceMeters: number; durationMillis: number; mode: 'walking' | 'transit' }
+type RouteLegMetric = { distanceMeters: number; durationMillis: number; mode: 'walking' | 'transit' | 'driving' }
 const transitMetrics = ref<RouteLegMetric[]>([])
 function legDistance(meters: number): string { return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' }
 function legDuration(millis: number): string {
@@ -992,7 +994,7 @@ function saveOfflineRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], 
   const id = trips.currentTrip?.id
   if (!id || selectedDay.value === 'unplanned') return
   const savedSegments: OfflineRouteSegment[] = segments.map((segment, index) => ({
-    mode: (metrics[index]?.mode === 'transit' ? 'transit' : 'walking') as OfflineRouteSegment['mode'],
+    mode: (metrics[index]?.mode === 'transit' ? 'transit' : metrics[index]?.mode === 'driving' ? 'driving' : 'walking') as OfflineRouteSegment['mode'],
     coordinates: (segment.path || []).map(point => {
       const position = point as unknown as { lat: number | (() => number); lng: number | (() => number) }
       const lat = typeof position.lat === 'function' ? position.lat() : position.lat
@@ -1089,7 +1091,7 @@ async function prepareOfflineDayRoutes(onlyMissing = false) {
           const connections: TransitConnection[] = []
           for (let index = 0; index < stops.length - 1; index++) {
             const from = stops[index]!, to = stops[index + 1]!
-            const compute = async (travelMode: 'WALKING' | 'TRANSIT'): Promise<ComputedRoute | null> => {
+            const compute = async (travelMode: 'WALKING' | 'TRANSIT' | 'DRIVING'): Promise<ComputedRoute | null> => {
               const request: Record<string, unknown> = {
                 origin: { lat: from.lat, lng: from.lng },
                 destination: { lat: to.lat, lng: to.lng },
@@ -1173,7 +1175,7 @@ function renderOfflineRoute(map: any) {
     } })
     map.addLayer({ id: sourceId, type: 'line', source: sourceId,
       layout: { 'line-join': 'round', 'line-cap': 'round' },
-      paint: { 'line-color': segment.mode === 'transit' ? '#2563eb' : '#2f625d', 'line-width': 5, 'line-opacity': .95 }
+      paint: { 'line-color': segment.mode === 'transit' ? '#2563eb' : segment.mode === 'driving' ? '#d97706' : '#2f625d', 'line-width': 5, 'line-opacity': .95 }
     })
   }
   const points = selected.segments.flatMap(segment => segment.coordinates)
@@ -1188,7 +1190,7 @@ function renderOfflineRoute(map: any) {
 let routePolylines: RoutesPolyline[] = []
 let routeRequestId = 0
 let cachedRoute: { key: string; segments: ComputedRoute[]; metrics: RouteLegMetric[]; connections: TransitConnection[]; summary: string } | null = null
-function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
+function routeCacheKey(): string { return JSON.stringify({ trip: trips.currentTrip?.id, day: selectedDay.value, start: routeStart.value, end: routeEnd.value, mode: routeMode.value, travelModes: dayStops.value.map(stop => [stop.id,stopTravelMode(stop.id)]), stops: dayStops.value.map(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stopCoordinates(stop)]), hotelStart: dayHotel('start')?.id, hotelEnd: dayHotel('end')?.id, location: routeStart.value === 'location' || routeEnd.value === 'location' ? userLocation.value : null }) }
 function hideRouteDisplay() { routeRequestId++; routeVisible.value = false; routeBusy.value = false; clearRoutePolylines(); if (offlineVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance) }
 function clearRouteCache() { cachedRoute = null; transitMetrics.value = []; transitConnections.value = []; routeSummary.value = ''; transitLastUpdated.value = null; transitChangeWarnings.value = {}; transitRefreshNotice.value = '' }
 function getCachedRoute() { return cachedRoute }
@@ -1254,7 +1256,7 @@ function renderRoute(segments: ComputedRoute[], metrics: RouteLegMetric[], conne
   routeSummary.value = summary
   const bounds = new (getGoogleMaps().LatLngBounds)()
   for (const [index, segment] of segments.entries()) {
-    const lines = segment.createPolylines({ polylineOptions: { strokeColor: metrics[index]?.mode === 'transit' ? '#2563eb' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
+    const lines = segment.createPolylines({ polylineOptions: { strokeColor: metrics[index]?.mode === 'transit' ? '#2563eb' : metrics[index]?.mode === 'driving' ? '#d97706' : '#2f625d', strokeOpacity: 0.95, strokeWeight: 6, zIndex: 10 } })
     for (const line of lines) { line.setMap(map); routePolylines.push(line) }
     for (const point of segment.path || []) bounds.extend(point)
   }
@@ -1372,26 +1374,36 @@ async function showWalkingRoute() {
         const { routes } = await routesLibrary.Route!.computeRoutes(request)
         return routes?.[0] || null
       }
+      // The selector describes the journey TO a stop. A hotel/location start
+      // has no preceding day stop, so its first leg uses the global route mode.
+      const targetIndex = index + (routeStart.value === 'first' ? 1 : 0)
+      const override = targetIndex > 0 && targetIndex < dayStops.value.length
+        ? stopTravelMode(dayStops.value[targetIndex]!.id) : 'auto'
+      const legMode = override === 'car' ? 'driving' : override === 'walk' ? 'walking' : override === 'transit' ? 'transit' : mode
       let walking: ComputedRoute | null = null
       let transit: ComputedRoute | null = null
-      if (mode !== 'transit') {
-        try { walking = await compute('WALKING') } catch (cause) { if (mode === 'walking') throw cause }
-      }
-      if (mode !== 'walking') {
-        try { transit = await compute('TRANSIT') } catch (cause) { if (mode === 'transit') throw cause }
+      let driving: ComputedRoute | null = null
+      if (legMode === 'driving') driving = await compute('DRIVING')
+      else {
+        if (legMode !== 'transit') {
+          try { walking = await compute('WALKING') } catch (cause) { if (legMode === 'walking') throw cause }
+        }
+        if (legMode !== 'walking') {
+          try { transit = await compute('TRANSIT') } catch (cause) { if (legMode === 'transit') throw cause }
+        }
       }
       const walkMinutes = walking?.durationMillis != null ? walking.durationMillis / 60000 : Infinity
       const transitMinutes = transit?.durationMillis != null ? transit.durationMillis / 60000 : Infinity
-      const useTransit = mode === 'transit' || (mode === 'auto' && !!transit && (!walking || transitMinutes + 5 < walkMinutes))
-      const chosen = useTransit ? transit : walking
-      if (!chosen) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ' + (mode === 'walking' ? 'Fußroute' : mode === 'transit' ? 'ÖPNV-Verbindung' : 'Route') + ' gefunden.')
+      const useTransit = legMode === 'transit' || (legMode === 'auto' && !!transit && (!walking || transitMinutes + 5 < walkMinutes))
+      const chosen = legMode === 'driving' ? driving : useTransit ? transit : walking
+      if (!chosen) throw new Error('Für Abschnitt ' + (index + 1) + ' wurde keine ' + (legMode === 'driving' ? 'Autoroute' : legMode === 'walking' ? 'Fußroute' : legMode === 'transit' ? 'ÖPNV-Verbindung' : 'Route') + ' gefunden.')
       if (useTransit && expiredTransitRoute(chosen)) throw new Error('Die ermittelte ÖPNV-Verbindung ist bereits abgefahren. Bitte aktualisieren.')
       segments.push(chosen)
-      metrics.push({ distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: useTransit ? 'transit' : 'walking' })
+      metrics.push({ distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: legMode === 'driving' ? 'driving' : useTransit ? 'transit' : 'walking' })
     }
     if (requestId !== routeRequestId || !routeVisible.value || !map) return
     let connections: TransitConnection[] = []
-    if (mode !== 'walking') {
+    if (metrics.some(metric => metric.mode === 'transit')) {
       connections = segments.flatMap((segment, section) =>
         (segment.legs || []).flatMap(leg => (leg.steps || []).flatMap(step => {
           const details = step.transitDetails
@@ -1416,7 +1428,7 @@ async function showWalkingRoute() {
     }
     const distance = segments.reduce((sum, segment) => sum + (segment.distanceMeters || 0), 0)
     const duration = segments.reduce((sum, segment) => sum + (segment.durationMillis || 0), 0)
-    const summary = legDistance(distance) + ' · ' + legDuration(duration) + (mode === 'auto' ? ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length : '')
+    const summary = legDistance(distance) + ' · ' + legDuration(duration) + ' · 🚶 ' + metrics.filter(item => item.mode === 'walking').length + ' · 🚇 ' + metrics.filter(item => item.mode === 'transit').length + ' · 🚗 ' + metrics.filter(item => item.mode === 'driving').length
     cachedRoute = { key, segments, metrics, connections, summary }
     saveOfflineRoute(segments, metrics, connections)
     transitLastUpdated.value = new Date()
