@@ -686,6 +686,29 @@ const selectedDay = ref('unplanned')
 const dayPlanSaving = ref(false)
 const dayPlanError = ref('')
 const selectedDayRecord = computed(() => tripDays.value.find(day => day.day_date === selectedDay.value))
+type StopTravelMode = 'auto' | 'walk' | 'transit' | 'car'
+const stopTravelModes = ref<Record<string,StopTravelMode>>({})
+function stopModeStorageKey(tripId: string) { return 'travelPlanner:trip:' + tripId + ':stopTravelModesV2' }
+function loadStopTravelModes() {
+  const id = trips.currentTrip?.id
+  if (!id) { stopTravelModes.value = {}; return }
+  try {
+    const data = JSON.parse(localStorage.getItem(stopModeStorageKey(id)) || '{}')
+    stopTravelModes.value = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+  } catch { stopTravelModes.value = {} }
+}
+function stopTravelMode(stopId: string): StopTravelMode {
+  const mode = stopTravelModes.value[stopId]
+  return mode === 'walk' || mode === 'transit' || mode === 'car' ? mode : 'auto'
+}
+function setStopTravelMode(stopId: string, mode: StopTravelMode) {
+  const id = trips.currentTrip?.id
+  if (!id || !trips.canEditContent) return
+  stopTravelModes.value = { ...stopTravelModes.value, [stopId]: mode }
+  try { localStorage.setItem(stopModeStorageKey(id),JSON.stringify(stopTravelModes.value)) }
+  catch { dayPlanError.value = 'Verkehrsmittel konnte nicht lokal gespeichert werden.' }
+}
+watch(() => trips.currentTrip?.id, loadStopTravelModes, { immediate: true })
 type DayStop = { id: string; name: string; start_time: string | null; end_time: string | null; planned_order: number | null; kind: 'place' | 'activity'; place?: TripPlace; activity?: Activity }
 const dayStops = computed<DayStop[]>(() => {
   const ps: DayStop[] = places.value.filter(p => p.category !== 'hotel' && p.planned_day === selectedDay.value).map(p => ({ id: 'place:' + p.id, name: p.name, start_time: p.start_time, end_time: p.end_time, planned_order: p.planned_order, kind: 'place', place: p }))
@@ -3256,7 +3279,7 @@ onUnmounted(() => {
         </section>
         <div v-if="activeTab === 'today' && todayIsTripDay" class="today-summary"><strong>{{ todayCompletedCount }} von {{ dayStops.length }} Orten besucht</strong><p v-if="todayNextStop" class="muted">Nächster Stopp: {{ todayNextStop.name }}</p><p v-else class="muted">Alle geplanten Stopps abgeschlossen.</p><button v-if="todayNextStop" type="button" class="place-add-button" @click="focusTodayStop(todayNextStop)">➤ Nächsten Stopp anzeigen</button></div>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
-        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><div v-for="(stop, index) in renderedDayStops" :key="stop.id" class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><label v-if="index > 0" class="day-plan-stop__mobility" :title="'Anreise zu ' + stop.name"><span class="sr-only">Anreise zu {{ stop.name }}</span><select :value="stopTravelMode(stop.id)" :disabled="!trips.canEditContent" @change="setStopTravelMode(stop.id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">Automatisch</option><option value="walk">🚶 Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select></label><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <div v-if="selectedDayRecord && activeTab === 'today'" class="day-plan-preview">
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
@@ -3820,4 +3843,8 @@ onUnmounted(() => {
 .today-visited-toggle{flex-shrink:0;align-self:center;border:1px solid #aabdb6;border-radius:999px;padding:7px 10px;background:#fff;color:#335f52;font:inherit;font-size:.78rem;font-weight:650;cursor:pointer;min-height:36px;white-space:nowrap}
 .today-visited-toggle--active{background:#e0f2e9;border-color:#4d9778;color:#216345}
 .today-visited-toggle:disabled{opacity:.5;cursor:wait}
+</style>
+
+<style scoped>
+.day-plan-stop__mobility{display:flex;align-items:center;flex-shrink:0;min-width:0;margin-left:auto}.day-plan-stop__mobility select{max-width:126px;min-width:0;border:1px solid #d4dce0;border-radius:9px;background:#f5f7f8;color:#334155;font-size:12px;padding:7px 4px;cursor:pointer}.day-plan-stop__mobility select:disabled{opacity:.65}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
