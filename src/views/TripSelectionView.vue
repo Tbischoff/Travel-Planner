@@ -243,7 +243,7 @@ onUnmounted(clearTripDrag)
 <main class="trips-page"><section class="trips-shell">
 <header class="trips-header"><div><p class="auth-card__eyebrow">Travel Planner v3</p><h1>Meine Reisen</h1><p v-if="auth.user?.email">{{ auth.user.email }}</p></div>
 <div class="header-actions"><button @click="router.push('/account')" class="secondary-button">Konto</button><button @click="logout" class="secondary-button">Abmelden</button></div></header>
-<div class="trips-toolbar trip-toolbar-v3"><button class="trip-new-button" @click="openEditor()">＋ Neue Reise</button><div class="trip-sort-section"><span class="trip-sort-label">Sortierung</span><div class="trip-sort-controls"><button type="button" :aria-pressed="sortMode === 'date'" :class="{ 'trip-sort-active': sortMode === 'date' }" @click="setSortMode('date')">Datum</button><button type="button" :aria-pressed="sortMode === 'manual'" :class="{ 'trip-sort-active': sortMode === 'manual' }" @click="setSortMode('manual')">Manuell</button></div></div><p v-if="message" class="trip-sort-message">{{ message }}</p></div>
+<div class="trips-toolbar trip-toolbar-v3"><button class="trip-new-button" @click="openEditor()">＋ Neue Reise</button><div class="trip-sort-section"><span class="trip-sort-label">Sortierung</span><div class="trip-sort-controls"><button type="button" :aria-pressed="sortMode === 'date'" :class="{ 'trip-sort-active': sortMode === 'date' }" @click="setSortMode('date')">Datum</button><button type="button" :aria-pressed="sortMode === 'manual'" :class="{ 'trip-sort-active': sortMode === 'manual' }" @click="setSortMode('manual')">Manuell</button></div></div></div><p v-if="message" class="trip-sort-message" role="status">{{ message }}</p>
 <p v-if="sortMode === 'manual'" class="trip-sort-hint">Reihenfolge über ⋮⋮ ändern · wird automatisch gespeichert.</p>
 <section v-if="trips.loading" class="empty-card">Reisen werden geladen …</section>
 <section v-else-if="!sortedTrips.length && !loadFailed" class="empty-card">Noch keine Reisen vorhanden.</section>
@@ -269,7 +269,7 @@ onUnmounted(clearTripDrag)
 .trip-new-button{white-space:nowrap}
 .trip-sort-section{display:flex;align-items:center;gap:9px;min-width:0}
 .trip-sort-label{font-size:13px;color:#64748b}
-.trip-sort-message{flex-basis:100%;margin:0;font-size:13px}
+.trip-sort-message{display:block;width:100%;max-width:100%;box-sizing:border-box;margin:10px auto 4px;padding:0 12px;text-align:center;font-size:13px;line-height:1.5;color:#516477;overflow-wrap:anywhere}
 .trip-sort-controls{display:flex;gap:4px;flex-wrap:nowrap;padding:3px;background:#eef2f4;border-radius:11px}
 .trip-sort-controls button{border:0;background:transparent;color:#334155;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:14px;font-weight:600}
 .trip-sort-controls button.trip-sort-active{background:#173d37;color:white;border-color:#173d37}
