@@ -858,7 +858,7 @@ async function calculateIndependentLegs() {
         if (selected !== 'walk') { try { transit = await compute('TRANSIT') } catch { /* walking may still work */ } }
       }
       if (requestId !== independentLegRequest) return
-      const useTransit = selected === 'transit' || (selected === 'auto' && !!transit && (!walk || transit.durationMillis + 300000 < walk.durationMillis))
+      const useTransit = selected === 'transit' || (selected === 'auto' && !!transit && (!walk || (transit.durationMillis ?? Infinity) + 300000 < (walk.durationMillis ?? Infinity)))
       const chosen = selected === 'car' ? car : useTransit ? transit : walk
       if (!chosen) { independentLegErrors.value = { ...independentLegErrors.value, [target.id]: 'Keine Verbindung gefunden' }; continue }
       independentLegMetrics.value = { ...independentLegMetrics.value, [target.id]: { distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: selected === 'car' ? 'driving' : useTransit ? 'transit' : 'walking' } }
