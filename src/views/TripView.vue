@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { useRouter } from 'vue-router'
 import { openingStatus } from '../utils/openingStatus'
 import { cacheOfflineMapGlyphs } from '../utils/offlineMapGlyphs'
+import { cachedCrestUrl, lookupCrest, prepareCrest, readCrest, removeCrest } from '../utils/destinationCrest'
 import { supabase } from '../services/supabase/client'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useAuthStore } from '../stores/auth'
@@ -15,6 +16,46 @@ const auth = useAuthStore()
 const router = useRouter()
 const places = ref<TripPlace[]>([])
 const tripDays = ref<TripDay[]>([])
+const destinationCrestUrl = ref('')
+const destinationCountry = ref('')
+let crestRequestId = 0
+const crestMemory = new Map<string,string>()
+function countryFlag(country: string): string {
+  return /^[A-Z]{2}$/.test(country) ? String.fromCodePoint(...[...country].map(char => 127397 + char.charCodeAt(0))) : '📍'
+}
+async function refreshDestinationCrest() {
+  const trip = trips.currentTrip
+  if (!trip) return
+  const token = ++crestRequestId
+  const destination = (trip.destination || '').trim()
+  const saved = readCrest(trip.id)
+  destinationCountry.value = saved?.destination === destination ? saved.country : ''
+  destinationCrestUrl.value = cachedCrestUrl(trip.id,destination,destinationCountry.value) || ''
+  if (!navigator.onLine || !destination) return
+  try {
+    const geocoder = new (getGoogleMaps().Geocoder)() as unknown as {geocode:(request:{address:string})=>Promise<{results?:Array<{address_components?:Array<{types?:string[];short_name?:string}>}>}>}
+    const result = await geocoder.geocode({address:destination})
+    const country = result.results?.[0]?.address_components?.find(part => part.types?.includes('country'))?.short_name?.toUpperCase() || ''
+    if (token !== crestRequestId) return
+    destinationCountry.value = country
+    destinationCrestUrl.value = cachedCrestUrl(trip.id,destination,country) || ''
+    const key = destination.toLocaleLowerCase('de-DE') + '|' + country
+    let imageUrl = crestMemory.get(key)
+    if (!imageUrl) {
+      imageUrl = await lookupCrest(destination,country) || undefined
+      if (imageUrl) crestMemory.set(key,imageUrl)
+    }
+    if (token === crestRequestId && imageUrl) destinationCrestUrl.value = '/api/crest-image?url=' + encodeURIComponent(imageUrl)
+  } catch (error) { console.warn('Wappensuche fehlgeschlagen:',error) }
+}
+async function prepareDestinationCrest() {
+  const trip = trips.currentTrip
+  if (!trip || !navigator.onLine) return
+  try {
+    const url = await prepareCrest(trip.id,(trip.destination || '').trim(),destinationCountry.value)
+    if (url && trips.currentTrip?.id === trip.id) destinationCrestUrl.value = url
+  } catch (error) { console.warn('Offline-Wappen nicht verfügbar:',error) }
+}
 
 const backupImporting = ref(false)
 const backupImportError = ref('')
@@ -261,6 +302,8 @@ async function removeOfflinePackage() {
   offlineError.value = ''
   try {
     await offlinePackage(id, null)
+    await removeCrest(id)
+    destinationCrestUrl.value = ''
     offlineReady.value = false
     offlineStatus.value = 'Kartenpaket entfernt.'
   } catch (e) { offlineError.value = e instanceof Error ? e.message : 'Entfernen fehlgeschlagen.' }
@@ -319,6 +362,7 @@ async function updateOfflineData() {
   if (offlineBusy.value || offlineRoutesBusy.value || !navigator.onLine) return
   await prepareOfflinePackage()
   if (offlineError.value) return
+  await prepareDestinationCrest()
   await prepareOfflineDayRoutes()
   offlineStatus.value = offlineRoutesProgress.value
   const count = offlineRouteModeCounts.value
@@ -3070,6 +3114,7 @@ onMounted(async () => {
     await loadTryItems()
     await nextTick()
     await renderMap()
+    void refreshDestinationCrest()
     handleOfflineConnectivity()
     // Prepare a package once per device/trip; manual refresh remains in Werkzeuge.
     if (navigator.onLine && !offlineReady.value) {
@@ -3364,7 +3409,7 @@ onUnmounted(() => {
           <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>
         </button>
         <div v-if="navigationState === 'idle'" class="map-toolbar">
-          <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination">📍 {{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
+          <button type="button" :title="'Karte auf ' + (trips.currentTrip?.destination || 'Reiseziel') + ' zentrieren'" @click="centerOnDestination"><img v-if="destinationCrestUrl" :src="destinationCrestUrl" alt="" style="width:20px;height:20px;object-fit:contain;vertical-align:middle;margin-right:5px" @error="destinationCrestUrl = ''"><span v-else>{{ countryFlag(destinationCountry) }} </span>{{ trips.currentTrip?.destination || 'Reiseziel' }}</button>
           <button type="button" title="Alle Orte anzeigen" @click="showAllPlacesOnMap"><svg class="navigation-control-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="11" cy="18" r="2"/><path d="M7 6.5l9 1M17 10l-5 6M6 8l4 8"/></svg> Alle</button>
           <button type="button" class="map-toolbar__add" @click="openAddPlace">＋ Ort</button>
         </div>
