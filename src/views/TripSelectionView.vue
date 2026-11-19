@@ -249,7 +249,7 @@ onUnmounted(clearTripDrag)
 <section v-else-if="!sortedTrips.length && !loadFailed" class="empty-card">Noch keine Reisen vorhanden.</section>
 <section v-else class="trip-grid">
 <article v-for="trip in sortedTrips" :key="trip.id" class="trip-card" :data-trip-id="trip.id" :class="{ 'trip-card--dragging': draggingTripId === trip.id }">
-<button v-if="sortMode === 'manual'" type="button" class="trip-sort-handle" aria-label="Reise verschieben" :disabled="sortingBusy" @pointerdown="startTripDrag($event,trip.id)">⋮⋮</button>
+<button v-if="sortMode === 'manual'" type="button" class="trip-sort-handle" aria-label="Reise verschieben" :disabled="sortingBusy" @pointerdown="startTripDrag($event,trip.id)">⠿</button>
 <button class="trip-card-main" @click="openTrip(trip)"><strong>{{ trip.name }}</strong><span>{{ trip.destination }}</span><small>{{ dateRange(trip) }}</small><span class="badge">{{ roleLabel(trip.current_user_role) }}</span></button>
 <div class="trip-card-actions"><button class="secondary-button" @click="openMembers(trip)">Mitglieder</button><button v-if="trip.current_user_role === 'owner'" class="secondary-button" @click="openEditor(trip)">Bearbeiten</button><button v-if="trip.current_user_role === 'owner'" class="danger-button" @click="deleteTrip(trip)">Löschen</button><button v-else class="danger-button" @click="leave(trip)">Reise verlassen</button></div>
 </article></section>
@@ -275,8 +275,9 @@ onUnmounted(clearTripDrag)
 .trip-sort-controls button.trip-sort-active{background:#173d37;color:white;border-color:#173d37}
 .trip-sort-hint{margin:10px 0 14px;color:#64748b;font-size:13px;line-height:1.45}
 .trip-card{position:relative}
-.trip-sort-handle{position:absolute;z-index:2;top:14px;right:14px;touch-action:none;user-select:none;cursor:grab;padding:8px 10px;border:0;border-radius:10px;background:#eef2f4;color:#64748b;font-size:19px;line-height:1;box-shadow:none}
-.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:62px}
-@media(max-width:600px){.trip-toolbar-v3{padding:14px;gap:10px}.trip-sort-section{width:100%;justify-content:space-between}.trip-sort-label{font-size:12px}.trip-sort-controls{flex:1;max-width:240px}.trip-sort-controls button{flex:1;padding:9px 8px}.trip-new-button{width:100%;text-align:center}.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:52px}}
+.trip-sort-handle{position:absolute;z-index:2;top:50%;left:12px;right:auto;transform:translateY(-50%);touch-action:none;user-select:none;cursor:grab;display:flex;align-items:center;justify-content:center;width:34px;min-height:52px;padding:6px 4px;border:0;border-radius:10px;background:#eef2f4;color:#64748b;font-size:25px;line-height:1;box-shadow:none}
+.trip-card:has(.trip-sort-handle){padding-left:44px}
+.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:0}
+@media(max-width:600px){.trip-toolbar-v3{padding:14px;gap:10px}.trip-sort-section{width:100%;justify-content:space-between}.trip-sort-label{font-size:12px}.trip-sort-controls{flex:1;max-width:240px}.trip-sort-controls button{flex:1;padding:9px 8px}.trip-new-button{width:100%;text-align:center}.trip-card:has(.trip-sort-handle){padding-left:40px}.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:0}.trip-sort-handle{left:8px;width:30px}}
 .trip-card--dragging{opacity:.55;outline:2px dashed #b3c8c2;outline-offset:2px}
 </style>
