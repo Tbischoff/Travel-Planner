@@ -1400,12 +1400,23 @@ const renderedDayStops = computed(() => {
 })
 type StopDrag = { pointerId: number; sourceId: string; startY: number; ghost: HTMLElement | null; handle: HTMLElement; original: string[] }
 let stopDrag: StopDrag | null = null
+function clearStopDrag() {
+  const drag = stopDrag
+  stopDrag = null
+  dragOrder.value = null
+  if (drag) {
+    try { if (drag.handle.hasPointerCapture(drag.pointerId)) drag.handle.releasePointerCapture(drag.pointerId) } catch { /* Element may already be detached */ }
+    drag.ghost?.remove()
+  }
+  document.querySelectorAll('.day-plan-ghost').forEach(ghost => ghost.remove())
+}
 function onStopPointerDown(event: PointerEvent, id: string) {
   if (dayPlanSaving.value || (event.button !== undefined && event.button !== 0)) return
   const handle = event.currentTarget as HTMLElement
   const row = handle.closest<HTMLElement>('.day-plan-stop')
   if (!row) return
   event.preventDefault()
+  clearStopDrag()
   const rect = row.getBoundingClientRect()
   const ghost = row.cloneNode(true) as HTMLElement
   ghost.classList.add('day-plan-ghost')
@@ -1442,6 +1453,14 @@ function onStopPointerDown(event: PointerEvent, id: string) {
   dragOrder.value = [...original]
   stopDrag = { pointerId: event.pointerId, sourceId: id, startY: event.clientY, ghost, handle, original }
   handle.setPointerCapture(event.pointerId)
+  window.addEventListener('pointerup', onGlobalStopPointerUp, { once: true })
+  window.addEventListener('pointercancel', onGlobalStopPointerCancel, { once: true })
+}
+function onGlobalStopPointerUp(event: PointerEvent) { void onStopPointerEnd(event) }
+function onGlobalStopPointerCancel(event: PointerEvent) { void onStopPointerEnd(event, true) }
+function removeStopPointerListeners() {
+  window.removeEventListener('pointerup', onGlobalStopPointerUp)
+  window.removeEventListener('pointercancel', onGlobalStopPointerCancel)
 }
 async function onStopPointerMove(event: PointerEvent) {
   const drag = stopDrag
@@ -1460,6 +1479,7 @@ async function onStopPointerMove(event: PointerEvent) {
     const before = new Map(rows.map(row => [row.dataset.dayStopId, row.getBoundingClientRect().top]))
     dragOrder.value = next
     await nextTick()
+    if (stopDrag !== drag) return
     dayPlanList.value?.querySelectorAll<HTMLElement>('.day-plan-stop').forEach(row => {
       if (row.dataset.dayStopId === drag.sourceId) return
       const previous = before.get(row.dataset.dayStopId)
@@ -1472,10 +1492,8 @@ async function onStopPointerMove(event: PointerEvent) {
 async function onStopPointerEnd(event: PointerEvent, cancelled = false) {
   const drag = stopDrag
   if (!drag || drag.pointerId !== event.pointerId) return
-  stopDrag = null
-  try { drag.handle.releasePointerCapture(drag.pointerId) } catch { /* capture may already be released */ }
-  drag.ghost?.classList.add('day-plan-ghost--out')
-  if (drag.ghost) { const ghost = drag.ghost; window.setTimeout(() => ghost.remove(), 120) }
+  removeStopPointerListeners()
+  clearStopDrag()
   const newOrder = dragOrder.value
   dragOrder.value = null
   if (cancelled || !newOrder || newOrder.every((id, i) => id === drag.original[i])) return
@@ -1528,6 +1546,7 @@ function moveTodayDay(direction: -1 | 1) {
 }
 function openWorkspaceTab(tab: WorkspaceTab) {
   if (activeTab.value === tab && mobilePlacesOpen.value) { mobilePlacesOpen.value = false; return }
+  if (activeTab.value === 'plan' && tab !== 'plan') { removeStopPointerListeners(); clearStopDrag() }
   if (activeTab.value === 'today' && tab !== 'today') {
     restoreTodayRoute = routeVisible.value
     hideRouteDisplay()
