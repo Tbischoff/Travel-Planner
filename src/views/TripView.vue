@@ -719,7 +719,49 @@ const dayStops = computed<DayStop[]>(() => {
   return [...ps,...as].sort((a,b) => (a.planned_order || 999999) - (b.planned_order || 999999) || a.name.localeCompare(b.name,'de'))
 })
 const todayCompletedCount = computed(() => dayStops.value.filter(stop => stop.place?.visited).length)
-const todayNextStop = computed(() => dayStops.value.find(stop => !stop.place?.visited) || null)
+const todayPreview = computed(() => selectedDay.value !== new Date().toLocaleDateString('sv-SE'))
+const todayRecommendation = computed(() => {
+  const stops = dayStops.value
+  const now = new Date()
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const parse = (value: string | null) => value && /^\\d{1,2}:\\d{2}/.test(value) ? Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5)) : null
+  const candidates = stops.filter(stop => {
+    if (stop.place) return !stop.place.visited
+    if (todayPreview.value) return true
+    const end = parse(stop.end_time), start = parse(stop.start_time)
+    return end !== null ? end >= minutes - 10 : start !== null ? start >= minutes - 30 : true
+  })
+  const urgent = !todayPreview.value ? candidates.find(stop => {
+    if (!stop.activity) return false
+    const start = parse(stop.start_time), end = parse(stop.end_time)
+    return start !== null && start - minutes <= 45 && (end === null || end >= minutes - 10)
+  }) : null
+  const stop = urgent || candidates[0] || null
+  if (!stop) return { stop: null as DayStop | null, status: '' }
+  const start = parse(stop.start_time), end = parse(stop.end_time)
+  if (todayPreview.value) return { stop, status: stop.start_time ? 'Geplant für ' + stop.start_time.slice(0, 5) + ' Uhr' : 'Erster Programmpunkt' }
+  if (stop.activity && start !== null && start <= minutes && (end === null || end >= minutes)) return { stop, status: 'Jetzt · Termin läuft' }
+  if (start !== null) {
+    const delta = start - minutes
+    if (delta > 0 && delta <= 90) return { stop, status: 'In ' + delta + ' Min. geplant' }
+    if (delta > 90) return { stop, status: 'Um ' + stop.start_time?.slice(0, 5) + ' Uhr geplant' }
+    if (delta <= 0 && stop.place) return { stop, status: 'Seit ' + Math.abs(delta) + ' Min. geplant' }
+  }
+  return { stop, status: stop.activity ? 'Nächster Termin' : 'Nächster offener Stopp' }
+})
+const todayNextStop = computed(() => todayRecommendation.value.stop)
+const todayProgressPercent = computed(() => {
+  const total = dayStops.value.filter(stop => stop.place).length
+  return total ? Math.round(todayCompletedCount.value / total * 100) : 0
+})
+function todayStopDistance(stop: DayStop): string | null {
+  const from = userLocation.value, lat = stop.place?.latitude ?? stop.activity?.latitude, lng = stop.place?.longitude ?? stop.activity?.longitude
+  if (!from || lat == null || lng == null) return null
+  const rad = Math.PI / 180, dLat = (Number(lat) - from.lat) * rad, dLng = (Number(lng) - from.lng) * rad
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(from.lat * rad) * Math.cos(Number(lat) * rad) * Math.sin(dLng / 2) ** 2
+  const meters = 12742000 * Math.asin(Math.min(1, Math.sqrt(h)))
+  return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km'
+}
 const todayIsTripDay = computed(() => tripDays.value.some(day => day.day_date === selectedDay.value))
 type NearbySuggestion = { place: TripPlace; distanceKm: number; status: 'open' | 'closed' | 'unknown'; rank: number }
 const nearbySuggestions = computed<NearbySuggestion[]>(() => {
@@ -3295,23 +3337,31 @@ onUnmounted(() => {
           <p v-if="navigationMessage" class="trip-error" role="status">{{ navigationMessage }}</p>
         </section>
         <section v-if="activeTab === 'today' && todayIsTripDay" class="today-companion" aria-label="Tagesbegleiter">
-          <div class="today-companion__head"><strong>Was jetzt?</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} Orten besucht</span></div>
-          <template v-if="todayNextStop">
-            <button type="button" class="place-row today-companion__next" @click="focusTodayStop(todayNextStop)">
-              <span class="place-row__content"><span class="place-row__title"><strong>{{ todayNextStop.kind === 'activity' ? '🎟️ ' : '📍 ' }}{{ todayNextStop.name }}</strong></span><small class="place-row__meta" v-if="todayNextStop.start_time || todayNextStop.end_time">🕒 {{ todayNextStop.start_time || '–' }} – {{ todayNextStop.end_time || '–' }}</small><small class="place-row__meta" v-if="stopWeather(todayNextStop)">{{ stopWeather(todayNextStop)?.icon }} {{ stopWeather(todayNextStop)?.temp }} °C</small></span>
-              <span aria-hidden="true">›</span>
-            </button>
-            <div class="today-companion__actions"><button type="button" @click="focusTodayStop(todayNextStop)">🗺️ Auf Karte</button><button v-if="todayNextStop.place" type="button" :disabled="visitedUpdating.includes(todayNextStop.place.id)" @click="toggleTodayVisited(todayNextStop.place)">✓ Als besucht markieren</button></div>
-          </template>
-          <p v-else class="muted">✓ Alle geplanten Stopps abgeschlossen.</p>
-          <div class="today-companion__timeline">
-            <div v-for="stop in dayStops" :key="stop.id" class="today-companion__item">
-              <button v-if="stop.place" type="button" class="today-companion__check" :disabled="visitedUpdating.includes(stop.place.id)" :aria-label="stop.place.visited ? stop.name + ' als offen markieren' : stop.name + ' als besucht markieren'" @click="toggleTodayVisited(stop.place)">{{ stop.place.visited ? '✓' : '○' }}</button>
-              <span v-else class="today-companion__check" aria-hidden="true">🎟️</span>
-              <button type="button" class="today-companion__stop" @click="focusTodayStop(stop)"><small>{{ stop.start_time || 'offen' }}</small><span :class="{ 'today-companion__visited': stop.place?.visited }">{{ stop.name }}</span></button>
-            </div>
+          <div class="today-what-now-card">
+            <div class="today-companion__head"><div><strong>Was jetzt?</strong><small>{{ todayPreview ? 'Vorschau auf den Reisetag' : 'Situative Empfehlung aus deinem Tagesplan' }}</small></div><span v-if="todayNextStop?.start_time">🕒 {{ todayNextStop.start_time.slice(0, 5) }}<template v-if="todayNextStop.end_time">–{{ todayNextStop.end_time.slice(0, 5) }}</template></span></div>
+            <template v-if="todayNextStop">
+              <div class="today-what-now-status">{{ todayRecommendation.status }}</div>
+              <button type="button" class="today-companion__next" @click="focusTodayStop(todayNextStop)">
+                <span class="today-companion__next-icon">{{ todayNextStop.activity ? '🎟️' : '📍' }}</span>
+                <span class="today-companion__next-info"><strong>{{ todayNextStop.name }}</strong><small>{{ todayNextStop.place ? label(todayNextStop.place.category || 'other') : 'Aktivität' }}<template v-if="todayStopDistance(todayNextStop)"> · 📍 {{ todayStopDistance(todayNextStop) }} entfernt</template></small><small v-if="stopWeather(todayNextStop)">{{ stopWeather(todayNextStop)?.icon }} {{ stopWeather(todayNextStop)?.temp }} °C · Regen {{ stopWeather(todayNextStop)?.rain ?? '–' }} %</small></span><span aria-hidden="true">›</span>
+              </button>
+              <div class="today-companion__actions"><button type="button" class="today-companion__navigate" @click="navigationState === 'idle' ? startDayNavigationV3() : stopDayNavigationV3()">{{ navigationState === 'idle' ? '🧭 Navigation starten' : '■ Navigation beenden' }}</button><button type="button" @click="focusTodayStop(todayNextStop)">🗺️ Auf Karte</button></div>
+              <button v-if="todayNextStop.place" type="button" class="today-companion__complete" :disabled="visitedUpdating.includes(todayNextStop.place.id)" @click="toggleTodayVisited(todayNextStop.place)">✓ Als besucht markieren</button>
+              <small v-if="!userLocation" class="today-companion__location-hint">📍 Standort aktivieren, um die Entfernung zum nächsten Ziel zu sehen.</small>
+            </template>
+            <p v-else class="muted">✓ Für heute sind keine offenen Programmpunkte mehr vorhanden.</p>
           </div>
-          <button type="button" class="today-companion__open-plan" @click="openTodayPlan">☷ Tagesplan öffnen</button>
+          <div class="today-progress-card">
+            <div class="today-companion__head"><strong>{{ todayPreview ? 'Planung' : 'Tagesfortschritt' }}</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} erledigt</span></div>
+            <progress class="today-progress-card__bar" :value="todayProgressPercent" max="100"></progress>
+            <div class="today-companion__timeline">
+              <div v-for="stop in dayStops.filter(item => item.place)" :key="stop.id" class="today-companion__item" :class="{ 'today-companion__item--visited': stop.place?.visited, 'today-companion__item--next': todayNextStop?.id === stop.id }">
+                <button type="button" class="today-companion__check" :disabled="!stop.place || visitedUpdating.includes(stop.place.id)" :aria-label="stop.place?.visited ? stop.name + ' als offen markieren' : stop.name + ' als besucht markieren'" @click="stop.place && toggleTodayVisited(stop.place)">{{ stop.place?.visited ? '✓' : '○' }}</button>
+                <button type="button" class="today-companion__stop" @click="focusTodayStop(stop)"><span class="today-companion__time">{{ stop.start_time ? stop.start_time.slice(0, 5) : 'offen' }}<template v-if="stop.end_time">–{{ stop.end_time.slice(0, 5) }}</template></span><span class="today-companion__name">{{ stop.name }}</span></button>
+              </div>
+            </div>
+            <button type="button" class="today-companion__open-plan" @click="openTodayPlan">☷ Tagesplan öffnen</button>
+          </div>
         </section>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select><div v-if="(offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1]" class="day-plan-leg-info"><span>{{ (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'driving' ? '🚗' : (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ legDuration((offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].distanceMeters) }} · {{ (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'driving' ? 'Auto' : (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'transit' ? 'ÖPNV' : 'Fußweg' }} zum nächsten Stopp</small></span></div><small v-else class="day-plan-leg-hint">Streckenzeit wird nach der Routenberechnung angezeigt.</small></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
@@ -3917,4 +3967,34 @@ onUnmounted(() => {
 .day-plan-leg-info>span:last-child{display:grid;gap:3px;min-width:0}
 .day-plan-leg-info small,.day-plan-leg-hint{color:#64748b;font-size:12px}
 .day-plan-leg-hint{display:block;margin-top:8px}
+</style>
+
+<style scoped>
+.today-companion{display:grid;gap:14px;margin:12px 0;padding:0;border:0;background:transparent}
+.today-what-now-card,.today-progress-card{border:1px solid #dce5e0;border-radius:15px;background:#fff;padding:14px;display:grid;gap:11px;min-width:0}
+.today-companion__head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.today-companion__head>div{display:grid;gap:2px}
+.today-companion__head>div>small,.today-companion__head>span{font-size:12px;color:#66776f}
+.today-what-now-status{align-self:start;justify-self:start;border-radius:99px;background:#e9f4ef;color:#286252;font-size:12px;font-weight:650;padding:4px 9px}
+.today-companion__next{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:#f8faf9;border:1px solid #dce5e0;border-radius:12px;padding:11px;color:inherit;min-width:0}
+.today-companion__next-icon{flex:0 0 32px;font-size:23px;text-align:center}
+.today-companion__next-info{display:grid;gap:4px;min-width:0;flex:1}
+.today-companion__next-info strong{overflow-wrap:anywhere}
+.today-companion__next-info small{color:#687871;font-size:12px}
+.today-companion__actions{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:8px}
+.today-companion__actions button{min-width:0;min-height:40px;padding:7px 5px;font-size:13px}
+.today-companion__actions .today-companion__navigate{background:#2f625d;color:white;border:1px solid #2f625d}
+.today-companion__complete{min-height:38px;width:100%;font-size:13px}
+.today-companion__location-hint{font-size:11px;color:#687871}
+.today-progress-card__bar{width:100%;height:6px;accent-color:#2f625d}
+.today-companion__timeline{display:grid;gap:0}
+.today-companion__item{display:flex;align-items:center;gap:10px;min-height:46px;border-bottom:1px solid #e9eeeb;min-width:0}
+.today-companion__check{flex:0 0 27px;width:27px;height:30px;min-height:30px;padding:0;border:0;box-shadow:none;background:transparent;color:#2f625d;font-size:21px;font-weight:400;border-radius:50%}
+.today-companion__stop{display:grid;grid-template-columns:85px minmax(0,1fr);align-items:center;gap:8px;flex:1;min-width:0;padding:9px 0;text-align:left;background:transparent;border:0;color:inherit;box-shadow:none}
+.today-companion__time{font-size:12px;color:#718078;font-weight:400;overflow-wrap:anywhere}
+.today-companion__name{font-size:14px;font-weight:550;overflow-wrap:anywhere}
+.today-companion__item--next .today-companion__name{color:#2f625d;font-weight:700}
+.today-companion__item--visited .today-companion__name{text-decoration:line-through;opacity:.65}
+.today-companion__open-plan{width:100%;min-height:40px;font-size:13px}
+@media(max-width:380px){.today-companion__stop{grid-template-columns:72px minmax(0,1fr)}.today-companion__actions button{font-size:12px}}
 </style>
