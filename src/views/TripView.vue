@@ -19,6 +19,18 @@ const tripDays = ref<TripDay[]>([])
 const destinationCrestUrl = ref('')
 const destinationCountry = ref('')
 let crestRequestId = 0
+let crestObjectUrl = ''
+async function showCachedCrestOffline(tripId: string, destination: string, country: string) {
+  const proxyUrl = cachedCrestUrl(tripId,destination,country)
+  if (!proxyUrl) return
+  try {
+    const response = await (await caches.open('travel-planner-offline-crests-v1')).match(proxyUrl)
+    if (!response || trips.currentTrip?.id !== tripId) return
+    if (crestObjectUrl) URL.revokeObjectURL(crestObjectUrl)
+    crestObjectUrl = URL.createObjectURL(await response.blob())
+    destinationCrestUrl.value = crestObjectUrl
+  } catch { /* Offline cache unavailable */ }
+}
 const crestMemory = new Map<string,string>()
 function countryFlag(country: string): string {
   return /^[A-Z]{2}$/.test(country) ? String.fromCodePoint(...[...country].map(char => 127397 + char.charCodeAt(0))) : '📍'
@@ -31,7 +43,8 @@ async function refreshDestinationCrest() {
   const saved = readCrest(trip.id)
   destinationCountry.value = saved?.destination === destination ? saved.country : ''
   destinationCrestUrl.value = cachedCrestUrl(trip.id,destination,destinationCountry.value) || ''
-  if (!navigator.onLine || !destination) return
+  if (!navigator.onLine) { await showCachedCrestOffline(trip.id,destination,destinationCountry.value); return }
+  if (!destination) return
   try {
     const geocoder = new (getGoogleMaps().Geocoder)() as unknown as {geocode:(request:{address:string})=>Promise<{results?:Array<{address_components?:Array<{types?:string[];short_name?:string}>}>}>}
     const result = await geocoder.geocode({address:destination})
@@ -3142,6 +3155,8 @@ onMounted(async () => {
   } finally { loading.value = false }
 })
 onUnmounted(() => {
+  crestRequestId++
+  if (crestObjectUrl) URL.revokeObjectURL(crestObjectUrl)
   window.removeEventListener('online', handleOfflineConnectivity)
   window.removeEventListener('offline', handleOfflineConnectivity)
   hideOfflineMap()
