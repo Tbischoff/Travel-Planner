@@ -1004,6 +1004,33 @@ const todayFeasibility = computed(() => {
     averageBuffer: checked ? Math.round(totalBuffer / checked) : null,
   }
 })
+type TodayConflictDetail = { key: string; kind: 'conflict' | 'tight' | 'unknown'; title: string; explanation: string; suggestion: string }
+const todayConflictDetails = computed<TodayConflictDetail[]>(() => {
+  const results: TodayConflictDetail[] = []
+  const stops = dayStops.value
+  for (let i = 1; i < stops.length; i++) {
+    const from = stops[i - 1]!, to = stops[i]!
+    const departure = dayScheduleTimestamp(from.end_time)
+    const arrival = dayScheduleTimestamp(to.start_time)
+    const leg = independentLegMetrics.value[to.id]
+    if (departure === null || arrival === null) continue
+    const available = Math.round((arrival - departure) / 60000)
+    const mode = leg?.mode === 'driving' ? 'Auto' : leg?.mode === 'transit' ? 'ÖPNV' : 'Fußweg'
+    const travel = leg ? Math.ceil(leg.durationMillis / 60000) : null
+    const title = from.name + ' → ' + to.name
+    const times = 'Ende ' + from.end_time?.slice(0, 5) + ' Uhr · Beginn ' + to.start_time?.slice(0, 5) + ' Uhr'
+    if (available < 0) {
+      results.push({ key: to.id, kind: 'conflict', title, explanation: times + '. Die Termine überschneiden sich um ' + Math.abs(available) + ' Min.' + (travel !== null ? ' Zusätzlich werden für ' + mode + ' etwa ' + travel + ' Min. Wegzeit benötigt.' : ' Die Wegzeit ist noch nicht berechnet.'), suggestion: 'Zeiten oder Reihenfolge ändern; die beiden Stopps können so nicht nacheinander stattfinden.' })
+    } else if (travel !== null && available < travel) {
+      results.push({ key: to.id, kind: 'conflict', title, explanation: times + '. Verfügbar: ' + available + ' Min. · ' + mode + ': ca. ' + travel + ' Min. · Es fehlen ' + (travel - available) + ' Min.', suggestion: 'Früher aufbrechen, Aufenthalt verkürzen oder eine schnellere Verbindung auswählen.' })
+    } else if (travel !== null && available - travel < todaySafetyMinutes.value) {
+      results.push({ key: to.id, kind: 'tight', title, explanation: times + '. Verfügbar: ' + available + ' Min. · ' + mode + ': ca. ' + travel + ' Min. · Nur ' + (available - travel) + ' Min. Puffer.', suggestion: 'Mehr Zeitreserve einplanen (Ziel: ' + todaySafetyMinutes.value + ' Min.).' })
+    } else if (travel === null) {
+      results.push({ key: to.id, kind: 'unknown', title, explanation: times + '. ' + available + ' Min. zwischen den Stopps; die tatsächliche Wegzeit fehlt noch.', suggestion: 'Verbindung berechnen, um die Machbarkeit zu prüfen.' })
+    }
+  }
+  return results
+})
 const todayScheduleForecast = computed(() => {
   const forecast: Record<string, { arrival: string; deltaMinutes: number }> = {}
   let previousDeparture: number | null = null
@@ -3412,7 +3439,7 @@ onUnmounted(() => {
             </template>
             <p v-else class="muted">✓ Für heute sind keine offenen Programmpunkte mehr vorhanden.</p>
           </div>
-          <div class="today-day-check" :class="'today-day-check--' + todayFeasibility.status" role="status"><strong>⏱ Tagesplanung · {{ todayFeasibility.headline }}</strong><span>{{ todayFeasibility.detail }}</span><span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min.</span><button type="button" @click="openTodayPlan">Zeitplanung prüfen →</button></div>
+          <div class="today-day-check" :class="'today-day-check--' + todayFeasibility.status" role="status"><strong>⏱ Tagesplanung · {{ todayFeasibility.headline }}</strong><span>{{ todayFeasibility.detail }}</span><span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min.</span><div v-if="todayConflictDetails.length" class="today-day-check__details"><div v-for="item in todayConflictDetails" :key="item.key" class="today-day-check__item" :class="'today-day-check__item--' + item.kind"><strong>{{ item.kind === 'conflict' ? '⚠️ Konflikt' : item.kind === 'tight' ? '◷ Knapp' : 'ℹ️ Noch ungeprüft' }}: {{ item.title }}</strong><span>{{ item.explanation }}</span><small>{{ item.suggestion }}</small></div></div><button type="button" @click="openTodayPlan">Zeitplanung anpassen →</button></div>
           <div class="today-progress-card">
             <div class="today-companion__head"><strong>{{ todayPreview ? 'Planung' : 'Tagesfortschritt' }}</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} erledigt</span></div>
             <progress class="today-progress-card__bar" :value="todayProgressPercent" max="100"></progress>
@@ -4067,4 +4094,14 @@ onUnmounted(() => {
 .today-day-check--tight{border-color:#e4d3a3;background:#fffbef;color:#76571d}
 .today-day-check--unknown{background:#f8f9fa;color:#5d6873}
 .today-day-check>button{justify-self:start;min-height:36px;padding:7px 12px;border:1px solid currentColor;border-radius:10px;background:#fff;color:inherit;font:inherit;cursor:pointer}
+</style>
+
+<style scoped>
+.today-day-check__details{display:grid;gap:9px;margin-top:3px}
+.today-day-check__item{display:grid;gap:5px;border-left:3px solid #b4c5c0;padding:8px 10px;background:#fff;border-radius:0 9px 9px 0;color:#334155;overflow-wrap:anywhere}
+.today-day-check__item--conflict{border-left-color:#c85a5a}
+.today-day-check__item--tight{border-left-color:#c59b3a}
+.today-day-check__item>strong{font-size:13px}
+.today-day-check__item>span{font-size:12px;line-height:1.5}
+.today-day-check__item>small{font-size:12px;color:#52645e}
 </style>
