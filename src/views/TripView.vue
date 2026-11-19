@@ -3241,6 +3241,7 @@ onUnmounted(() => {
             <option v-for="category in categories" :key="category" :value="category">{{ label(category) }}</option>
           </select>
         </div>
+
         <details v-if="selectedDayRecord && activeTab === 'plan'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Streckeninformationen</summary>
           <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
           <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
