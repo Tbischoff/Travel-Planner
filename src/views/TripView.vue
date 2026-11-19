@@ -706,8 +706,8 @@ function setStopTravelMode(stopId: string, mode: StopTravelMode) {
   if (!id || !trips.canEditContent) return
   stopTravelModes.value = { ...stopTravelModes.value, [stopId]: mode }
   clearRouteCache()
-  if (navigator.onLine && !offlineVisible.value) { routeVisible.value = true; void showWalkingRoute() }
-  else if (offlineMapInstance) renderOfflineRoute(offlineMapInstance)
+  if (routeVisible.value && navigator.onLine && !offlineVisible.value) void showWalkingRoute()
+  else if (routeVisible.value && offlineMapInstance) renderOfflineRoute(offlineMapInstance)
   try { localStorage.setItem(stopModeStorageKey(id),JSON.stringify(stopTravelModes.value)) }
   catch { dayPlanError.value = 'Verkehrsmittel konnte nicht lokal gespeichert werden.' }
 }
@@ -818,6 +818,59 @@ const routeSummary = ref('')
 const transitConnections = ref<TransitConnection[]>([])
 type RouteLegMetric = { distanceMeters: number; durationMillis: number; mode: 'walking' | 'transit' | 'driving' }
 const transitMetrics = ref<RouteLegMetric[]>([])
+const independentLegMetrics = ref<Record<string, RouteLegMetric>>({})
+const independentLegBusy = ref(false)
+const independentLegErrors = ref<Record<string, string>>({})
+let independentLegRequest = 0
+function independentLeg(stopId: string): RouteLegMetric | undefined { return independentLegMetrics.value[stopId] }
+async function calculateIndependentLegs() {
+  const requestId = ++independentLegRequest
+  const stops = dayStops.value
+  independentLegMetrics.value = {}
+  independentLegErrors.value = {}
+  if (stops.length < 2 || !navigator.onLine) { independentLegBusy.value = false; return }
+  independentLegBusy.value = true
+  try {
+    await loadGoogleMaps()
+    const library = await getGoogleMaps().importLibrary('routes') as { Route?: RoutesClass }
+    if (!library.Route) throw new Error('Google Routes ist nicht verfügbar.')
+    for (let i = 1; i < stops.length; i++) {
+      if (requestId !== independentLegRequest) return
+      const from = stopCoordinates(stops[i - 1]!), to = stopCoordinates(stops[i]!)
+      const target = stops[i]!
+      if (!from || !to) { independentLegErrors.value = { ...independentLegErrors.value, [target.id]: 'Koordinaten fehlen' }; continue }
+      const selected = stopTravelMode(target.id)
+      const compute = async (mode: 'WALKING' | 'TRANSIT' | 'DRIVING'): Promise<ComputedRoute | null> => {
+        const query: Record<string, unknown> = { origin: from, destination: to, travelMode: mode, fields: ['distanceMeters', 'durationMillis'] }
+        if (mode === 'TRANSIT') {
+          const arrival = plannedTransitTime(target.start_time)
+          const departure = plannedTransitTime(stops[i - 1]!.end_time)
+          if (arrival && arrival.getTime() > Date.now() + 60000) query.arrivalTime = arrival
+          else query.departureTime = departure && departure.getTime() > Date.now() ? departure : new Date(Date.now() + 60000)
+        }
+        const result = await library.Route!.computeRoutes(query)
+        return result.routes?.[0] || null
+      }
+      let walk: ComputedRoute | null = null, transit: ComputedRoute | null = null, car: ComputedRoute | null = null
+      if (selected === 'car') { try { car = await compute('DRIVING') } catch { /* show leg error below */ } }
+      else {
+        if (selected !== 'transit') { try { walk = await compute('WALKING') } catch { /* try other modes */ } }
+        if (selected !== 'walk') { try { transit = await compute('TRANSIT') } catch { /* walking may still work */ } }
+      }
+      if (requestId !== independentLegRequest) return
+      const useTransit = selected === 'transit' || (selected === 'auto' && !!transit && (!walk || transit.durationMillis + 300000 < walk.durationMillis))
+      const chosen = selected === 'car' ? car : useTransit ? transit : walk
+      if (!chosen) { independentLegErrors.value = { ...independentLegErrors.value, [target.id]: 'Keine Verbindung gefunden' }; continue }
+      independentLegMetrics.value = { ...independentLegMetrics.value, [target.id]: { distanceMeters: chosen.distanceMeters || 0, durationMillis: chosen.durationMillis || 0, mode: selected === 'car' ? 'driving' : useTransit ? 'transit' : 'walking' } }
+    }
+  } catch {
+    if (requestId === independentLegRequest) independentLegErrors.value = Object.fromEntries(stops.slice(1).map(stop => [stop.id, 'Routenberechnung derzeit nicht verfügbar']))
+  } finally {
+    if (requestId === independentLegRequest) independentLegBusy.value = false
+  }
+}
+watch(() => [selectedDay.value, ...dayStops.value.flatMap(stop => [stop.id, stop.planned_order, stop.start_time, stop.end_time, stop.place?.latitude, stop.place?.longitude, stop.activity?.latitude, stop.activity?.longitude, stopTravelMode(stop.id)])], () => { void calculateIndependentLegs() }, { immediate: true })
+
 function legDistance(meters: number): string { return meters < 1000 ? Math.round(meters) + ' m' : (meters / 1000).toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' km' }
 function legDuration(millis: number): string {
   const minutes = Math.max(0, Math.round(millis / 60000))
@@ -854,6 +907,7 @@ function dayScheduleTimestamp(clock: string | null | undefined): number | null {
 }
 // Offline forecasts use saved per-leg durations where available; older walking
 // packages receive a conservative straight-line estimate, never live transit data.
+const scheduleLegMetrics = computed<RouteLegMetric[]>(() => dayStops.value.slice(1).map(stop => independentLegMetrics.value[stop.id]).filter((leg): leg is RouteLegMetric => !!leg))
 const forecastLegMetrics = computed<RouteLegMetric[]>(() => {
   if (!offlineVisible.value) return transitMetrics.value
   const id = trips.currentTrip?.id
@@ -887,7 +941,7 @@ const todayLegBuffers = computed<Record<number, DayLegBuffer>>(() => {
     if (!from || !to) continue
     const departure = dayScheduleTimestamp(from.end_time)
     const deadline = dayScheduleTimestamp(to.start_time)
-    const leg = forecastLegMetrics.value[index]
+    const leg = to ? independentLegMetrics.value[to.id] : undefined
     if (departure === null || deadline === null || !leg) {
       result[index] = { kind: 'unknown', buffer: null, text: 'Zeitpuffer nicht berechenbar · Zeitangaben oder Route fehlen' }
       continue
@@ -923,7 +977,7 @@ const todayFeasibility = computed(() => {
     if (!from || !to) continue
     const departure = dayScheduleTimestamp(from.end_time)
     const deadline = dayScheduleTimestamp(to.start_time)
-    const leg = forecastLegMetrics.value[index]
+    const leg = to ? independentLegMetrics.value[to.id] : undefined
     if (departure === null || deadline === null || !leg) { unknown++; continue }
     const buffer = Math.floor((deadline - departure - leg.durationMillis) / 60000)
     checked++
@@ -932,14 +986,21 @@ const todayFeasibility = computed(() => {
     if (buffer < 0) conflicts++
     else if (buffer < todaySafetyMinutes.value) reserveShortfalls++
   }
+  // Check overlaps even when no route has been calculated yet.
+  const overlaps = dayStops.value.slice(1).filter((to, i) => {
+    const from = dayStops.value[i]!
+    const end = dayScheduleTimestamp(from.end_time), start = dayScheduleTimestamp(to.start_time)
+    return end !== null && start !== null && end > start
+  }).length
   const count = Math.max(0, dayStops.value.length - 1)
-  const status = conflicts ? 'conflict' : unknown || !checked ? 'unknown' : reserveShortfalls ? 'tight' : 'ok'
+  const status = conflicts || overlaps ? 'conflict' : unknown || !checked ? 'unknown' : reserveShortfalls ? 'tight' : 'ok'
   return {
     status,
-    headline: conflicts ? conflicts + ' zeitliche Konflikte erkannt' : !count ? 'Mindestens zwei Stopps erforderlich' : status === 'ok' ? 'Alle geprüften Übergänge mit Sicherheitspuffer machbar' : status === 'tight' ? reserveShortfalls + ' Übergänge mit zu wenig Reserve' : 'Tagesplan nicht vollständig prüfbar',
+    headline: conflicts || overlaps ? Math.max(conflicts, overlaps) + ' zeitliche Konflikte erkannt' : !count ? 'Mindestens zwei Stopps erforderlich' : status === 'ok' ? 'Alle geprüften Übergänge mit Sicherheitspuffer machbar' : status === 'tight' ? reserveShortfalls + ' Übergänge mit zu wenig Reserve' : 'Tagesplan nicht vollständig prüfbar',
     detail: checked + ' von ' + count + ' Übergängen geprüft' + (unknown ? ' · ' + unknown + ' ohne ausreichende Zeitangaben' : ''),
     minimumBuffer,
     reserveShortfalls,
+    conflicts: Math.max(conflicts, overlaps),
     averageBuffer: checked ? Math.round(totalBuffer / checked) : null,
   }
 })
@@ -3351,6 +3412,7 @@ onUnmounted(() => {
             </template>
             <p v-else class="muted">✓ Für heute sind keine offenen Programmpunkte mehr vorhanden.</p>
           </div>
+          <div class="today-day-check" :class="'today-day-check--' + todayFeasibility.status" role="status"><strong>⏱ Tagesplanung · {{ todayFeasibility.headline }}</strong><span>{{ todayFeasibility.detail }}</span><span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min.</span><button type="button" @click="openTodayPlan">Zeitplanung prüfen →</button></div>
           <div class="today-progress-card">
             <div class="today-companion__head"><strong>{{ todayPreview ? 'Planung' : 'Tagesfortschritt' }}</strong><span>{{ todayCompletedCount }} von {{ dayStops.filter(stop => stop.place).length }} erledigt</span></div>
             <progress class="today-progress-card__bar" :value="todayProgressPercent" max="100"></progress>
@@ -3364,7 +3426,7 @@ onUnmounted(() => {
           </div>
         </section>
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
-        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select><div v-if="(offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1]" class="day-plan-leg-info"><span>{{ (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'driving' ? '🚗' : (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ legDuration((offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].distanceMeters) }} · {{ (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'driving' ? 'Auto' : (offlineVisible ? forecastLegMetrics : transitMetrics)[routeAgendaStops.findIndex(entry => entry.key === renderedDayStops[index + 1].id) - 1].mode === 'transit' ? 'ÖPNV' : 'Fußweg' }} zum nächsten Stopp</small></span></div><small v-else class="day-plan-leg-hint">Streckenzeit wird nach der Routenberechnung angezeigt.</small></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
+        <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select><div v-if="independentLeg(renderedDayStops[index + 1].id)" class="day-plan-leg-info"><span>{{ independentLeg(renderedDayStops[index + 1].id)?.mode === 'driving' ? '🚗' : independentLeg(renderedDayStops[index + 1].id)?.mode === 'transit' ? '🚇' : '🚶' }}</span><span><strong>{{ legDuration(independentLeg(renderedDayStops[index + 1].id)!.durationMillis) }}</strong><small>{{ legDistance(independentLeg(renderedDayStops[index + 1].id)!.distanceMeters) }} · {{ independentLeg(renderedDayStops[index + 1].id)?.mode === 'driving' ? 'Auto' : independentLeg(renderedDayStops[index + 1].id)?.mode === 'transit' ? 'ÖPNV' : 'Fußweg' }}</small></span></div><small v-else class="day-plan-leg-hint">{{ independentLegBusy ? 'Verbindung wird berechnet …' : independentLegErrors[renderedDayStops[index + 1].id] || 'Offline · keine berechnete Verbindung verfügbar' }}</small></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
         <div v-if="activeTab === 'plan' && todayIsTripDay" class="today-route-controls"><strong>🗺️ Tagesroute planen</strong><div class="today-mobility-picker" role="group" aria-label="Verkehrsmittel"><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'auto' }" :aria-pressed="routeMode === 'auto'" @click="routeMode = 'auto'" title="Automatische Kombination aus Fußweg und ÖPNV">✨ Kombi</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'walking' }" :aria-pressed="routeMode === 'walking'" @click="routeMode = 'walking'">🚶 Fuß</button><button type="button" :class="{ 'today-mobility-picker__active': routeMode === 'transit' }" :aria-pressed="routeMode === 'transit'" @click="routeMode = 'transit'">🚇 ÖPNV</button></div><label for="today-route-start">Startpunkt</label><select id="today-route-start" v-model="routeStart"><option value="location">Aktueller Standort</option><option value="first">Erster Stopp</option><option value="hotel">Unterkunft</option></select><label for="today-route-end">Endpunkt</label><select id="today-route-end" v-model="routeEnd"><option value="location">Aktueller Ort</option><option value="hotel">Unterkunft</option><option value="last">Letzter geplanter Stopp</option></select><button type="button" class="place-add-button" :disabled="routeBusy" @click="toggleWalkingRoute">{{ routeBusy ? 'Route wird berechnet …' : routeVisible ? 'Route ausblenden' : routeMode === 'auto' ? 'Automatische Route anzeigen' : routeMode === 'transit' ? 'ÖPNV-Route anzeigen' : 'Fußroute anzeigen' }}</button><p v-if="offlineVisible && offlineRouteNotice" class="muted" role="status">{{ offlineRouteNotice }}</p><p v-if="routeSummary && !offlineVisible" class="muted">{{ routeSummary }}</p><div v-if="routeMode !== 'walking' && transitMetrics.some(metric => metric.mode === 'transit')" class="today-transit-refresh"><button type="button" :disabled="transitRefreshBusy || routeBusy" @click="refreshTransitConnections">{{ transitRefreshBusy ? 'Aktualisiere …' : '↻ ÖPNV aktualisieren' }}</button><small v-if="transitLastUpdated">Zuletzt abgefragt: {{ transitLastUpdated.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr</small><small v-if="transitRefreshNotice" role="status">{{ transitRefreshNotice }}</small></div><p v-if="routeError" class="trip-error" role="alert">{{ routeError }}</p></div>
 
 
@@ -3997,4 +4059,12 @@ onUnmounted(() => {
 .today-companion__item--visited .today-companion__name{text-decoration:line-through;opacity:.65}
 .today-companion__open-plan{width:100%;min-height:40px;font-size:13px}
 @media(max-width:380px){.today-companion__stop{grid-template-columns:72px minmax(0,1fr)}.today-companion__actions button{font-size:12px}}
+</style>
+
+<style scoped>
+.today-day-check{display:grid;gap:7px;padding:13px;border:1px solid #d4e1dc;border-radius:13px;background:#f6faf8;font-size:13px;color:#2c5148}
+.today-day-check--conflict{border-color:#e5b6b6;background:#fff5f4;color:#8b3434}
+.today-day-check--tight{border-color:#e4d3a3;background:#fffbef;color:#76571d}
+.today-day-check--unknown{background:#f8f9fa;color:#5d6873}
+.today-day-check>button{justify-self:start;min-height:36px;padding:7px 12px;border:1px solid currentColor;border-radius:10px;background:#fff;color:inherit;font:inherit;cursor:pointer}
 </style>
