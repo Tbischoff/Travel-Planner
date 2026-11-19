@@ -88,8 +88,16 @@ function startTripDrag(event: PointerEvent, id: string) {
   event.preventDefault()
   clearTripDrag()
   const rect = card.getBoundingClientRect()
-  const ghost = card.cloneNode(true) as HTMLElement
-  ghost.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;opacity:.88;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;box-sizing:border-box;box-shadow:0 12px 32px #0003;background:white;border-radius:12px'
+  const trip = trips.trips.find(item => item.id === id)
+  const ghost = document.createElement('div')
+  ghost.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;box-sizing:border-box;padding:18px 20px;border-radius:18px;border:1px solid #dce5e9;background:#fff;box-shadow:0 16px 36px #163d352a;display:flex;flex-direction:column;gap:6px;font-family:Inter,system-ui,sans-serif;color:#193d37'
+  const title = document.createElement('strong')
+  title.textContent = trip?.name || 'Reise'
+  title.style.cssText = 'font-size:18px;line-height:1.3;overflow-wrap:anywhere'
+  const subtitle = document.createElement('span')
+  subtitle.textContent = trip?.destination || ''
+  subtitle.style.cssText = 'font-size:14px;color:#64748b'
+  ghost.append(title,subtitle)
   document.body.appendChild(ghost)
   tripDrag = {pointerId:event.pointerId,id,startY:event.clientY,ghost,handle}
   draggingTripId.value = id
@@ -235,8 +243,8 @@ onUnmounted(clearTripDrag)
 <main class="trips-page"><section class="trips-shell">
 <header class="trips-header"><div><p class="auth-card__eyebrow">Travel Planner v3</p><h1>Meine Reisen</h1><p v-if="auth.user?.email">{{ auth.user.email }}</p></div>
 <div class="header-actions"><button @click="router.push('/account')" class="secondary-button">Konto</button><button @click="logout" class="secondary-button">Abmelden</button></div></header>
-<div class="trips-toolbar"><button @click="openEditor()">+ Neue Reise</button><div class="trip-sort-controls"><button type="button" :aria-pressed="sortMode === 'date'" :class="{ 'trip-sort-active': sortMode === 'date' }" @click="setSortMode('date')">Nach Startdatum</button><button type="button" :aria-pressed="sortMode === 'manual'" :class="{ 'trip-sort-active': sortMode === 'manual' }" @click="setSortMode('manual')">Manuell</button></div><p v-if="message">{{ message }}</p></div>
-<p v-if="sortMode === 'manual'" class="trip-sort-hint">Ziehe Reisen am Griff ⋮⋮ in deine persönliche Reihenfolge. Die Änderungen werden automatisch gespeichert.</p>
+<div class="trips-toolbar trip-toolbar-v3"><button class="trip-new-button" @click="openEditor()">＋ Neue Reise</button><div class="trip-sort-section"><span class="trip-sort-label">Sortierung</span><div class="trip-sort-controls"><button type="button" :aria-pressed="sortMode === 'date'" :class="{ 'trip-sort-active': sortMode === 'date' }" @click="setSortMode('date')">Datum</button><button type="button" :aria-pressed="sortMode === 'manual'" :class="{ 'trip-sort-active': sortMode === 'manual' }" @click="setSortMode('manual')">Manuell</button></div></div><p v-if="message" class="trip-sort-message">{{ message }}</p></div>
+<p v-if="sortMode === 'manual'" class="trip-sort-hint">Reihenfolge über ⋮⋮ ändern · wird automatisch gespeichert.</p>
 <section v-if="trips.loading" class="empty-card">Reisen werden geladen …</section>
 <section v-else-if="!sortedTrips.length && !loadFailed" class="empty-card">Noch keine Reisen vorhanden.</section>
 <section v-else class="trip-grid">
@@ -257,11 +265,18 @@ onUnmounted(clearTripDrag)
 </main>
 </template>
 <style scoped>
-.trip-sort-controls{display:flex;gap:6px;flex-wrap:wrap}
-.trip-sort-controls button{border:1px solid #cbd5e1;background:#fff;color:#334155;border-radius:9px;padding:9px 12px;cursor:pointer}
+.trip-toolbar-v3{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 18px}
+.trip-new-button{white-space:nowrap}
+.trip-sort-section{display:flex;align-items:center;gap:9px;min-width:0}
+.trip-sort-label{font-size:13px;color:#64748b}
+.trip-sort-message{flex-basis:100%;margin:0;font-size:13px}
+.trip-sort-controls{display:flex;gap:4px;flex-wrap:nowrap;padding:3px;background:#eef2f4;border-radius:11px}
+.trip-sort-controls button{border:0;background:transparent;color:#334155;border-radius:8px;padding:8px 11px;cursor:pointer;font-size:14px;font-weight:600}
 .trip-sort-controls button.trip-sort-active{background:#173d37;color:white;border-color:#173d37}
-.trip-sort-hint{margin:4px 0 14px;color:#64748b;font-size:13px}
+.trip-sort-hint{margin:10px 0 14px;color:#64748b;font-size:13px;line-height:1.45}
 .trip-card{position:relative}
-.trip-sort-handle{position:absolute;z-index:2;top:8px;right:8px;touch-action:none;user-select:none;cursor:grab;padding:8px 12px;border:1px solid #cbd5e1;border-radius:8px;background:white;color:#334155;font-size:19px;line-height:1}
-.trip-card--dragging{opacity:.35}
+.trip-sort-handle{position:absolute;z-index:2;top:14px;right:14px;touch-action:none;user-select:none;cursor:grab;padding:8px 10px;border:0;border-radius:10px;background:#eef2f4;color:#64748b;font-size:19px;line-height:1;box-shadow:none}
+.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:62px}
+@media(max-width:600px){.trip-toolbar-v3{padding:14px;gap:10px}.trip-sort-section{width:100%;justify-content:space-between}.trip-sort-label{font-size:12px}.trip-sort-controls{flex:1;max-width:240px}.trip-sort-controls button{flex:1;padding:9px 8px}.trip-new-button{width:100%;text-align:center}.trip-card:has(.trip-sort-handle) .trip-card-main{padding-right:52px}}
+.trip-card--dragging{opacity:.55;outline:2px dashed #b3c8c2;outline-offset:2px}
 </style>
