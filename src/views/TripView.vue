@@ -3982,9 +3982,9 @@ onUnmounted(() => {
 .today-companion__next-info strong{overflow-wrap:anywhere}
 .today-companion__next-info small{color:#687871;font-size:12px}
 .today-companion__actions{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:8px}
-.today-companion__actions button{min-width:0;min-height:40px;padding:7px 5px;font-size:13px}
-.today-companion__actions .today-companion__navigate{background:#2f625d;color:white;border:1px solid #2f625d}
-.today-companion__complete{min-height:38px;width:100%;font-size:13px}
+.today-companion__actions button{min-width:0;min-height:42px;padding:9px 11px;font:650 13px Inter,ui-sans-serif,system-ui,sans-serif;border:1px solid #b9d3cc;border-radius:11px;background:#fff;color:#245b53;box-shadow:none;cursor:pointer}
+.today-companion__actions .today-companion__navigate{background:#2f625d;color:#fff;border-color:#2f625d}
+.today-companion__complete{min-height:42px;width:100%;padding:9px 12px;border:1px solid #b9d3cc;border-radius:11px;background:#fff;color:#245b53;font:650 13px Inter,ui-sans-serif,system-ui,sans-serif;box-shadow:none;cursor:pointer}
 .today-companion__location-hint{font-size:11px;color:#687871}
 .today-progress-card__bar{width:100%;height:6px;accent-color:#2f625d}
 .today-companion__timeline{display:grid;gap:0}
