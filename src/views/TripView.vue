@@ -3242,47 +3242,6 @@ onUnmounted(() => {
           </select>
         </div>
 
-        <details v-if="selectedDayRecord && activeTab === 'plan'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Streckeninformationen</summary>
-          <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
-          <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
-            <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
-            <span>{{ todayFeasibility.detail }}</span>
-            <label class="today-feasibility__reserve">Sicherheitsreserve je Übergang <select v-model.number="todaySafetyMinutes" aria-label="Sicherheitsreserve pro Übergang"><option :value="0">0 Min.</option><option :value="5">5 Min.</option><option :value="10">10 Min.</option><option :value="15">15 Min.</option><option :value="20">20 Min.</option></select></label>
-            <span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min. · Durchschnitt: {{ todayFeasibility.averageBuffer }} Min.</span>
-            <small v-if="offlineVisible">Offline-Prognose: {{ offlineForecastEstimated ? 'Geschätzte Fußwegzeiten (Luftlinie mit Umwegfaktor), keine exakten Routingzeiten.' : 'Gespeicherte Fahrzeiten, keine Live-Verkehrsdaten.' }}</small><small>Berechnung aus geplanten Zeiten und Routenfahrzeiten. Die Reserve ist ein frei gewählter Zuschlag für Unvorhergesehenes, keine Live-Verspätungsprognose. Fehlende Zeitangaben bleiben ungeprüft.</small>
-          </section>
-          <p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p>
-          <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
-            <div class="day-plan-stop">
-              <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
-              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="stopWeather(entry.stop)" class="stop-weather">{{ stopWeather(entry.stop)?.icon }} {{ stopWeather(entry.stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(entry.stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(entry.stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(entry.stop)?.wind ?? '–' }} km/h</span></small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Späteste Abfahrt am vorherigen Stopp: {{ new Date((dayScheduleTimestamp(entry.stop.start_time) || 0) - transitMetrics[index - 1].durationMillis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr · tatsächliche Ankunft noch offen</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
-              <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
-              <button v-if="entry.stop?.place" type="button" class="today-visited-toggle" :class="{ 'today-visited-toggle--active': entry.stop.place.visited }" :disabled="visitedUpdating.includes(entry.stop.place.id)" :aria-pressed="Boolean(entry.stop.place.visited)" :aria-label="entry.stop.place.visited ? entry.name + ' als nicht besucht markieren' : entry.name + ' als besucht markieren'" @click.stop="toggleTodayVisited(entry.stop.place)">{{ entry.stop.place.visited ? '✓ Besucht' : '○ Besucht?' }}</button>
-            </div>
-            <div v-if="todayLegBuffers[index]" class="today-leg-buffer" :class="'today-leg-buffer--' + todayLegBuffers[index].kind" role="status">
-              <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
-              <small v-if="todayLegBuffers[index].recommendation" class="today-leg-buffer__recommendation">{{ todayLegBuffers[index].recommendation }}</small>
-            </div>
-            <div v-if="index < routeAgendaStops.length - 1 && (offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])" class="today-leg">
-              <div v-if="(offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])?.mode === 'walking'" class="today-leg__summary">
-                <span class="today-leg__icon">🚶</span>
-                <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · Fußweg zum nächsten Stopp</small></span>
-              </div>
-              <details v-else class="today-leg__details">
-                <summary class="today-leg__summary">
-                  <span class="today-leg__icon">🚇</span>
-                  <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · ÖPNV zum nächsten Stopp</small></span>
-                  <span class="today-leg__expand">Details <span aria-hidden="true">⌄</span></span>
-                </summary>
-                <div class="today-leg__connections"><p v-if="transitChangeWarnings[index + 1]" class="today-transit-warning" role="status">{{ transitChangeWarnings[index + 1] }}</p>
-                  <div v-for="(connection, connectionIndex) in transitLegs.get(index + 1) || []" :key="connectionIndex" class="today-leg__connection">
-                    <strong>{{ connection.icon }} {{ connection.line }}<span v-if="connection.headsign"> · {{ connection.headsign }}</span></strong>
-                    <small v-if="connection.departure || connection.arrival">{{ connection.departure || '–' }}–{{ connection.arrival || '–' }} Uhr<span v-if="connection.stops"> · {{ connection.stops }} Haltestellen</span></small>
-                    <small>📍 {{ connection.from || 'Einstieg' }} → {{ connection.to || 'Ausstieg' }}</small>
-                  </div>
-                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine gespeicherten Linien- oder Haltestellendetails verfügbar.</p><a v-if="!offlineVisible" :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
-                </div>
-              </details>
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="!visiblePlaces.length" class="muted">Keine Orte gefunden.</p>
         <button v-for="place in visiblePlaces" :key="place.id" class="place-row" type="button" @click="openPlace(place, true); mobilePlacesOpen = false"><span class="place-row__content"><span class="place-row__title"><strong>{{ place.name }}</strong><span v-if="place.visited" class="badge">Besucht</span></span><small class="place-row__meta">{{ label(place.category || 'other') }} · {{ place.planned_day || 'Noch offen' }}</small></span></button>
@@ -3357,10 +3316,51 @@ onUnmounted(() => {
         <button v-if="trips.canEditContent && activeTab === 'plan'" type="button" class="place-add-button" @click="openActivityDialog()">＋ Aktivität hinzufügen</button>
         <div v-if="selectedDayRecord && activeTab === 'plan'" ref="dayPlanList" class="day-plan-preview"><strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong><p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p><template v-for="(stop, index) in renderedDayStops" :key="stop.id"><div class="day-plan-stop" :class="{ 'day-plan-stop--dragging': stopDrag?.sourceId === stop.id }" :data-day-stop-id="stop.id"><span class="day-plan-stop__handle" aria-label="Stopp verschieben" @pointerdown="onStopPointerDown($event, stop.id)" @pointermove="onStopPointerMove" @pointerup="onStopPointerEnd($event)" @pointercancel="onStopPointerEnd($event, true)">⠿</span><button type="button" class="day-plan-stop__place" @click="stop.activity ? focusActivity(stop.activity) : (stop.place && focusDayPlace(stop.place)); mobilePlacesOpen = false"><span>{{ index + 1 }}.</span><span>{{ stop.kind === "activity" ? "🎟️ " : "" }}{{ stop.name }}<small v-if="stop.start_time || stop.end_time">{{ stop.start_time || "–" }} – {{ stop.end_time || "–" }}</small><small v-if="stopWeather(stop)" class="stop-weather">{{ stopWeather(stop)?.icon }} {{ stopWeather(stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(stop)?.wind ?? '–' }} km/h</span></small></span></button><button v-if="stop.activity && trips.canEditContent" type="button" class="day-plan-stop__edit" title="Aktivität bearbeiten" aria-label="Aktivität bearbeiten" @click="openActivityDialog(stop.activity)">✎</button></div><label v-if="index < renderedDayStops.length - 1" class="day-plan-stop__mobility"><span>Verkehrsmittel zum nächsten Stopp</span><select :value="stopTravelMode(renderedDayStops[index + 1].id)" :disabled="!trips.canEditContent" :aria-label="'Verkehrsmittel von ' + stop.name + ' nach ' + renderedDayStops[index + 1].name" @change="setStopTravelMode(renderedDayStops[index + 1].id, ($event.target as HTMLSelectElement).value as StopTravelMode)"><option value="auto">✨ Automatisch</option><option value="walk">🚶 Zu Fuß</option><option value="transit">🚆 ÖPNV</option><option value="car">🚗 Auto</option></select></label></template><p v-if="dayPlanError" class="trip-error">{{ dayPlanError }}</p></div>
 
+
+        <details v-if="selectedDayRecord && activeTab === 'plan'" class="day-plan-preview today-route-details"><summary>⏱ Tagesprognose und Streckeninformationen</summary>
+          <strong>{{ new Date(selectedDay + "T12:00:00").toLocaleDateString("de-DE", { weekday:"long", day:"2-digit", month:"long" }) }}</strong>
+          <section class="today-feasibility" :class="'today-feasibility--' + todayFeasibility.status" aria-label="Zeitprognose des Tages">
+            <strong>⏱ Tagesprognose · {{ todayFeasibility.headline }}</strong>
+            <span>{{ todayFeasibility.detail }}</span>
+            <label class="today-feasibility__reserve">Sicherheitsreserve je Übergang <select v-model.number="todaySafetyMinutes" aria-label="Sicherheitsreserve pro Übergang"><option :value="0">0 Min.</option><option :value="5">5 Min.</option><option :value="10">10 Min.</option><option :value="15">15 Min.</option><option :value="20">20 Min.</option></select></label>
+            <span v-if="todayFeasibility.minimumBuffer !== null">Kleinster Zeitpuffer: {{ todayFeasibility.minimumBuffer }} Min. · Durchschnitt: {{ todayFeasibility.averageBuffer }} Min.</span>
+            <small v-if="offlineVisible">Offline-Prognose: {{ offlineForecastEstimated ? 'Geschätzte Fußwegzeiten (Luftlinie mit Umwegfaktor), keine exakten Routingzeiten.' : 'Gespeicherte Fahrzeiten, keine Live-Verkehrsdaten.' }}</small><small>Berechnung aus geplanten Zeiten und Routenfahrzeiten. Die Reserve ist ein frei gewählter Zuschlag für Unvorhergesehenes, keine Live-Verspätungsprognose. Fehlende Zeitangaben bleiben ungeprüft.</small>
+          </section>
+          <p v-if="!dayStops.length" class="muted">Noch keine Stopps geplant.</p>
+          <template v-for="(entry, index) in routeAgendaStops" :key="entry.key">
+            <div class="day-plan-stop">
+              <span>{{ entry.stop?.place?.visited ? '✓' : index + 1 + '.' }}</span>
+              <button v-if="entry.stop" type="button" class="day-plan-stop__place" @click="focusTodayStop(entry.stop)"><span>{{ entry.stop.kind === 'activity' ? '🎟️ ' : '' }}{{ entry.name }}<small v-if="entry.stop.start_time || entry.stop.end_time">{{ entry.stop.start_time || '–' }} – {{ entry.stop.end_time || '–' }}</small><small v-if="stopWeather(entry.stop)" class="stop-weather">{{ stopWeather(entry.stop)?.icon }} {{ stopWeather(entry.stop)?.temp ?? '–' }} °C · Regen {{ stopWeather(entry.stop)?.rain ?? '–' }} % <span class="stop-weather__detail">· gefühlt {{ stopWeather(entry.stop)?.feels ?? '–' }} °C · Wind {{ stopWeather(entry.stop)?.wind ?? '–' }} km/h</span></small><small v-if="entry.stop.start_time && !todayScheduleForecast[entry.stop.id] && index > 0 && transitMetrics[index - 1]" class="today-stop-forecast today-stop-forecast--unknown">Späteste Abfahrt am vorherigen Stopp: {{ new Date((dayScheduleTimestamp(entry.stop.start_time) || 0) - transitMetrics[index - 1].durationMillis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) }} Uhr · tatsächliche Ankunft noch offen</small><small v-if="todayScheduleForecast[entry.stop.id]" class="today-stop-forecast" :class="{ 'today-stop-forecast--late': todayScheduleForecast[entry.stop.id].deltaMinutes > 2 }">Prognose {{ todayScheduleForecast[entry.stop.id].arrival }} Uhr · {{ todayScheduleForecast[entry.stop.id].deltaMinutes > 2 ? todayScheduleForecast[entry.stop.id].deltaMinutes + ' Min. später' : todayScheduleForecast[entry.stop.id].deltaMinutes < -2 ? Math.abs(todayScheduleForecast[entry.stop.id].deltaMinutes) + ' Min. Puffer' : 'im Zeitplan' }}</small></span></button>
+              <span v-else class="day-plan-stop__place">{{ entry.name }}</span>
+              <button v-if="entry.stop?.place" type="button" class="today-visited-toggle" :class="{ 'today-visited-toggle--active': entry.stop.place.visited }" :disabled="visitedUpdating.includes(entry.stop.place.id)" :aria-pressed="Boolean(entry.stop.place.visited)" :aria-label="entry.stop.place.visited ? entry.name + ' als nicht besucht markieren' : entry.name + ' als besucht markieren'" @click.stop="toggleTodayVisited(entry.stop.place)">{{ entry.stop.place.visited ? '✓ Besucht' : '○ Besucht?' }}</button>
+            </div>
+            <div v-if="todayLegBuffers[index]" class="today-leg-buffer" :class="'today-leg-buffer--' + todayLegBuffers[index].kind" role="status">
+              <span>{{ todayLegBuffers[index].kind === 'conflict' ? '⚠' : todayLegBuffers[index].kind === 'tight' ? '◷' : todayLegBuffers[index].kind === 'ok' ? '✓' : 'ℹ' }} {{ todayLegBuffers[index].text }}</span>
+              <small v-if="todayLegBuffers[index].recommendation" class="today-leg-buffer__recommendation">{{ todayLegBuffers[index].recommendation }}</small>
+            </div>
+            <div v-if="index < routeAgendaStops.length - 1 && (offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])" class="today-leg">
+              <div v-if="(offlineVisible ? forecastLegMetrics[index] : transitMetrics[index])?.mode === 'walking'" class="today-leg__summary">
+                <span class="today-leg__icon">🚶</span>
+                <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · Fußweg zum nächsten Stopp</small></span>
+              </div>
+              <details v-else class="today-leg__details">
+                <summary class="today-leg__summary">
+                  <span class="today-leg__icon">🚇</span>
+                  <span class="today-leg__body"><strong>{{ legDuration((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).durationMillis) }}</strong><small>{{ legDistance((offlineVisible ? forecastLegMetrics[index] : transitMetrics[index]).distanceMeters) }} · ÖPNV zum nächsten Stopp</small></span>
+                  <span class="today-leg__expand">Details <span aria-hidden="true">⌄</span></span>
+                </summary>
+                <div class="today-leg__connections"><p v-if="transitChangeWarnings[index + 1]" class="today-transit-warning" role="status">{{ transitChangeWarnings[index + 1] }}</p>
+                  <div v-for="(connection, connectionIndex) in transitLegs.get(index + 1) || []" :key="connectionIndex" class="today-leg__connection">
+                    <strong>{{ connection.icon }} {{ connection.line }}<span v-if="connection.headsign"> · {{ connection.headsign }}</span></strong>
+                    <small v-if="connection.departure || connection.arrival">{{ connection.departure || '–' }}–{{ connection.arrival || '–' }} Uhr<span v-if="connection.stops"> · {{ connection.stops }} Haltestellen</span></small>
+                    <small>📍 {{ connection.from || 'Einstieg' }} → {{ connection.to || 'Ausstieg' }}</small>
+                  </div>
+                  <p v-if="!transitLegs.get(index + 1)?.length" class="muted">Keine gespeicherten Linien- oder Haltestellendetails verfügbar.</p><a v-if="!offlineVisible" :href="transitMapsUrl(index)" target="_blank" rel="noopener noreferrer" class="today-transit-maplink">🚇 Aktuelle Verbindung in Google Maps öffnen ↗</a>
+                </div>
+              </details>
             </div>
           </template>
         </details>
-
         <p v-if="loading">Orte werden geladen …</p>
         <p v-else-if="activeTab === 'today' && !selectedDayRecord" class="muted">Für diese Reise sind noch keine Reisetage angelegt.</p>
         <p v-else-if="activeTab === 'plan' && !selectedDayRecord && !visiblePlaces.length" class="muted">Keine Orte in dieser Auswahl.</p>
